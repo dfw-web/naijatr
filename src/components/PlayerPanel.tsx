@@ -49,6 +49,14 @@ const STREAM_MESSAGES: Record<string, string> = {
   'upstream-error': 'The streaming service returned an error. Please try again.',
 }
 
+/**
+ * Sandbox for the NextStream player: everything it needs to play, but no
+ * `allow-popups` or `allow-top-navigation`, so it (and the frames it nests)
+ * cannot open ad tabs or redirect our page.
+ */
+export const STREAM_SANDBOX =
+  'allow-scripts allow-same-origin allow-forms allow-presentation allow-orientation-lock'
+
 const trailerUrl = (trailer: Trailer) =>
   `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.key)}?autoplay=1&rel=0`
 
@@ -295,6 +303,7 @@ export function PlayerPanel({
             title={titles.stream}
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen
+            sandbox={STREAM_SANDBOX}
             referrerPolicy="origin"
             onLoad={loaded}
           />
