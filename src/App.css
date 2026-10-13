@@ -1,0 +1,40 @@
+.app-main {
+  min-height: 100vh;
+}
+
+/* Pull the first row up over the hero's fade for a cinematic overlap. */
+.app-rows {
+  position: relative;
+  margin-top: clamp(-4.5rem, -6vh, -2rem);
+}
+
+.app-rows--no-hero {
+  margin-top: 0;
+  padding-top: calc(var(--nav-height) + 2rem);
+}
+
+/* Standard page frame for non-hero views (browse, search, errors). */
+.page {
+  max-width: var(--max-width);
+  min-height: 70vh;
+  margin: 0 auto;
+  padding: calc(var(--nav-height) + 2.5rem) var(--gutter) 2rem;
+}
+
+.page__title {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.page__subtitle {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 860px) {
+  .page,
+  .app-rows--no-hero {
+    padding-top: calc(var(--nav-height-mobile) + 2rem);
+  }
+}

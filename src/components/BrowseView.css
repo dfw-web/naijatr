@@ -1,0 +1,121 @@
+.browse__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.browse__count {
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}
+
+.browse__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.browse__genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.filter-chip {
+  padding: 0.45rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.filter-chip:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.filter-chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.filter-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.browse__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.browse__sort select {
+  height: 38px;
+  padding: 0 2rem 0 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b3b3bd' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 0.75rem center;
+  appearance: none;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.browse__sort select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.browse__sort select:focus-visible {
+  border-color: var(--accent);
+}
+
+/* On narrow screens, genres scroll sideways instead of wrapping into a wall. */
+@media (max-width: 640px) {
+  /* nowrap matters: a wrapping column sizes its line to the widest child (all the chips). */
+  .browse__toolbar {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+
+  .browse__genres {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 calc(var(--gutter) * -1);
+    padding: 0.25rem var(--gutter);
+    scrollbar-width: none;
+  }
+
+  .browse__genres::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-chip {
+    flex-shrink: 0;
+  }
+
+  .browse__sort select {
+    flex: 1;
+    min-width: 0;
+  }
+}

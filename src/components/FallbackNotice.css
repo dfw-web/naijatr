@@ -1,0 +1,112 @@
+.fallback-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: min(720px, calc(100% - 2rem));
+  padding: 0.8rem 0.8rem 0.8rem 1rem;
+  border: 1px solid rgba(245, 197, 24, 0.35);
+  border-radius: 12px;
+  background: rgba(20, 18, 12, 0.94);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  transform: translateX(-50%);
+  animation: notice-in 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.fallback-notice__icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--gold);
+}
+
+.fallback-notice__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.fallback-notice__text strong {
+  color: var(--text);
+}
+
+.fallback-notice__reason {
+  color: var(--text-faint);
+}
+
+.fallback-notice__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.fallback-notice__retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.fallback-notice__retry:hover {
+  border-color: var(--gold);
+  background: rgba(245, 197, 24, 0.12);
+}
+
+.fallback-notice__retry svg {
+  width: 14px;
+  height: 14px;
+}
+
+.fallback-notice__dismiss {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.fallback-notice__dismiss:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.fallback-notice__dismiss svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 560px) {
+  .fallback-notice {
+    flex-wrap: wrap;
+    bottom: 0.75rem;
+  }
+
+  .fallback-notice__text {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .fallback-notice__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/tmdb/:path*", "destination": "/api/tmdb?__path=:path*" },
+    { "source": "/api/play/:path*", "destination": "/api/play?__path=:path*" },
+    { "source": "/api/download/:path*", "destination": "/api/download?__path=:path*" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

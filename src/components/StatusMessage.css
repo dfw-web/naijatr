@@ -1,0 +1,42 @@
+.status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 4rem 1.5rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.status--compact {
+  padding: 2rem 1rem;
+}
+
+.status__icon {
+  width: 44px;
+  height: 44px;
+  color: var(--text-faint);
+}
+
+.status--error .status__icon {
+  color: var(--accent-soft);
+}
+
+.status__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.status__message {
+  max-width: 46ch;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.status__action {
+  margin-top: 0.6rem;
+}

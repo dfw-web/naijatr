@@ -1,0 +1,85 @@
+.media-image {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.media-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 400ms ease, transform 500ms ease;
+}
+
+.media-image--loaded img {
+  opacity: 1;
+}
+
+.media-image--loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--shimmer);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Fallback artwork: a typographic "poster" so missing images still look intentional. */
+.media-image__fallback {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(229, 9, 20, 0.35), transparent 55%),
+    radial-gradient(circle at 80% 90%, rgba(120, 60, 255, 0.25), transparent 55%),
+    linear-gradient(160deg, #1d1d27, #0c0c11);
+}
+
+.media-image__fallback--series {
+  background:
+    radial-gradient(circle at 70% 20%, rgba(0, 170, 255, 0.28), transparent 55%),
+    radial-gradient(circle at 20% 90%, rgba(229, 9, 20, 0.25), transparent 55%),
+    linear-gradient(160deg, #1b1f2a, #0b0c12);
+}
+
+.media-image__fallback::before {
+  content: '';
+  position: absolute;
+  inset: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.media-image__fallback-icon {
+  width: 34%;
+  max-width: 56px;
+  height: auto;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.media-image__fallback-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  line-height: 1.05;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.media-image__fallback-note {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}

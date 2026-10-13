@@ -1,0 +1,16 @@
+.title-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
+  gap: 2rem var(--card-gap);
+}
+
+.title-grid .poster-card {
+  width: auto;
+}
+
+@media (max-width: 480px) {
+  .title-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem 0.75rem;
+  }
+}

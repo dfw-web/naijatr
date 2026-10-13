@@ -1,0 +1,112 @@
+.media-row {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  scroll-margin-top: calc(var(--nav-height) + 1rem);
+}
+
+.media-row + .media-row {
+  margin-top: clamp(2.25rem, 5vw, 3.5rem);
+}
+
+.media-row__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.media-row__title {
+  position: relative;
+  padding-left: 0.85rem;
+  font-size: clamp(1.2rem, 2.2vw, 1.5rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.media-row__title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.media-row__controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.media-row__arrow {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  transition: background-color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.media-row__arrow:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.media-row__arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.media-row__arrow svg {
+  width: 20px;
+  height: 20px;
+}
+
+.media-row__track {
+  display: flex;
+  gap: var(--card-gap);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--gutter);
+  /* Room for the hover lift and focus ring, plus a bleed to the screen edge. */
+  padding: 0.75rem var(--gutter) 1rem;
+  margin: -0.75rem calc(var(--gutter) * -1) 0;
+  scrollbar-width: none;
+}
+
+.media-row__track::-webkit-scrollbar {
+  display: none;
+}
+
+.media-row__track > * {
+  scroll-snap-align: start;
+}
+
+@media (max-width: 860px) {
+  .media-row {
+    scroll-margin-top: calc(var(--nav-height-mobile) + 1rem);
+  }
+}
+
+@media (hover: none) {
+  .media-row__controls {
+    display: none;
+  }
+}
+
+.media-row__subtitle {
+  margin-top: 0.2rem;
+  padding-left: 0.85rem;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+
+.media-row__track--ranked {
+  gap: calc(var(--card-gap) * 1.6);
+}
