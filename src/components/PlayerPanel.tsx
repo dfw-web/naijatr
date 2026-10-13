@@ -293,7 +293,8 @@ export function PlayerPanel({
             key={key}
             src={active.streamSrc}
             title={titles.stream}
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            // `*`: /api/play may redirect to another host, which must keep these.
+            allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"
             allowFullScreen
             referrerPolicy="origin"
             onLoad={loaded}

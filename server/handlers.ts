@@ -66,6 +66,20 @@ const redirect = (res: ServerResponse, url: string) => {
 
 const AD_LOADER_SCRIPT = /<!--\s*Dynamic Ad Loader[\s\S]*?<\/script>/
 const DEMO_CHECK = /const isDemo = _apiKey\.startsWith\('DEMO_'\);/
+const STREAM_FRAME_ALLOW = /(<iframe id="stream-frame" allow=")([^"]*)(")/
+
+/**
+ * `allow="fullscreen"` only covers the iframe's src origin, but the stream
+ * source redirects to another host (embedmaster.link → embdmstrplayer.com),
+ * which then can't go fullscreen. `fullscreen *` keeps it after the redirect.
+ */
+export const widenAllow = (allow: string) =>
+  allow
+    .split(';')
+    .map((feature) => feature.trim())
+    .filter(Boolean)
+    .map((feature) => (feature.includes(' ') ? feature : `${feature} *`))
+    .join('; ')
 
 /**
  * Removes NextStream's ads from its player page: the click-shield that opens
@@ -85,6 +99,7 @@ export function stripPlayerAds(html: string, upstreamUrl: string): string | null
     .replaceAll('window.location.pathname', () => JSON.stringify(upstream.pathname))
     .replaceAll('window.location.search', () => JSON.stringify(upstream.search))
     .replace(/<head>/i, () => `<head><base href="${upstream.origin}/">`)
+    .replace(STREAM_FRAME_ALLOW, (_, start: string, allow: string, end: string) => start + widenAllow(allow) + end)
 }
 
 /**

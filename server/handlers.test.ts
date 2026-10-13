@@ -40,7 +40,8 @@ function fakeResponse() {
 
 /** Trimmed copy of the NextStream player page's structure (ad parts included). */
 const PLAYER_PAGE = `<!DOCTYPE html><html><head><title>NexStream</title></head><body>
-<div id="stage"><iframe id="stream-frame"></iframe></div>
+<div id="stage"><iframe id="stream-frame" allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+    allowfullscreen></iframe></div>
 <script>
   const _urlParams = new URLSearchParams(window.location.search);
   const _apiKey = _urlParams.get('apikey') || '';
@@ -162,6 +163,10 @@ describe('Playback and download handlers', () => {
     expect(html).toContain(`const parts = "/tv/1399/2/3".split('/')`)
     expect(html).toContain(`new URLSearchParams("?key=nx_test")`)
     expect(html).toContain('loadSource(0)')
+    // Fullscreen must survive the stream source redirecting to another host.
+    expect(html).toContain(
+      '<iframe id="stream-frame" allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"',
+    )
   })
 
   it('falls back to redirecting to the original player when the page cannot be cleaned', async () => {

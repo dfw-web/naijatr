@@ -111,6 +111,8 @@ describe('PlayerPanel', () => {
     expect(fetchImpl).toHaveBeenCalledWith('/api/play/movie/550?check=1')
     const frame = await screen.findByTitle('Fight Club player')
     expect(frame).toHaveAttribute('src', '/api/play/movie/550')
+    // `*` so fullscreen still works after /api/play redirects to another host.
+    expect(frame.getAttribute('allow')).toContain('fullscreen *')
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
