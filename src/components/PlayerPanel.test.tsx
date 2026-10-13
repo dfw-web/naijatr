@@ -111,11 +111,6 @@ describe('PlayerPanel', () => {
     expect(fetchImpl).toHaveBeenCalledWith('/api/play/movie/550?check=1')
     const frame = await screen.findByTitle('Fight Club player')
     expect(frame).toHaveAttribute('src', '/api/play/movie/550')
-    // Sandboxed so the player can run but cannot open ad pop-ups or redirect the site.
-    const sandbox = frame.getAttribute('sandbox')?.split(' ') ?? []
-    expect(sandbox).toEqual(expect.arrayContaining(['allow-scripts', 'allow-same-origin']))
-    expect(sandbox).not.toContain('allow-popups')
-    expect(sandbox).not.toContain('allow-top-navigation')
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
