@@ -64,11 +64,36 @@ const redirect = (res: ServerResponse, url: string) => {
   res.end()
 }
 
+const AD_LOADER_SCRIPT = /<!--\s*Dynamic Ad Loader[\s\S]*?<\/script>/
+const DEMO_CHECK = /const isDemo = _apiKey\.startsWith\('DEMO_'\);/
+
+/**
+ * Removes NextStream's ads from its player page: the click-shield that opens
+ * an ad tab, the adblock detector (both skipped when `isDemo` is true) and the
+ * pop-under/social-bar loader script. The page is then served from our origin,
+ * so its location is pinned to the upstream URL and a <base> keeps its
+ * relative requests pointed at NextStream. Returns null when the page no
+ * longer matches what we expect, so the caller can fall back to the original.
+ */
+export function stripPlayerAds(html: string, upstreamUrl: string): string | null {
+  const upstream = new URL(upstreamUrl)
+  if (!DEMO_CHECK.test(html) || !AD_LOADER_SCRIPT.test(html) || !/<head>/i.test(html)) return null
+  if (!html.includes('window.location.pathname')) return null
+  return html
+    .replace(AD_LOADER_SCRIPT, '')
+    .replace(DEMO_CHECK, 'const isDemo = true;')
+    .replaceAll('window.location.pathname', () => JSON.stringify(upstream.pathname))
+    .replaceAll('window.location.search', () => JSON.stringify(upstream.search))
+    .replace(/<head>/i, () => `<head><base href="${upstream.origin}/">`)
+}
+
 /**
  * Serves /api/play/movie/{id} and /api/play/tv/{id}/{season}/{episode}.
- * Plain requests redirect to the NextStream player (used as the iframe src);
- * `?check=1` asks the server to probe the player URL and answer with JSON, so
- * the UI can report unavailable titles instead of showing a broken frame.
+ * Plain requests serve the NextStream player with its ads stripped (used as
+ * the iframe src), falling back to a redirect to the original player if the
+ * page can't be fetched or cleaned; `?check=1` asks the server to probe the
+ * player URL and answer with JSON, so the UI can report unavailable titles
+ * instead of showing a broken frame.
  */
 export async function handlePlay(
   config: NextStreamConfig,
@@ -82,7 +107,19 @@ export async function handlePlay(
   const url = resolvePlaybackUrl(config, request)
   if (!url) return sendJson(res, 503, { available: false, reason: 'not-configured' })
 
-  if (!params.has('check')) return redirect(res, url)
+  if (!params.has('check')) {
+    try {
+      const upstream = await fetchImpl(url, { signal: AbortSignal.timeout(PLAYBACK_CHECK_TIMEOUT_MS) })
+      const clean = upstream.ok ? stripPlayerAds(await upstream.text(), url) : null
+      if (!clean) return redirect(res, url)
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.setHeader('Cache-Control', 'no-store')
+      return res.end(clean)
+    } catch {
+      return redirect(res, url)
+    }
+  }
 
   try {
     const upstream = await fetchImpl(url, {

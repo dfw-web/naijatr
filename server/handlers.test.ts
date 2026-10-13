@@ -38,6 +38,23 @@ function fakeResponse() {
   return res as typeof res & ServerResponse
 }
 
+/** Trimmed copy of the NextStream player page's structure (ad parts included). */
+const PLAYER_PAGE = `<!DOCTYPE html><html><head><title>NexStream</title></head><body>
+<div id="stage"><iframe id="stream-frame"></iframe></div>
+<script>
+  const _urlParams = new URLSearchParams(window.location.search);
+  const _apiKey = _urlParams.get('apikey') || '';
+  const isDemo = _apiKey.startsWith('DEMO_');
+  if (!isDemo) { /* click-shield: window.open(adUrl) */ }
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  loadSource(0);
+</script>
+<!-- Dynamic Ad Loader: Suppressed for demo keys, active for real API keys -->
+<script type="text/javascript">
+  s1.src = 'https://pl1.profitablecpmratenetwork.com/a.js';
+</script>
+</body></html>`
+
 const json = (res: { body?: string }) => JSON.parse(res.body ?? 'null') as Record<string, unknown>
 
 /** Applies vercel.json's rewrites the way Vercel does for these simple patterns. */
@@ -131,11 +148,38 @@ describe('TMDB proxy', () => {
 })
 
 describe('Playback and download handlers', () => {
-  it('redirects plain play requests to the player and never leaks the template on errors', async () => {
+  it('serves the player with its ads stripped', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(PLAYER_PAGE))
     const res = fakeResponse()
-    await handlePlay(config, '/tv/1399/2/3', new URLSearchParams(), res)
-    expect(res.statusCode).toBe(302)
-    expect(res.headers.location).toBe('https://player.example/tv/1399/2/3?key=nx_test')
+    await handlePlay(config, '/tv/1399/2/3', new URLSearchParams(), res, fetchImpl)
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://player.example/tv/1399/2/3?key=nx_test')
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/html')
+    const html = res.body ?? ''
+    expect(html).toContain('<head><base href="https://player.example/">')
+    expect(html).toContain('const isDemo = true;')
+    expect(html).not.toContain('profitablecpm')
+    expect(html).toContain(`const parts = "/tv/1399/2/3".split('/')`)
+    expect(html).toContain(`new URLSearchParams("?key=nx_test")`)
+    expect(html).toContain('loadSource(0)')
+  })
+
+  it('falls back to redirecting to the original player when the page cannot be cleaned', async () => {
+    for (const fetchImpl of [
+      async () => new Response('<html><head></head><body>changed page</body></html>'),
+      async () => new Response('', { status: 500 }),
+      async () => {
+        throw new TypeError('offline')
+      },
+    ] as (typeof fetch)[]) {
+      const res = fakeResponse()
+      await handlePlay(config, '/tv/1399/2/3', new URLSearchParams(), res, fetchImpl)
+      expect(res.statusCode).toBe(302)
+      expect(res.headers.location).toBe('https://player.example/tv/1399/2/3?key=nx_test')
+    }
+  })
+
+  it('rejects malformed play paths', async () => {
 
     const bad = fakeResponse()
     await handlePlay(config, '/movie/abc', new URLSearchParams(), bad)
@@ -193,6 +237,10 @@ describe('Vercel functions', () => {
     vi.stubEnv('TMDB_READ_ACCESS_TOKEN', '')
     vi.stubEnv('TMDB_API_KEY', '')
     vi.stubEnv('VITE_TMDB_API_KEY', '')
+    // No network in tests: the player page fetch fails, so play falls back to a redirect.
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('offline')
+    })
     try {
       const play = fakeResponse()
       await playFunction({ url: vercelRewrite('/api/play/movie/7') } as never, play)
@@ -207,6 +255,7 @@ describe('Vercel functions', () => {
       expect(tmdb.statusCode).toBe(503)
     } finally {
       vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
     }
   })
 })
