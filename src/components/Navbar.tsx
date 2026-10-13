@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Menu, Search, X } from 'lucide-react'
+import { Download, Menu, Search, X } from 'lucide-react'
 import type { NavLink } from '../navigation'
+import { promptInstall, useCanInstall } from '../pwa'
 import './Navbar.css'
 
 interface NavbarProps {
@@ -15,6 +16,7 @@ interface NavbarProps {
 export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: NavbarProps) {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const canInstall = useCanInstall()
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 24)
@@ -91,6 +93,16 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
             </button>
           )}
         </form>
+
+        {canInstall && (
+          <button
+            type="button"
+            className="navbar__install"
+            onClick={() => void promptInstall()}
+          >
+            <Download aria-hidden="true" /> Install app
+          </button>
+        )}
       </div>
     </header>
   )

@@ -48,6 +48,10 @@ other unknown path to `index.html`.
    switch TMDB, Play and Download on in the UI) and at **runtime** by the
    functions, so a build without them ships the sample catalogue.
 
+## Installable app
+
+The site is a Progressive Web App: `public/manifest.webmanifest` and the icons in `public/icons/` let Chrome, Edge and Android install it (an **Install app** button appears in the navbar when the browser offers it; on iPhone use Share → Add to Home Screen). `public/sw.js` caches the app shell (page, built assets, icons, fonts) so the installed app opens offline, showing the sample catalogue. It never caches `/api`, TMDB data or video players, and is only registered in production builds.
+
 ## Structure
 
 - `src/types/media.ts` — `MediaItem` and the `CatalogProvider` interface

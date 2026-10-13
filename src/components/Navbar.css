@@ -158,7 +158,37 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+.navbar__install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.navbar__install:hover,
+.navbar__install:focus-visible {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.navbar__install svg {
+  width: 16px;
+  height: 16px;
+}
+
 @media (max-width: 860px) {
+  .navbar__install {
+    margin-left: auto;
+  }
+
   .navbar__inner {
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
