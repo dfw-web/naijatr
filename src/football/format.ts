@@ -16,16 +16,23 @@ export function routeFromPath(pathname: string): FootballRoute {
   return match ? { page: 'match', id: match[1] } : { page: 'home' }
 }
 
-export const pathForMatch = (id: number | string) => `${FOOTBALL_PATH}/match/${id}`
+/** A match page, optionally opened on one tab (`?tab=watch`). */
+export const pathForMatch = (id: number | string, tab?: MatchTab) =>
+  `${FOOTBALL_PATH}/match/${id}${tab ? `?tab=${tab}` : ''}`
+
+/** Match page tabs that can be linked to directly. */
+export type MatchTab = 'watch'
+
+export type OpenMatch = (id: number, tab?: MatchTab) => void
 
 /** Opens in-app on a plain click; still a real link for new tabs and sharing. */
-export function matchLinkProps(id: number, onOpen: (id: number) => void) {
+export function matchLinkProps(id: number, onOpen: OpenMatch, tab?: MatchTab) {
   return {
-    href: pathForMatch(id),
+    href: pathForMatch(id, tab),
     onClick: (event: MouseEvent<HTMLAnchorElement>) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
       event.preventDefault()
-      onOpen(id)
+      onOpen(id, tab)
     },
   }
 }

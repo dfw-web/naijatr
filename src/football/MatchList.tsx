@@ -1,10 +1,12 @@
-import { MessageSquareText } from 'lucide-react'
-import { hasStarted, isLive, matchLinkProps, statusLabel, type LeagueGroup } from './format'
+import { MonitorPlay } from 'lucide-react'
+import { hasStarted, isLive, matchLinkProps, statusLabel, type LeagueGroup, type OpenMatch } from './format'
 import type { Fixture } from './types'
 
 interface MatchRowProps {
   fixture: Fixture
-  onOpen: (id: number) => void
+  onOpen: OpenMatch
+  /** The match has a stream: show Live and Watch badges and open it on the Watch tab. */
+  watchable?: boolean
 }
 
 export function TeamLogo({ src, size = 24 }: { src: string; size?: number }) {
@@ -23,7 +25,7 @@ export function TeamLogo({ src, size = 24 }: { src: string; size?: number }) {
   )
 }
 
-export function MatchRow({ fixture, onOpen }: MatchRowProps) {
+export function MatchRow({ fixture, onOpen, watchable = false }: MatchRowProps) {
   const { home, away } = fixture.teams
   const live = isLive(fixture.fixture.status)
   const started = hasStarted(fixture.fixture.status)
@@ -33,15 +35,18 @@ export function MatchRow({ fixture, onOpen }: MatchRowProps) {
     <li>
       <a
         className={`fb-match ${live ? 'fb-match--live' : ''}`}
-        {...matchLinkProps(fixture.fixture.id, onOpen)}
-        aria-label={`${home.name} ${started ? `${fixture.goals.home ?? 0} - ${fixture.goals.away ?? 0}` : 'vs'} ${away.name}, ${statusLabel(fixture)}`}
+        {...matchLinkProps(fixture.fixture.id, onOpen, watchable ? 'watch' : undefined)}
+        aria-label={`${home.name} ${started ? `${fixture.goals.home ?? 0} - ${fixture.goals.away ?? 0}` : 'vs'} ${away.name}, ${statusLabel(fixture)}${watchable ? ', watch live' : ''}`}
       >
         <span className="fb-match__status">
           {live && <span className="fb-pulse" aria-hidden="true" />}
           {statusLabel(fixture)}
-          {live && (
-            <span className="fb-match__watch">
-              <MessageSquareText aria-hidden="true" /> Live
+          {watchable && (
+            <span className="fb-match__badges" aria-hidden="true">
+              <span className="fb-badge fb-badge--live">Live</span>
+              <span className="fb-badge fb-badge--watch">
+                <MonitorPlay /> Watch
+              </span>
             </span>
           )}
         </span>
@@ -62,7 +67,14 @@ export function MatchRow({ fixture, onOpen }: MatchRowProps) {
   )
 }
 
-export function LeagueBlock({ group, onOpen }: { group: LeagueGroup; onOpen: (id: number) => void }) {
+interface LeagueBlockProps {
+  group: LeagueGroup
+  onOpen: OpenMatch
+  /** Ids of matches that have a stream. */
+  watchIds?: ReadonlySet<number>
+}
+
+export function LeagueBlock({ group, onOpen, watchIds }: LeagueBlockProps) {
   return (
     <section className="fb-league" aria-label={`${group.name}, ${group.country}`}>
       <h3 className="fb-league__title">
@@ -72,7 +84,32 @@ export function LeagueBlock({ group, onOpen }: { group: LeagueGroup; onOpen: (id
       </h3>
       <ul className="fb-league__list">
         {group.fixtures.map((fixture) => (
-          <MatchRow key={fixture.fixture.id} fixture={fixture} onOpen={onOpen} />
+          <MatchRow
+            key={fixture.fixture.id}
+            fixture={fixture}
+            onOpen={onOpen}
+            watchable={watchIds?.has(fixture.fixture.id)}
+          />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** Live matches with a stream, listed first under "Live now". */
+export function WatchBlock({ fixtures, onOpen }: { fixtures: Fixture[]; onOpen: OpenMatch }) {
+  return (
+    <section className="fb-league fb-league--watch" aria-label="Watch live">
+      <h3 className="fb-league__title">
+        <MonitorPlay aria-hidden="true" className="fb-league__icon" />
+        <span>Watch live</span>
+        <span className="fb-league__country">
+          {fixtures.length} {fixtures.length === 1 ? 'match' : 'matches'} streaming now
+        </span>
+      </h3>
+      <ul className="fb-league__list">
+        {fixtures.map((fixture) => (
+          <MatchRow key={fixture.fixture.id} fixture={fixture} onOpen={onOpen} watchable />
         ))}
       </ul>
     </section>

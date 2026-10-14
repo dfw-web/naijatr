@@ -13,7 +13,7 @@ type Tab = 'events' | 'watch' | 'lineups' | 'stats'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'events', label: 'Events' },
-  { id: 'watch', label: 'Commentary' },
+  { id: 'watch', label: 'Watch' },
   { id: 'lineups', label: 'Lineups' },
   { id: 'stats', label: 'Stats' },
 ]
@@ -26,7 +26,9 @@ interface MatchDetailsProps {
 export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const [refreshMs, setRefreshMs] = useState<number | undefined>(LIVE_REFRESH_MS)
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
-  const [tab, setTab] = useState<Tab>('events')
+  const [tab, setTab] = useState<Tab>(() =>
+    new URLSearchParams(window.location.search).get('tab') === 'watch' ? 'watch' : 'events',
+  )
 
   // Keep refreshing only while the match can still change.
   const shouldRefresh = !match || !isFinished(match.fixture.status) ? LIVE_REFRESH_MS : undefined

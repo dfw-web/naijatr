@@ -162,6 +162,24 @@ describe('Football page', () => {
     expect(window.location.pathname).toBe('/football')
   })
 
+  it('lists live matches with a stream first and opens them on the Watch tab', async () => {
+    mockApi({
+      live: { body: { data: [fixture(3, { fixture: LIVE.fixture }), LIVE] } },
+      watchable: { body: { data: [1] } },
+      fixtures: { body: { data: [] } },
+      standings: { body: { data: [], season: SEASON } },
+      match: { body: { data: LIVE } },
+      stream: { body: { data: { available: false, streams: [], commentary: [], status: null } } },
+    })
+    const user = userEvent.setup()
+    render(<FootballApp />)
+
+    const watchBlock = await screen.findByRole('region', { name: 'Watch live' })
+    await user.click(within(watchBlock).getByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63', watch live" }))
+    expect(window.location.pathname + window.location.search).toBe('/football/match/1?tab=watch')
+    expect(await screen.findByRole('tab', { name: 'Watch' })).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('writes live commentary from match events, even without a stream', async () => {
     const detailed: Fixture = {
       ...LIVE,
@@ -185,7 +203,7 @@ describe('Football page', () => {
     const user = userEvent.setup()
     render(<FootballApp />)
 
-    await user.click(await screen.findByRole('tab', { name: 'Commentary' }))
+    await user.click(await screen.findByRole('tab', { name: 'Watch' }))
     expect(screen.getByText('Live commentary')).toBeInTheDocument()
     expect(screen.getByText('GOAL! B. Saka scores for Arsenal, set up by M. Ødegaard.')).toBeInTheDocument()
     expect(screen.getByText('Kick-off! Arsenal vs Chelsea is under way.')).toBeInTheDocument()

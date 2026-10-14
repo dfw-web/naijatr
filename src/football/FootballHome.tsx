@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { CalendarDays, Radio, SearchX } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { describeFootballError, useFootball } from './api'
-import { groupByLeague, localDate, matchesQuery } from './format'
-import { LeagueBlock, MatchListSkeleton } from './MatchList'
+import { groupByLeague, localDate, matchesQuery, type OpenMatch } from './format'
+import { LeagueBlock, MatchListSkeleton, WatchBlock } from './MatchList'
 import { Standings } from './Standings'
 import type { Fixture } from './types'
 
@@ -12,7 +12,7 @@ const TODAY_REFRESH_MS = 5 * 60_000
 
 interface FootballHomeProps {
   query: string
-  onOpenMatch: (id: number) => void
+  onOpenMatch: OpenMatch
 }
 
 export function FootballHome({ query, onOpenMatch }: FootballHomeProps) {
@@ -21,7 +21,7 @@ export function FootballHome({ query, onOpenMatch }: FootballHomeProps) {
     <div className="fb-page">
       <header className="fb-header">
         <h1 className="fb-header__title">Football</h1>
-        <p className="fb-header__subtitle">Live scores, today&apos;s fixtures and league tables.</p>
+        <p className="fb-header__subtitle">Live scores, live streams, today&apos;s fixtures and league tables.</p>
         {filtering && <p className="fb-header__filter">Showing matches for &ldquo;{query.trim()}&rdquo;</p>}
       </header>
 
@@ -61,13 +61,21 @@ function useFiltered(data: Fixture[] | undefined, query: string) {
 
 function LiveMatches({ query, onOpenMatch }: FootballHomeProps) {
   const { data, stale, error, loading, retry } = useFootball<Fixture[]>('live', LIVE_REFRESH_MS)
-  const groups = useFiltered(data, query)
+  // Which live matches have a stream. Optional: if it fails, nothing is marked.
+  const { data: watchable } = useFootball<number[]>('watchable', LIVE_REFRESH_MS)
+  const watchIds = useMemo(() => new Set(watchable ?? []), [watchable])
+  const streaming = useMemo(
+    () => (data ?? []).filter((f) => watchIds.has(f.fixture.id) && matchesQuery(f, query)),
+    [data, watchIds, query],
+  )
+  const rest = useMemo(() => (data ?? []).filter((f) => !watchIds.has(f.fixture.id)), [data, watchIds])
+  const groups = useFiltered(rest, query)
 
   if (loading) return <MatchListSkeleton rows={3} />
   if (error) {
     return <StatusMessage icon={Radio} compact tone="error" {...describeFootballError(error)} action={{ label: 'Try again', onClick: retry }} />
   }
-  if (!groups.length) {
+  if (!groups.length && !streaming.length) {
     return query.trim() && data?.length ? (
       <StatusMessage icon={SearchX} compact title="No live matches for that search" />
     ) : (
@@ -78,6 +86,7 @@ function LiveMatches({ query, onOpenMatch }: FootballHomeProps) {
     <>
       {stale && <StaleNote />}
       <div className="fb-groups">
+        {streaming.length > 0 && <WatchBlock fixtures={streaming} onOpen={onOpenMatch} />}
         {groups.map((group) => (
           <LeagueBlock key={group.id} group={group} onOpen={onOpenMatch} />
         ))}

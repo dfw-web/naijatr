@@ -27,8 +27,8 @@ export default function FootballApp() {
   }, [route])
 
   const go = (path: string) => {
-    if (window.location.pathname !== path) window.history.pushState(null, '', path)
-    setRoute(routeFromPath(path))
+    if (window.location.pathname + window.location.search !== path) window.history.pushState(null, '', path)
+    setRoute(routeFromPath(path.split('?')[0]))
     window.scrollTo({ top: 0 })
   }
 
@@ -60,7 +60,7 @@ export default function FootballApp() {
         {route.page === 'match' ? (
           <MatchDetails key={route.id} id={route.id} onBack={() => go(FOOTBALL_PATH)} />
         ) : (
-          <FootballHome query={query} onOpenMatch={(id) => go(pathForMatch(id))} />
+          <FootballHome query={query} onOpenMatch={(id, tab) => go(pathForMatch(id, tab))} />
         )}
       </main>
 

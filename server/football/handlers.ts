@@ -37,6 +37,8 @@ export const FOOTBALL_TTL = {
   matchFinished: 60 * 60,
   rateLimited: 60,
   streams: 60,
+  /** A match's stream link rarely changes, and each check is one provider request. */
+  streamLinks: 3 * 60,
 } as const
 
 export type FootballErrorReason =
@@ -194,8 +196,11 @@ const fail = (res: ServerResponse, reason: FootballErrorReason) =>
 const fixed = (ttl: number) => () => ttl
 
 /** GET /api/football/live: every match in play right now. */
+const loadLive = (ctx: FootballContext) =>
+  cached(ctx, 'live', () => callApi(ctx, 'fixtures', { live: 'all' }), fixed(FOOTBALL_TTL.live))
+
 async function live(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
-  send(res, await cached(ctx, 'live', () => callApi(ctx, 'fixtures', { live: 'all' }), fixed(FOOTBALL_TTL.live)))
+  send(res, await loadLive(ctx))
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -313,8 +318,20 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     return send(res, { outcome: { ok: true, data: NO_STREAM }, maxAge: FOOTBALL_TTL.streams, stale: false })
   }
 
-  const rapidKey = ctx.rapidKey
-  const listing = await cached(
+  const listing = await loadStreamListing(ctx, ctx.rapidKey)
+  if (!listing.outcome.ok) return send(res, listing)
+  const { providerId, ...paired } = findMatchStream(listing.outcome.data as unknown[], home, away)
+  const result: MatchStream = paired
+  if (providerId && !result.streams.length) {
+    result.streams = await loadStreamLink(ctx, ctx.rapidKey, providerId)
+    result.available = result.streams.length > 0 || result.commentary.length > 0
+  }
+  send(res, { ...listing, outcome: { ok: true, data: result } })
+}
+
+/** The Football Live Stream API's match listing, shared by every match. */
+function loadStreamListing(ctx: FootballContext, rapidKey: string) {
+  return cached(
     ctx,
     'streams',
     async () => {
@@ -323,27 +340,65 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     },
     fixed(FOOTBALL_TTL.streams),
   )
-  if (!listing.outcome.ok) return send(res, listing)
-  const { providerId, ...paired } = findMatchStream(listing.outcome.data as unknown[], home, away)
-  const result: MatchStream = paired
-  if (providerId && !result.streams.length) {
-    const link = await cached(
-      ctx,
-      `stream-link:${providerId}`,
-      async () => ({ ok: true, data: await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl) }),
-      fixed(FOOTBALL_TTL.streams),
-    )
-    if (link.outcome.ok) result.streams = link.outcome.data as MatchStream['streams']
-    result.available = result.streams.length > 0 || result.commentary.length > 0
-  }
-  send(res, { ...listing, outcome: { ok: true, data: result } })
 }
 
-const ROUTES = { live, fixtures, standings, match, stream }
+/** One provider match's stream sources ([] when it has none). */
+async function loadStreamLink(ctx: FootballContext, rapidKey: string, providerId: string) {
+  const link = await cached(
+    ctx,
+    `stream-link:${providerId}`,
+    async () => ({ ok: true, data: await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl) }),
+    fixed(FOOTBALL_TTL.streamLinks),
+  )
+  return link.outcome.ok ? (link.outcome.data as MatchStream['streams']) : []
+}
+
+interface LiveFixture {
+  fixture?: { id?: number }
+  teams?: { home?: { name?: string }; away?: { name?: string } }
+}
+
+/**
+ * GET /api/football/watchable: ids of the live matches that have a stream,
+ * so the list can put them first. Without RAPIDAPI_KEY, or when the stream
+ * provider fails, it is simply an empty list and the page is unaffected.
+ */
+async function watchable(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
+  const empty = { outcome: { ok: true, data: [] }, maxAge: FOOTBALL_TTL.streams, stale: false } as const
+  const rapidKey = ctx.rapidKey
+  if (!rapidKey) return send(res, empty)
+  const result = await cached(
+    ctx,
+    'watchable',
+    async () => {
+      const [liveNow, listing] = await Promise.all([loadLive(ctx), loadStreamListing(ctx, rapidKey)])
+      if (!liveNow.outcome.ok || !listing.outcome.ok) return { ok: true, data: [] }
+      const items = listing.outcome.data as unknown[]
+      const candidates = (liveNow.outcome.data as LiveFixture[]).flatMap((f) => {
+        const id = f.fixture?.id
+        const home = f.teams?.home?.name
+        const away = f.teams?.away?.name
+        if (!id || !home || !away) return []
+        const { providerId, streams } = findMatchStream(items, home, away)
+        return providerId ? [{ id, providerId, streams }] : []
+      })
+      const checked = await Promise.all(
+        candidates.map(async (c) =>
+          c.streams.length || (await loadStreamLink(ctx, rapidKey, c.providerId)).length ? c.id : null,
+        ),
+      )
+      return { ok: true, data: checked.filter((id) => id !== null) }
+    },
+    fixed(FOOTBALL_TTL.streams),
+  )
+  send(res, result)
+}
+
+const ROUTES = { live, fixtures, standings, match, stream, watchable }
 
 export type FootballRoute = keyof typeof ROUTES
 
-/** Serves /api/football/{live,fixtures,standings,match,stream}. */
+/** Serves /api/football/{live,fixtures,standings,match,stream,watchable}. */
 export async function handleFootball(
   ctx: FootballContext,
   method: string | undefined,
