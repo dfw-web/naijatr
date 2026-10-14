@@ -45,7 +45,7 @@ export function MatchRow({ fixture, onOpen, watchable = false }: MatchRowProps) 
             <span className="fb-match__badges" aria-hidden="true">
               <span className="fb-badge fb-badge--live">Live</span>
               <span className="fb-badge fb-badge--watch">
-                <MonitorPlay /> Watch
+                <MonitorPlay /> Watch now
               </span>
             </span>
           )}

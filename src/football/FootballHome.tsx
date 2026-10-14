@@ -17,6 +17,9 @@ interface FootballHomeProps {
 
 export function FootballHome({ query, onOpenMatch }: FootballHomeProps) {
   const filtering = query.trim().length > 0
+  // Which live matches have a stream. Optional: if it fails, nothing is marked.
+  const { data: watchable } = useFootball<number[]>('watchable', LIVE_REFRESH_MS)
+  const watchIds = useMemo(() => new Set(watchable ?? []), [watchable])
   return (
     <div className="fb-page">
       <header className="fb-header">
@@ -29,14 +32,14 @@ export function FootballHome({ query, onOpenMatch }: FootballHomeProps) {
         <h2 id="fb-live-title" className="fb-section__title">
           <span className="fb-pulse" aria-hidden="true" /> Live now
         </h2>
-        <LiveMatches query={query} onOpenMatch={onOpenMatch} />
+        <LiveMatches query={query} onOpenMatch={onOpenMatch} watchIds={watchIds} />
       </section>
 
       <section className="fb-section" aria-labelledby="fb-today-title">
         <h2 id="fb-today-title" className="fb-section__title">
           <CalendarDays aria-hidden="true" /> Today&apos;s fixtures &amp; results
         </h2>
-        <TodayMatches query={query} onOpenMatch={onOpenMatch} />
+        <TodayMatches query={query} onOpenMatch={onOpenMatch} watchIds={watchIds} />
       </section>
 
       <section className="fb-section" aria-labelledby="fb-standings-title">
@@ -59,11 +62,13 @@ function useFiltered(data: Fixture[] | undefined, query: string) {
   return useMemo(() => groupByLeague((data ?? []).filter((f) => matchesQuery(f, query))), [data, query])
 }
 
-function LiveMatches({ query, onOpenMatch }: FootballHomeProps) {
+interface ListProps extends FootballHomeProps {
+  /** Ids of matches that have a stream. */
+  watchIds: ReadonlySet<number>
+}
+
+function LiveMatches({ query, onOpenMatch, watchIds }: ListProps) {
   const { data, stale, error, loading, retry } = useFootball<Fixture[]>('live', LIVE_REFRESH_MS)
-  // Which live matches have a stream. Optional: if it fails, nothing is marked.
-  const { data: watchable } = useFootball<number[]>('watchable', LIVE_REFRESH_MS)
-  const watchIds = useMemo(() => new Set(watchable ?? []), [watchable])
   const streaming = useMemo(
     () => (data ?? []).filter((f) => watchIds.has(f.fixture.id) && matchesQuery(f, query)),
     [data, watchIds, query],
@@ -95,7 +100,7 @@ function LiveMatches({ query, onOpenMatch }: FootballHomeProps) {
   )
 }
 
-function TodayMatches({ query, onOpenMatch }: FootballHomeProps) {
+function TodayMatches({ query, onOpenMatch, watchIds }: ListProps) {
   // Fixed for the page's lifetime so the cached day stays consistent.
   const [date] = useState(() => localDate())
   const { data, stale, error, loading, retry } = useFootball<Fixture[]>(`fixtures?date=${date}`, TODAY_REFRESH_MS)
@@ -130,7 +135,7 @@ function TodayMatches({ query, onOpenMatch }: FootballHomeProps) {
       )}
       <div className="fb-groups">
         {visible.map((group) => (
-          <LeagueBlock key={group.id} group={group} onOpen={onOpenMatch} />
+          <LeagueBlock key={group.id} group={group} onOpen={onOpenMatch} watchIds={watchIds} />
         ))}
       </div>
       {canToggle && (
