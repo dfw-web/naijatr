@@ -3,11 +3,11 @@ import type { Plugin } from 'vite'
 import { handleFootball, sharedFootballCache, splitFootballUrl } from './handlers.ts'
 
 /** Serves /api/football/* in dev and preview, like the Vercel functions in api/football/. */
-export function footballApi(key: string): Plugin {
+export function footballApi(key: string, rapidKey = ''): Plugin {
   // Connect strips the mount path, so req.url is e.g. /live or /fixtures?date=...
   const middleware = (req: IncomingMessage, res: ServerResponse) => {
     const { route, params } = splitFootballUrl(req.url ?? '')
-    void handleFootball({ key, cache: sharedFootballCache }, req.method, route, params, res)
+    void handleFootball({ key, rapidKey, cache: sharedFootballCache }, req.method, route, params, res)
   }
   return {
     name: 'football-api',

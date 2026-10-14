@@ -95,3 +95,21 @@ export interface Season {
   start?: string
   end?: string
 }
+
+/** Our /api/football/stream answer (see server/football/stream.ts). */
+export interface StreamSource {
+  label: string
+  url: string
+  kind: 'embed' | 'hls' | 'link'
+}
+
+export interface CommentaryLine {
+  minute: string | null
+  text: string
+}
+
+export interface MatchStream {
+  available: boolean
+  streams: StreamSource[]
+  commentary: CommentaryLine[]
+}

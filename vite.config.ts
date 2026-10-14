@@ -73,7 +73,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '')],
+    plugins: [react(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

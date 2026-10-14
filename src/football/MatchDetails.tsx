@@ -4,14 +4,16 @@ import { StatusMessage } from '../components/StatusMessage'
 import { describeFootballError, useFootball } from './api'
 import { FOOTBALL_PATH, hasStarted, isFinished, isLive, statusLabel } from './format'
 import { TeamLogo } from './MatchList'
+import { MatchStream } from './MatchStream'
 import type { Fixture, FixtureEvent, Lineup, TeamStatistics } from './types'
 
 const LIVE_REFRESH_MS = 60_000
 
-type Tab = 'events' | 'lineups' | 'stats'
+type Tab = 'events' | 'watch' | 'lineups' | 'stats'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'events', label: 'Events' },
+  { id: 'watch', label: 'Watch' },
   { id: 'lineups', label: 'Lineups' },
   { id: 'stats', label: 'Stats' },
 ]
@@ -24,7 +26,9 @@ interface MatchDetailsProps {
 export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const [refreshMs, setRefreshMs] = useState<number | undefined>(LIVE_REFRESH_MS)
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
-  const [tab, setTab] = useState<Tab>('events')
+  const [chosenTab, setTab] = useState<Tab | null>(null)
+  // Live matches open on the stream and commentary until a tab is picked.
+  const tab = chosenTab ?? (match && isLive(match.fixture.status) ? 'watch' : 'events')
 
   // Keep refreshing only while the match can still change.
   const shouldRefresh = !match || !isFinished(match.fixture.status) ? LIVE_REFRESH_MS : undefined
@@ -74,6 +78,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
           </div>
           <div id="fb-match-panel" role="tabpanel" aria-labelledby={`fb-match-tab-${tab}`} className="fb-panel">
             {tab === 'events' && <Events match={match} />}
+            {tab === 'watch' && <MatchStream match={match} />}
             {tab === 'lineups' && <Lineups lineups={match.lineups ?? []} />}
             {tab === 'stats' && <Stats stats={match.statistics ?? []} />}
           </div>

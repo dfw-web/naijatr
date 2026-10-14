@@ -11,6 +11,7 @@
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
 import type { ServerResponse } from 'node:http'
+import { fetchStreamListing, findMatchStream, NO_STREAM } from './stream.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -35,6 +36,7 @@ export const FOOTBALL_TTL = {
   matchLive: 60,
   matchFinished: 60 * 60,
   rateLimited: 60,
+  streams: 60,
 } as const
 
 export type FootballErrorReason =
@@ -86,6 +88,8 @@ export type FootballCache = ReturnType<typeof createFootballCache>
 
 export interface FootballContext {
   key: string
+  /** RAPIDAPI_KEY, for the Football Live Stream API (only the stream route uses it). */
+  rapidKey?: string
   cache: FootballCache
   fetchImpl?: typeof fetch
 }
@@ -261,36 +265,73 @@ async function standings(ctx: FootballContext, params: URLSearchParams, res: Ser
 const FINISHED = new Set(['FT', 'AET', 'PEN', 'CANC', 'ABD', 'AWD', 'WO'])
 const MATCH_ID = /^[1-9]\d{0,9}$/
 
+/** One match with events, lineups and statistics, through the cache. */
+function loadMatch(ctx: FootballContext, id: string) {
+  return cached(
+    ctx,
+    `match:${id}`,
+    async () => {
+      const found = await callApi(ctx, 'fixtures', { id })
+      if (!found.ok) return found
+      const fixture = (found.data as unknown[])[0]
+      return fixture ? { ok: true, data: fixture } : { ok: false, reason: 'not-found' }
+    },
+    (outcome) => {
+      const status = outcome.ok
+        ? (outcome.data as { fixture?: { status?: { short?: string } } }).fixture?.status?.short
+        : undefined
+      return status && FINISHED.has(status) ? FOOTBALL_TTL.matchFinished : FOOTBALL_TTL.matchLive
+    },
+  )
+}
+
 /** GET /api/football/match?id=123: one match with events, lineups and statistics. */
 async function match(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
   const id = params.get('id') ?? ''
   if (!MATCH_ID.test(id)) return fail(res, 'bad-request')
-  send(
-    res,
-    await cached(
-      ctx,
-      `match:${id}`,
-      async () => {
-        const found = await callApi(ctx, 'fixtures', { id })
-        if (!found.ok) return found
-        const fixture = (found.data as unknown[])[0]
-        return fixture ? { ok: true, data: fixture } : { ok: false, reason: 'not-found' }
-      },
-      (outcome) => {
-        const status = outcome.ok
-          ? (outcome.data as { fixture?: { status?: { short?: string } } }).fixture?.status?.short
-          : undefined
-        return status && FINISHED.has(status) ? FOOTBALL_TTL.matchFinished : FOOTBALL_TTL.matchLive
-      },
-    ),
-  )
+  send(res, await loadMatch(ctx, id))
 }
 
-const ROUTES = { live, fixtures, standings, match }
+/**
+ * GET /api/football/stream?id=123: stream links and live commentary for one
+ * of our matches, from the Football Live Stream API (RapidAPI). The match is
+ * looked up here (it is usually cached already) and paired with the provider's
+ * listing by team names. No pairing is not an error: it answers
+ * { available: false }, so the match page simply shows "no stream".
+ */
+async function stream(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
+  const id = params.get('id') ?? ''
+  if (!MATCH_ID.test(id)) return fail(res, 'bad-request')
+  if (!ctx.rapidKey) return fail(res, 'not-configured')
+
+  const found = (await loadMatch(ctx, id)).outcome
+  if (!found.ok) return fail(res, found.reason)
+  const teams = (found.data as { teams?: { home?: { name?: string }; away?: { name?: string } } }).teams
+  const home = teams?.home?.name
+  const away = teams?.away?.name
+  if (!home || !away) {
+    return send(res, { outcome: { ok: true, data: NO_STREAM }, maxAge: FOOTBALL_TTL.streams, stale: false })
+  }
+
+  const rapidKey = ctx.rapidKey
+  const listing = await cached(
+    ctx,
+    'streams',
+    async () => {
+      const result = await fetchStreamListing(rapidKey, ctx.fetchImpl)
+      return result.ok ? { ok: true, data: result.items } : { ok: false, reason: result.reason }
+    },
+    fixed(FOOTBALL_TTL.streams),
+  )
+  if (!listing.outcome.ok) return send(res, listing)
+  send(res, { ...listing, outcome: { ok: true, data: findMatchStream(listing.outcome.data as unknown[], home, away) } })
+}
+
+const ROUTES = { live, fixtures, standings, match, stream }
 
 export type FootballRoute = keyof typeof ROUTES
 
-/** Serves /api/football/{live,fixtures,standings,match}. */
+/** Serves /api/football/{live,fixtures,standings,match,stream}. */
 export async function handleFootball(
   ctx: FootballContext,
   method: string | undefined,

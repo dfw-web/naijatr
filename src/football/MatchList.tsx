@@ -1,3 +1,4 @@
+import { MonitorPlay } from 'lucide-react'
 import { hasStarted, isLive, matchLinkProps, statusLabel, type LeagueGroup } from './format'
 import type { Fixture } from './types'
 
@@ -38,6 +39,11 @@ export function MatchRow({ fixture, onOpen }: MatchRowProps) {
         <span className="fb-match__status">
           {live && <span className="fb-pulse" aria-hidden="true" />}
           {statusLabel(fixture)}
+          {live && (
+            <span className="fb-match__watch">
+              <MonitorPlay aria-hidden="true" /> Watch
+            </span>
+          )}
         </span>
         <span className="fb-match__teams">
           {[home, away].map((team, index) => (
