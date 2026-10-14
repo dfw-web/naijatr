@@ -159,11 +159,11 @@ function directUrl(url: string) {
   }
 }
 
-const START_AHEAD_S = 6
-const RESUME_AHEAD_S = 4
+const START_AHEAD_S = 15
+const RESUME_AHEAD_S = 10
 const MAX_GAP_S = 6
 /** Play anyway after this long if some video is ready but the target isn't reached. */
-const MAX_HOLD_MS = 4000
+const MAX_HOLD_MS = 8000
 
 /**
  * Starts playback only with a few seconds of video ready, and after a stall
@@ -288,12 +288,14 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
         let networkRetries = 0
         const player = new Hls({
           // These feeds are only just faster than real time, so stay well
-          // behind live (the playlists ask for 15 s) with a deep buffer.
+          // behind live (the playlists ask for 20-24 s) with a deep buffer.
           ...prefetch.config,
           lowLatencyMode: false,
-          liveSyncDurationCount: 6,
-          liveMaxLatencyDurationCount: 15,
-          maxBufferLength: 30,
+          // Start at the oldest part of the playlist (they hold 24-28 s), so
+          // the whole window can be buffered before playback starts.
+          liveSyncDuration: 24,
+          liveMaxLatencyDuration: 60,
+          maxBufferLength: 40,
           backBufferLength: 30,
           fragLoadPolicy: {
             default: {

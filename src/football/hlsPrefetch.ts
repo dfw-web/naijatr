@@ -18,7 +18,7 @@ const NO_REFERRER: RequestInit = { referrerPolicy: 'no-referrer' }
 export const fetchSetup = (context: LoaderContext, initParams: RequestInit) =>
   new Request(context.url, { ...initParams, ...NO_REFERRER })
 
-const AHEAD = 4
+const AHEAD = 6
 const KEEP = 16
 const PREFETCH_TIMEOUT_MS = 8000
 
@@ -50,7 +50,7 @@ export function attachPrefetcher(HlsCtor: HlsClass, FetchLoaderCtor: typeof Fetc
   /** Prefetches the segments after the one being loaded (or, at start, near live). */
   const schedule = () => {
     if (!fragments.length) return
-    const next = current >= 0 ? fragments.filter((f) => f.sn > current) : fragments.slice(-(AHEAD + 3))
+    const next = current >= 0 ? fragments.filter((f) => f.sn > current) : fragments
     next.slice(0, AHEAD).forEach((f) => prefetch(f.url))
   }
 
