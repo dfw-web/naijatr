@@ -173,6 +173,14 @@ export function sameTeam(a: string, b: string) {
   return shorter.every((w) => longer.some((v) => v === w || (w.length >= 3 && v.startsWith(w)) || (v.length >= 3 && w.startsWith(v))))
 }
 
+/** Same team, or at least the same distinctive first word ("Mahasarakham United" ~ "Mahasarakham SBT"). */
+function nearTeam(a: string, b: string) {
+  if (sameTeam(a, b)) return true
+  const [x] = words(a)
+  const [y] = words(b)
+  return Boolean(x && x.length >= 4 && x === y)
+}
+
 const URL_KEYS = ['url', 'link', 'src', 'stream', 'stream_url', 'streamUrl', 'embed', 'embed_url', 'embedUrl', 'iframe', 'm3u8', 'hls']
 const LIST_KEYS = ['streams', 'links', 'servers', 'sources', 'stream_links', 'streamLinks', 'channels']
 
@@ -256,7 +264,10 @@ export function findMatchStream(items: unknown[], home: string, away: string): M
     const teams = teamsOf(item)
     if (!teams) continue
     const [h, a] = teams
-    const matches = (sameTeam(h, home) && sameTeam(a, away)) || (sameTeam(h, away) && sameTeam(a, home))
+    // One team must match closely; the other may differ in suffixes ("United" vs "SBT FC").
+    const pairs = (x: string, y: string) =>
+      (sameTeam(x, home) && nearTeam(y, away)) || (nearTeam(x, home) && sameTeam(y, away))
+    const matches = pairs(h, a) || pairs(a, h)
     if (!matches) continue
     const streams = collectStreams(item)
     const commentary = collectCommentary(item)

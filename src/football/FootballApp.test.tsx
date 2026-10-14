@@ -162,6 +162,35 @@ describe('Football page', () => {
     expect(window.location.pathname).toBe('/football')
   })
 
+  it('writes live commentary from match events, even without a stream', async () => {
+    const detailed: Fixture = {
+      ...LIVE,
+      events: [
+        {
+          time: { elapsed: 12, extra: null },
+          team: { id: 10, name: 'Arsenal', logo: '' },
+          player: { id: 5, name: 'B. Saka' },
+          assist: { id: 6, name: 'M. Ødegaard' },
+          type: 'Goal',
+          detail: 'Normal Goal',
+          comments: null,
+        },
+      ],
+    }
+    mockApi({
+      match: { body: { data: detailed } },
+      stream: { body: { data: { available: false, streams: [], commentary: [], status: null } } },
+    })
+    window.history.replaceState(null, '', '/football/match/1')
+    const user = userEvent.setup()
+    render(<FootballApp />)
+
+    await user.click(await screen.findByRole('tab', { name: 'Commentary' }))
+    expect(screen.getByText('Live commentary')).toBeInTheDocument()
+    expect(screen.getByText('GOAL! B. Saka scores for Arsenal, set up by M. Ødegaard.')).toBeInTheDocument()
+    expect(screen.getByText('Kick-off! Arsenal vs Chelsea is under way.')).toBeInTheDocument()
+  })
+
   it('opens a match page directly from its URL', async () => {
     window.history.replaceState(null, '', '/football/match/1')
     mockApi({ match: { status: 404, body: { error: 'not-found' } } })

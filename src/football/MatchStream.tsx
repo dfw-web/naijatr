@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ExternalLink, MessageSquareText } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ExternalLink, MessageSquareText, MonitorPlay } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { useFootball } from './api'
 import { hasStarted, isFinished, isLive } from './format'
@@ -145,6 +145,61 @@ export function MatchStream({ match }: { match: Fixture }) {
   )
 }
 
+/**
+ * Plays an HLS (.m3u8) stream: natively where the browser can (Safari, iOS),
+ * otherwise with hls.js, which is only downloaded when a stream is played.
+ */
+function HlsPlayer({ url, title }: { url: string; title: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url
+      return () => video.removeAttribute('src')
+    }
+    let destroyed = false
+    let hls: { destroy: () => void } | undefined
+    import('hls.js').then(
+      ({ default: Hls }) => {
+        if (destroyed) return
+        if (!Hls.isSupported()) return setFailed(true)
+        const player = new Hls({ lowLatencyMode: true })
+        hls = player
+        player.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) setFailed(true)
+        })
+        player.loadSource(url)
+        player.attachMedia(video)
+      },
+      () => setFailed(true),
+    )
+    return () => {
+      destroyed = true
+      hls?.destroy()
+    }
+  }, [url])
+
+  return (
+    <div className="fb-stream__player">
+      {failed ? (
+        <div className="fb-stream__player--link">
+          <StatusMessage
+            icon={MonitorPlay}
+            compact
+            title="This stream isn't playing right now"
+            message="The provider's feed may be offline. Try another source or open it in a new tab."
+          />
+        </div>
+      ) : (
+        <video ref={videoRef} controls playsInline autoPlay muted aria-label={`${title} stream`} />
+      )}
+    </div>
+  )
+}
+
 function StreamPlayer({ source, title }: { source: StreamSource; title: string }) {
   if (source.kind === 'embed') {
     return (
@@ -161,14 +216,7 @@ function StreamPlayer({ source, title }: { source: StreamSource; title: string }
       </div>
     )
   }
-  if (source.kind === 'hls') {
-    // Native HLS (Safari, most mobile browsers); elsewhere "Open in a new tab" below.
-    return (
-      <div className="fb-stream__player">
-        <video src={source.url} controls playsInline autoPlay muted aria-label={`${title} stream`} />
-      </div>
-    )
-  }
+  if (source.kind === 'hls') return <HlsPlayer url={source.url} title={title} />
   return (
     <div className="fb-stream__player fb-stream__player--link">
       <a className="btn btn--primary" href={source.url} target="_blank" rel="noopener noreferrer nofollow">
