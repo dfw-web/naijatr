@@ -64,7 +64,7 @@ export function Footer({ links, onNavigate, onBackToTop }: FooterProps) {
       </div>
 
       <div className="footer__bottom">
-        <p>© {CURRENT_YEAR} NAIJA TR. Built for a five-day development challenge.</p>
+        <p>© {CURRENT_YEAR} NAIJA TR. All rights reserved.</p>
         <button type="button" className="footer__top" onClick={onBackToTop}>
           Back to top <ArrowUp aria-hidden="true" />
         </button>
