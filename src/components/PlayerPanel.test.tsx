@@ -174,22 +174,28 @@ describe('PlayerPanel', () => {
         { number: 2, name: 'Season 2', episodeCount: 3 },
       ],
     }
-    /** What the stream player posts to the top window when the episode ends. */
-    const end = (frame: HTMLElement) =>
+    /** What the stream player posts to the top window as it plays. */
+    const post = (frame: HTMLElement, event: string, info: number | null = null) =>
       act(() => {
         window.dispatchEvent(
           new MessageEvent('message', {
-            data: { source: 'embedmaster_player', event: 'ended', info: null },
+            data: { source: 'embedmaster_player', event, info },
             source: (frame as HTMLIFrameElement).contentWindow,
           }),
         )
       })
+    const end = (frame: HTMLElement) => post(frame, 'ended')
 
-    const watch = async (episode: string) => {
+    /** Plays S1 E{episode}; `credits` is what TheIntroDB knows about it. */
+    const watch = async (episode: string, credits?: { start_ms: number; end_ms: number | null }[]) => {
       // A fresh response per call: the next episode is checked too.
-      const fetchImpl = vi
-        .fn()
-        .mockImplementation(async () => new Response(JSON.stringify({ available: true }))) as unknown as typeof fetch
+      const fetchImpl = vi.fn().mockImplementation(async (url: string) =>
+        url.startsWith('https://api.theintrodb.org/')
+          ? credits
+            ? new Response(JSON.stringify({ credits }))
+            : new Response(JSON.stringify({ error: 'media not found' }), { status: 404 })
+          : new Response(JSON.stringify({ available: true })),
+      ) as unknown as typeof fetch
       render(<PlayerPanel item={show} availability={on} fetchImpl={fetchImpl} />)
       await userEvent.selectOptions(screen.getByLabelText('Episode'), episode)
       await userEvent.click(screen.getByRole('button', { name: `Play S1 E${episode}` }))
@@ -213,6 +219,39 @@ describe('PlayerPanel', () => {
         '/api/play/tv/1399/2/1',
       )
       expect(screen.getByLabelText('Season')).toHaveValue('2')
+    })
+
+    it('shows the button when the closing credits start', async () => {
+      // Opening credits early on don't count.
+      const frame = await watch('1', [
+        { start_ms: 60_000, end_ms: 90_000 },
+        { start_ms: 3_000_000, end_ms: null },
+      ])
+      post(frame, 'duration', 3_300)
+      post(frame, 'time', 70)
+      post(frame, 'time', 2_999)
+      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
+      post(frame, 'time', 3_001)
+      expect(screen.getByRole('button', { name: /Next episode · S1 E2/ })).toBeInTheDocument()
+    })
+
+    it('guesses 90 seconds before the end when the credits time is unknown', async () => {
+      const frame = await watch('1')
+      post(frame, 'duration', 3_000)
+      post(frame, 'time', 2_909)
+      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
+      post(frame, 'time', 2_911)
+      expect(screen.getByRole('button', { name: /Next episode/ })).toBeInTheDocument()
+    })
+
+    it('stays dismissed through the rest of the credits and the end', async () => {
+      const frame = await watch('1')
+      post(frame, 'duration', 3_000)
+      post(frame, 'time', 2_950)
+      fireEvent.pointerDown(document.body)
+      post(frame, 'time', 2_960)
+      end(frame)
+      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
     })
 
     it('plays the next episode right away when the button is clicked', async () => {

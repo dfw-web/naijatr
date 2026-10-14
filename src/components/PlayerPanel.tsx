@@ -62,6 +62,39 @@ const isInside = (win: MessageEventSource | null, frame: Window | null | undefin
   return false
 }
 
+/** A stretch of an episode, in seconds; `end` is null when it runs to the end. */
+interface Segment {
+  start: number
+  end: number | null
+}
+
+/** TheIntroDB: crowd-sourced intro and credits times by TMDB id (CORS-enabled, no key). */
+const introDbUrl = (tmdbId: number, season: number, episode: number) =>
+  `https://api.theintrodb.org/v2/media?tmdb_id=${tmdbId}&season=${season}&episode=${episode}`
+
+/** Reads TheIntroDB's `[{ start_ms, end_ms }]`, skipping anything malformed. */
+const readSegments = (raw: unknown): Segment[] =>
+  Array.isArray(raw)
+    ? raw.flatMap((seg: { start_ms?: unknown; end_ms?: unknown }) =>
+        typeof seg?.start_ms === 'number'
+          ? [{ start: seg.start_ms / 1000, end: typeof seg.end_ms === 'number' ? seg.end_ms / 1000 : null }]
+          : [],
+      )
+    : []
+
+/**
+ * When the closing credits start, in seconds. Uses TheIntroDB's credits that
+ * fall in the last quarter of the episode (earlier ones are opening credits);
+ * without those, guesses like the player does: 90s before the end, or the last
+ * 3% of a short episode. Null until the duration is known.
+ */
+function creditsStart(credits: Segment[], duration: number | null): number | null {
+  if (duration === null || !(duration > 0)) return null
+  const closing = credits.filter((c) => c.start >= duration * 0.75 && c.start < duration)
+  if (closing.length > 0) return Math.min(...closing.map((c) => c.start))
+  return Math.max(duration * 0.97, duration - 90)
+}
+
 const TIMEOUT_MESSAGE = 'The player took too long to load. Please try again.'
 
 const STREAM_MESSAGES: Record<string, string> = {
@@ -147,33 +180,74 @@ export function PlayerPanel({
     return () => window.clearTimeout(timer)
   }, [loadingKey])
 
-  // When a streamed episode ends, offer the next one (see UpNext).
+  // When the closing credits start (or the episode ends), offer the next one (see UpNext).
   const frameRef = useRef<HTMLIFrameElement>(null)
-  const [endedSrc, setEndedSrc] = useState<string | null>(null)
+  const [upNext, setUpNext] = useState<{ src: string; dismissed: boolean } | null>(null)
   const watchingSrc =
     active?.choice === 'stream' && active.state.status !== 'checking' ? active.streamSrc : null
   const hasNext = nextEpisode !== null
+  const creditsUrl =
+    isSeries && item.tmdbId !== undefined ? introDbUrl(item.tmdbId, season, episode) : null
+  // The default fetchImpl is a new function each render; don't restart on it.
+  const fetchRef = useRef(fetchImpl)
   useEffect(() => {
-    if (!watchingSrc || !hasNext) return
+    fetchRef.current = fetchImpl
+  })
+  useEffect(() => {
+    if (!watchingSrc || !hasNext || !creditsUrl) return
+    const src = watchingSrc
+    const controller = new AbortController()
+    let credits: Segment[] = []
+    void fetchRef
+      .current(creditsUrl, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { credits?: unknown } | null) => (credits = readSegments(body?.credits)))
+      .catch(() => {})
+
     let position = 0
+    let duration: number | null = null
+    let player: Window | null = null
+    let prompted = false
+    const send = (command: string, value?: number) =>
+      player?.postMessage({ source: PLAYER_COMMANDS, command, value }, '*')
+    const prompt = () => {
+      if (prompted) return
+      prompted = true
+      // Fullscreen would hide the button.
+      send('exitfullscreen')
+      setUpNext((u) => (u?.src === src ? u : { src, dismissed: false }))
+    }
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
-      if (data.event === 'time' && typeof data.info === 'number') position = data.info
-      if (data.event !== 'ended') return
-      // The player runs its own next-episode countdown on `ended`, which can't be
-      // turned off from here and would ignore a dismiss on our side. Stepping
-      // back from the end stops it; leaving fullscreen lets our button show.
-      const send = (command: string, value?: number) =>
-        (ev.source as Window).postMessage({ source: PLAYER_COMMANDS, command, value }, '*')
-      send('exitfullscreen')
-      send('pause')
-      send('seek', Math.max(0, position - 2))
-      setEndedSrc(watchingSrc)
+      player = ev.source as Window
+      if (data.event === 'duration' && typeof data.info === 'number') duration = data.info
+      if (data.event === 'time' && typeof data.info === 'number') {
+        position = data.info
+        const start = creditsStart(credits, duration)
+        if (start === null) return
+        if (position >= start) prompt()
+        else if (prompted && position < start - 5) {
+          // Seeked back before the credits: offer it again when they come round.
+          prompted = false
+          setUpNext((u) => (u?.src === src ? null : u))
+        }
+      }
+      if (data.event === 'ended') {
+        // The player runs its own next-episode countdown on `ended`, which can't
+        // be turned off from here and would ignore a dismiss on our side.
+        // Stepping back from the end stops it.
+        send('pause')
+        send('seek', Math.max(0, position - 2))
+        prompt()
+      }
     }
     window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [watchingSrc, hasNext])
+    return () => {
+      controller.abort()
+      window.removeEventListener('message', onMessage)
+    }
+  }, [watchingSrc, hasNext, creditsUrl])
 
   if (!streamSrc && !free && !trailer) {
     return (
@@ -344,7 +418,7 @@ export function PlayerPanel({
 
   const playNext = () => {
     if (!nextEpisode) return
-    setEndedSrc(null)
+    setUpNext(null)
     setSelected(nextEpisode)
     void start('stream', tvSrc(nextEpisode.season, nextEpisode.episode))
   }
@@ -397,11 +471,11 @@ export function PlayerPanel({
             />
           )
         )}
-        {nextEpisode && endedSrc !== null && endedSrc === active.streamSrc && (
+        {nextEpisode && upNext?.src === active.streamSrc && !upNext.dismissed && (
           <UpNext
             label={`S${nextEpisode.season} E${nextEpisode.episode}`}
             onPlay={playNext}
-            onDismiss={() => setEndedSrc(null)}
+            onDismiss={() => setUpNext((u) => u && { ...u, dismissed: true })}
           />
         )}
       </div>
