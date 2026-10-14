@@ -283,3 +283,82 @@ export function findMatchStream(items: unknown[], home: string, away: string): M
   }
   return NO_STREAM
 }
+
+/*
+ * Fallback match data. When API-Football is unavailable, the provider's
+ * listing is turned into API-Football-shaped fixtures, so the Football section
+ * keeps showing matches, scores and streams. Its ids are strings, so they are
+ * mapped into a numeric range API-Football never uses (from 9,000,000,000),
+ * which keeps every route and link unchanged.
+ */
+
+export const PROVIDER_MATCH_BASE = 9_000_000_000
+
+/** FNV-1a, for stable numeric ids from the provider's string ids and names. */
+function hash(text: string) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h
+}
+
+export const providerMatchId = (id: string) => PROVIDER_MATCH_BASE + (hash(id) % 999_999_999)
+export const isProviderMatchId = (id: number) => id >= PROVIDER_MATCH_BASE
+
+const str = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null)
+
+const STATUS: Record<string, { short: string; long: string }> = {
+  live: { short: 'LIVE', long: 'In Play' },
+  finished: { short: 'FT', long: 'Match Finished' },
+  upcoming: { short: 'NS', long: 'Not Started' },
+}
+
+/** One provider listing entry as an API-Football fixture, or null if it lacks teams or an id. */
+export function providerFixture(item: unknown) {
+  if (!isObject(item)) return null
+  const providerId = str(item.id)
+  const teams = teamsOf(item)
+  if (!providerId || !teams) return null
+  const [homeName, awayName] = teams
+  const status = STATUS[(str(item.status) ?? '').toLowerCase()] ?? { short: 'TBD', long: str(item.status) ?? 'Unknown' }
+  const started = status.short !== 'NS' && status.short !== 'TBD'
+  const [home, away] = (str(item.score) ?? '').split('-').map((n) => Number.parseInt(n, 10))
+  const goals = started && Number.isFinite(home) && Number.isFinite(away) ? { home, away } : { home: null, away: null }
+  const kickoff = Date.parse(str(item.kickoff) ?? `${str(item.date)}T${str(item.time) ?? '00:00:00'}Z`)
+  const date = Number.isNaN(kickoff) ? new Date(0) : new Date(kickoff)
+  const minute = Number.parseInt(String(item.currentMinutes ?? ''), 10)
+  const league = str(item.league) ?? 'Other matches'
+  const winner = (mine: number | null, theirs: number | null) =>
+    status.short === 'FT' && mine !== null && theirs !== null ? (mine === theirs ? null : mine > theirs) : null
+  return {
+    fixture: {
+      id: providerMatchId(providerId),
+      date: date.toISOString(),
+      timestamp: Math.floor(date.getTime() / 1000),
+      status: { ...status, elapsed: status.short === 'LIVE' && Number.isFinite(minute) ? minute : null },
+    },
+    league: { id: PROVIDER_MATCH_BASE + (hash(league) % 999_999_999), name: league, country: '', logo: '' },
+    teams: {
+      home: { id: hash(homeName), name: homeName, logo: str(item.home_flag) ?? '', winner: winner(goals.home, goals.away) },
+      away: { id: hash(awayName), name: awayName, logo: str(item.away_flag) ?? '', winner: winner(goals.away, goals.home) },
+    },
+    goals,
+    events: [],
+    lineups: [],
+    statistics: [],
+  }
+}
+
+export type ProviderFixture = NonNullable<ReturnType<typeof providerFixture>>
+
+/** The listing as fixtures, with each one's provider id. */
+export function providerFixtures(items: unknown[]) {
+  const out: { fixture: ProviderFixture; providerId: string }[] = []
+  for (const item of items) {
+    const fixture = providerFixture(item)
+    if (fixture && isObject(item)) out.push({ fixture, providerId: String(item.id).trim() })
+  }
+  return out
+}

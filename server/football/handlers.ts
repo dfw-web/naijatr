@@ -11,7 +11,16 @@
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
 import type { ServerResponse } from 'node:http'
-import { fetchStreamLink, fetchStreamListing, findMatchStream, NO_STREAM, type MatchStream } from './stream.js'
+import {
+  fetchStreamLink,
+  fetchStreamListing,
+  findMatchStream,
+  isProviderMatchId,
+  NO_STREAM,
+  providerFixtures,
+  type MatchStream,
+  type ProviderFixture,
+} from './stream.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -202,8 +211,32 @@ const fixed = (ttl: number) => () => ttl
 const loadLive = (ctx: FootballContext) =>
   cached(ctx, 'live', () => callApi(ctx, 'fixtures', { live: 'all' }), fixed(FOOTBALL_TTL.live))
 
+type Loaded = Awaited<ReturnType<typeof cached>>
+
+/**
+ * When API-Football fails, answers from the stream provider's listing instead
+ * (see providerFixture in stream.ts), so matches and scores keep showing.
+ */
+async function withProviderFallback(
+  ctx: FootballContext,
+  result: Loaded,
+  pick: (fixture: ProviderFixture) => boolean,
+): Promise<Loaded> {
+  if (result.outcome.ok || !ctx.rapidKey) return result
+  const listing = await loadStreamListing(ctx, ctx.rapidKey)
+  if (!listing.outcome.ok) return result
+  const data = providerFixtures(listing.outcome.data as unknown[])
+    .map((p) => p.fixture)
+    .filter(pick)
+  return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: FOOTBALL_TTL.streams, stale: false }
+}
+
+const isProviderLive = (f: ProviderFixture) => f.fixture.status.short === 'LIVE'
+
+const liveOrFallback = async (ctx: FootballContext) => withProviderFallback(ctx, await loadLive(ctx), isProviderLive)
+
 async function live(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
-  send(res, await loadLive(ctx))
+  send(res, await liveOrFallback(ctx))
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -221,10 +254,8 @@ async function fixtures(ctx: FootballContext, params: URLSearchParams, res: Serv
   if (!DATE.test(date) || Number.isNaN(day) || Math.abs(day - today) > DAY_MS) {
     return fail(res, 'bad-request')
   }
-  send(
-    res,
-    await cached(ctx, `fixtures:${date}`, () => callApi(ctx, 'fixtures', { date }), fixed(FOOTBALL_TTL.fixtures)),
-  )
+  const result = await cached(ctx, `fixtures:${date}`, () => callApi(ctx, 'fixtures', { date }), fixed(FOOTBALL_TTL.fixtures))
+  send(res, await withProviderFallback(ctx, result, (f) => f.fixture.date.slice(0, 10) === date))
 }
 
 interface LeagueSeason {
@@ -297,7 +328,23 @@ function loadMatch(ctx: FootballContext, id: string) {
 async function match(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
   const id = params.get('id') ?? ''
   if (!MATCH_ID.test(id)) return fail(res, 'bad-request')
+  if (isProviderMatchId(Number(id))) {
+    const found = await findProviderMatch(ctx, Number(id))
+    return found ? send(res, found.result) : fail(res, 'not-found')
+  }
   send(res, await loadMatch(ctx, id))
+}
+
+/** A match that came from the stream provider's listing (id from providerMatchId). */
+async function findProviderMatch(ctx: FootballContext, id: number) {
+  if (!ctx.rapidKey) return null
+  const listing = await loadStreamListing(ctx, ctx.rapidKey)
+  if (!listing.outcome.ok) return null
+  const items = listing.outcome.data as unknown[]
+  const found = providerFixtures(items).find((p) => p.fixture.fixture.id === id)
+  if (!found) return null
+  const result: Loaded = { outcome: { ok: true, data: found.fixture }, maxAge: FOOTBALL_TTL.streams, stale: false }
+  return { ...found, items, result }
 }
 
 /**
@@ -311,6 +358,17 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
   const id = params.get('id') ?? ''
   if (!MATCH_ID.test(id)) return fail(res, 'bad-request')
   if (!ctx.rapidKey) return fail(res, 'not-configured')
+
+  if (isProviderMatchId(Number(id))) {
+    const provider = await findProviderMatch(ctx, Number(id))
+    if (!provider) return fail(res, 'not-found')
+    const { home, away } = provider.fixture.teams
+    const { providerId: _ignored, ...paired } = findMatchStream(provider.items, home.name, away.name)
+    const result: MatchStream = paired
+    if (!result.streams.length) result.streams = await loadStreamLink(ctx, ctx.rapidKey, provider.providerId)
+    result.available = result.streams.length > 0 || result.commentary.length > 0
+    return send(res, { outcome: { ok: true, data: result }, maxAge: FOOTBALL_TTL.streams, stale: false })
+  }
 
   const found = (await loadMatch(ctx, id)).outcome
   if (!found.ok) return fail(res, found.reason)
@@ -375,14 +433,18 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
     ctx,
     'watchable',
     async () => {
-      const [liveNow, listing] = await Promise.all([loadLive(ctx), loadStreamListing(ctx, rapidKey)])
+      const [liveNow, listing] = await Promise.all([liveOrFallback(ctx), loadStreamListing(ctx, rapidKey)])
       if (!liveNow.outcome.ok || !listing.outcome.ok) return { ok: true, data: [] }
       const items = listing.outcome.data as unknown[]
+      // Matches from the provider itself already carry its id.
+      const providerIds = new Map(providerFixtures(items).map((p) => [p.fixture.fixture.id, p.providerId]))
       const candidates = (liveNow.outcome.data as LiveFixture[]).flatMap((f) => {
         const id = f.fixture?.id
         const home = f.teams?.home?.name
         const away = f.teams?.away?.name
         if (!id || !home || !away) return []
+        const own = providerIds.get(id)
+        if (own) return [{ id, providerId: own, streams: [] }]
         const { providerId, streams } = findMatchStream(items, home, away)
         return providerId ? [{ id, providerId, streams }] : []
       })

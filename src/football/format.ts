@@ -78,6 +78,7 @@ export function statusLabel(fixture: Fixture) {
   if (isLive(status) && status.elapsed !== null) {
     return `${status.elapsed}${status.extra ? `+${status.extra}` : ''}'`
   }
+  if (isLive(status)) return 'Live'
   if (isFinished(status)) return status.short
   if (OTHER_STATUS[status.short]) return OTHER_STATUS[status.short]
   return kickoffTime(fixture)
