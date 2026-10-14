@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { AlertTriangle, Clapperboard, Download, Play, RotateCcw, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Clapperboard, Download, Play, RotateCcw, SkipForward, X } from 'lucide-react'
 import { findFreeMovie, freeSourceUrl, type FreeMovie } from '../data/freeMovies'
 import type { MediaItem, Trailer } from '../types/media'
 import './PlayerPanel.css'
@@ -40,6 +40,28 @@ interface Run {
 /** How long a player may take to load before we call it failed. */
 export const PLAYER_LOAD_TIMEOUT_MS = 20000
 
+/** Seconds the "Next episode" button counts down before playing it. */
+export const NEXT_EPISODE_DELAY_S = 10
+
+/**
+ * The stream player (embdmstrplayer.com, inside the NextStream page) posts
+ * `{ source: 'embedmaster_player', event, info }` to the top window and takes
+ * `{ source: 'embedmaster_player_command', command, value }` back.
+ */
+const PLAYER_EVENTS = 'embedmaster_player'
+const PLAYER_COMMANDS = 'embedmaster_player_command'
+
+/** True when `win` is `frame`'s window or one nested inside it. */
+const isInside = (win: MessageEventSource | null, frame: Window | null | undefined) => {
+  let w = win as Window | null
+  for (let depth = 0; w && frame && depth < 4; depth++) {
+    if (w === frame) return true
+    if (w === w.parent) break
+    w = w.parent
+  }
+  return false
+}
+
 const TIMEOUT_MESSAGE = 'The player took too long to load. Please try again.'
 
 const STREAM_MESSAGES: Record<string, string> = {
@@ -71,11 +93,25 @@ export function PlayerPanel({
   const episode = validSeason ? selected.episode : 1
   const episodeCount = seasons.find((s) => s.number === season)?.episodeCount ?? 0
   const streamEnabled = (isSeries ? availability.tv : availability.movie) && item.tmdbId !== undefined
+  const tvSrc = (s: number, e: number) => `/api/play/tv/${item.tmdbId}/${s}/${e}`
   const streamSrc = !streamEnabled
     ? null
     : isSeries
-      ? `/api/play/tv/${item.tmdbId}/${season}/${episode}`
+      ? tvSrc(season, episode)
       : `/api/play/movie/${item.tmdbId}`
+
+  // The episode after this one: the next in the season, else the next season's first.
+  const nextSeason = seasons
+    .filter((s) => s.number > season)
+    .sort((a, b) => a.number - b.number)[0]
+  const nextEpisode =
+    !streamSrc || !isSeries
+      ? null
+      : episodeCount === 0 || episode < episodeCount
+        ? { season, episode: episode + 1 }
+        : nextSeason
+          ? { season: nextSeason.number, episode: 1 }
+          : null
 
   const downloadEnabled = (isSeries ? downloads.tv : downloads.movie) && item.tmdbId !== undefined
   const downloadSrc = !downloadEnabled
@@ -111,6 +147,34 @@ export function PlayerPanel({
     return () => window.clearTimeout(timer)
   }, [loadingKey])
 
+  // When a streamed episode ends, offer the next one (see UpNext).
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const [endedSrc, setEndedSrc] = useState<string | null>(null)
+  const watchingSrc =
+    active?.choice === 'stream' && active.state.status !== 'checking' ? active.streamSrc : null
+  const hasNext = nextEpisode !== null
+  useEffect(() => {
+    if (!watchingSrc || !hasNext) return
+    let position = 0
+    const onMessage = (ev: MessageEvent) => {
+      const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
+      if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
+      if (data.event === 'time' && typeof data.info === 'number') position = data.info
+      if (data.event !== 'ended') return
+      // The player runs its own next-episode countdown on `ended`, which can't be
+      // turned off from here and would ignore a dismiss on our side. Stepping
+      // back from the end stops it; leaving fullscreen lets our button show.
+      const send = (command: string, value?: number) =>
+        (ev.source as Window).postMessage({ source: PLAYER_COMMANDS, command, value }, '*')
+      send('exitfullscreen')
+      send('pause')
+      send('seek', Math.max(0, position - 2))
+      setEndedSrc(watchingSrc)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [watchingSrc, hasNext])
+
   if (!streamSrc && !free && !trailer) {
     return (
       <p className="player__unavailable" role={isLoading ? 'status' : undefined}>
@@ -125,16 +189,16 @@ export function PlayerPanel({
     setRun((r) => (r && r.itemId === item.id && r.attempt === attempt ? { ...r, state } : r))
   const loaded = () => active && update(active.attempt, { status: 'playing' })
 
-  const start = async (choice: Choice) => {
+  const start = async (choice: Choice, src = streamSrc) => {
     const attempt = (run?.attempt ?? 0) + 1
     if (choice !== 'stream') {
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
     }
-    if (!streamSrc) return
-    setRun({ itemId: item.id, choice, streamSrc, attempt, state: { status: 'checking' } })
+    if (!src) return
+    setRun({ itemId: item.id, choice, streamSrc: src, attempt, state: { status: 'checking' } })
     try {
-      const response = await fetchImpl(`${streamSrc}?check=1`)
+      const response = await fetchImpl(`${src}?check=1`)
       const body = (await response.json().catch(() => ({}))) as {
         available?: boolean
         reason?: string | null
@@ -278,6 +342,13 @@ export function PlayerPanel({
   }
   const key = `${active.choice}-${active.attempt}`
 
+  const playNext = () => {
+    if (!nextEpisode) return
+    setEndedSrc(null)
+    setSelected(nextEpisode)
+    void start('stream', tvSrc(nextEpisode.season, nextEpisode.episode))
+  }
+
   return (
     <section className="player" aria-label="Watch">
       {active.choice === 'stream' && pickers}
@@ -291,6 +362,7 @@ export function PlayerPanel({
         {active.choice === 'stream' && active.streamSrc ? (
           <iframe
             key={key}
+            ref={frameRef}
             src={active.streamSrc}
             title={titles.stream}
             // `*`: /api/play may redirect to another host, which must keep these.
@@ -325,11 +397,80 @@ export function PlayerPanel({
             />
           )
         )}
+        {nextEpisode && endedSrc !== null && endedSrc === active.streamSrc && (
+          <UpNext
+            label={`S${nextEpisode.season} E${nextEpisode.episode}`}
+            onPlay={playNext}
+            onDismiss={() => setEndedSrc(null)}
+          />
+        )}
       </div>
       <button type="button" className="btn btn--ghost player__close" onClick={() => setRun(null)}>
         <X aria-hidden="true" /> Close player
       </button>
     </section>
+  )
+}
+
+interface UpNextProps {
+  label: string
+  onPlay: () => void
+  onDismiss: () => void
+}
+
+/**
+ * "Next episode" button that fills up over NEXT_EPISODE_DELAY_S and then plays
+ * the next episode. Clicking it plays it now; clicking anywhere else (or
+ * pressing Escape) dismisses it and stays on this episode.
+ */
+function UpNext({ label, onPlay, onDismiss }: UpNextProps) {
+  const [left, setLeft] = useState(NEXT_EPISODE_DELAY_S)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const actions = useRef({ onPlay, onDismiss })
+  useEffect(() => {
+    actions.current = { onPlay, onDismiss }
+  })
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setLeft((n) => n - 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  useEffect(() => {
+    if (left <= 0) actions.current.onPlay()
+  }, [left])
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (!buttonRef.current?.contains(e.target as Node)) actions.current.onDismiss()
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') actions.current.onDismiss()
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
+  return (
+    // Covers the player so a click on the video lands here and dismisses.
+    <div className="player__upnext">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="player__next"
+        style={{ animationDuration: `${NEXT_EPISODE_DELAY_S}s` }}
+        onClick={onPlay}
+      >
+        <SkipForward aria-hidden="true" />
+        Next episode · {label}
+        <span className="player__next-count" aria-hidden="true">
+          {Math.max(left, 0)}
+        </span>
+      </button>
+    </div>
   )
 }
 

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MediaItem } from '../types/media'
-import { PLAYER_LOAD_TIMEOUT_MS, PlayerPanel } from './PlayerPanel'
+import { NEXT_EPISODE_DELAY_S, PLAYER_LOAD_TIMEOUT_MS, PlayerPanel } from './PlayerPanel'
 
 const base: MediaItem = {
   id: 'tmdb-movie-550',
@@ -164,5 +164,92 @@ describe('PlayerPanel', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('next episode', () => {
+    const show: MediaItem = {
+      ...series,
+      seasons: [
+        { number: 1, name: 'Season 1', episodeCount: 2 },
+        { number: 2, name: 'Season 2', episodeCount: 3 },
+      ],
+    }
+    /** What the stream player posts to the top window when the episode ends. */
+    const end = (frame: HTMLElement) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { source: 'embedmaster_player', event: 'ended', info: null },
+            source: (frame as HTMLIFrameElement).contentWindow,
+          }),
+        )
+      })
+
+    const watch = async (episode: string) => {
+      // A fresh response per call: the next episode is checked too.
+      const fetchImpl = vi
+        .fn()
+        .mockImplementation(async () => new Response(JSON.stringify({ available: true }))) as unknown as typeof fetch
+      render(<PlayerPanel item={show} availability={on} fetchImpl={fetchImpl} />)
+      await userEvent.selectOptions(screen.getByLabelText('Episode'), episode)
+      await userEvent.click(screen.getByRole('button', { name: `Play S1 E${episode}` }))
+      return screen.findByTitle('Fight Club player')
+    }
+
+    it('counts down and then plays the next season when the last episode ends', async () => {
+      const frame = await watch('2')
+      vi.useFakeTimers()
+      try {
+        end(frame)
+        expect(screen.getByRole('button', { name: /Next episode · S2 E1/ })).toBeInTheDocument()
+        await act(async () => {
+          vi.advanceTimersByTime(NEXT_EPISODE_DELAY_S * 1000)
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute(
+        'src',
+        '/api/play/tv/1399/2/1',
+      )
+      expect(screen.getByLabelText('Season')).toHaveValue('2')
+    })
+
+    it('plays the next episode right away when the button is clicked', async () => {
+      end(await watch('1'))
+      await userEvent.click(screen.getByRole('button', { name: /Next episode · S1 E2/ }))
+      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute(
+        'src',
+        '/api/play/tv/1399/1/2',
+      )
+    })
+
+    it('stays on the episode when anything else is clicked', async () => {
+      const frame = await watch('1')
+      vi.useFakeTimers()
+      try {
+        end(frame)
+        fireEvent.pointerDown(document.querySelector('.player__upnext')!)
+        expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
+        await act(async () => {
+          vi.advanceTimersByTime(NEXT_EPISODE_DELAY_S * 1000)
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/1')
+    })
+
+    it('ignores ended messages from other frames', async () => {
+      const frame = await watch('1')
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', { data: { source: 'embedmaster_player', event: 'ended' } }),
+        )
+      })
+      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
+      end(frame)
+      expect(screen.getByRole('button', { name: /Next episode/ })).toBeInTheDocument()
+    })
   })
 })
