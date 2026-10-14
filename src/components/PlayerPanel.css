@@ -106,6 +106,34 @@
   }
 }
 
+.player__resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.player__resume > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.player__resume p {
+  flex: 1 1 12rem;
+  margin: 0;
+}
+
+.player__resume strong {
+  color: var(--text);
+}
+
 .player__error {
   display: flex;
   flex-wrap: wrap;

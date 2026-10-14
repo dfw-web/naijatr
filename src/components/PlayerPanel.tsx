@@ -4,6 +4,7 @@ import {
   Captions,
   Clapperboard,
   Download,
+  History,
   Play,
   RotateCcw,
   SkipForward,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import { findFreeMovie, freeSourceUrl, type FreeMovie } from '../data/freeMovies'
 import type { MediaItem, Trailer } from '../types/media'
+import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -136,6 +138,18 @@ export function PlayerPanel({
   const episodeCount = seasons.find((s) => s.number === season)?.episodeCount ?? 0
   const streamEnabled = (isSeries ? availability.tv : availability.movie) && item.tmdbId !== undefined
   const tvSrc = (s: number, e: number) => `/api/play/tv/${item.tmdbId}/${s}/${e}`
+
+  // The episode this browser last played of this series, offered as "Continue" until
+  // the viewer plays something or dismisses it.
+  const [resume, setResume] = useState(() => ({
+    itemId: item.id,
+    episode: isSeries ? readLastEpisode(item.id) : null,
+  }))
+  if (resume.itemId !== item.id) {
+    setResume({ itemId: item.id, episode: isSeries ? readLastEpisode(item.id) : null })
+  }
+  const lastEpisode = resume.itemId === item.id ? resume.episode : null
+  const dismissResume = () => setResume({ itemId: item.id, episode: null })
   const streamSrc = !streamEnabled
     ? null
     : isSeries
@@ -272,13 +286,16 @@ export function PlayerPanel({
     setRun((r) => (r && r.itemId === item.id && r.attempt === attempt ? { ...r, state } : r))
   const loaded = () => active && update(active.attempt, { status: 'playing' })
 
-  const start = async (choice: Choice, src = streamSrc) => {
+  /** Plays `choice`; for a series stream, `ep` picks the episode (default: the selected one). */
+  const start = async (choice: Choice, ep: EpisodeRef = { season, episode }) => {
     const attempt = (run?.attempt ?? 0) + 1
+    const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
     }
     if (!src) return
+    dismissResume()
     setRun({ itemId: item.id, choice, streamSrc: src, attempt, state: { status: 'checking' } })
     try {
       const response = await fetchImpl(`${src}?check=1`)
@@ -286,6 +303,7 @@ export function PlayerPanel({
         available?: boolean
         reason?: string | null
       }
+      if (body.available && isSeries) saveLastEpisode(item.id, ep)
       update(
         attempt,
         body.available
@@ -356,6 +374,32 @@ export function PlayerPanel({
     </div>
   )
 
+  const resumePrompt = streamSrc && lastEpisode && (
+    <div className="player__resume">
+      <History aria-hidden="true" />
+      <p>
+        You were watching{' '}
+        <strong>
+          S{lastEpisode.season} E{lastEpisode.episode}
+        </strong>
+        . Continue where you left off?
+      </p>
+      <button
+        type="button"
+        className="btn btn--primary"
+        onClick={() => {
+          setSelected(lastEpisode)
+          void start('stream', lastEpisode)
+        }}
+      >
+        <Play aria-hidden="true" /> Continue S{lastEpisode.season} E{lastEpisode.episode}
+      </button>
+      <button type="button" className="btn btn--ghost" onClick={dismissResume}>
+        Not now
+      </button>
+    </div>
+  )
+
   const actions = (
     <div className="player__actions">
       {streamSrc && (
@@ -399,6 +443,7 @@ export function PlayerPanel({
   if (!active || active.state.status === 'checking' || active.state.status === 'error') {
     return (
       <section className="player" aria-label="Watch">
+        {!active && resumePrompt}
         {pickers}
         {active?.state.status === 'error' && (
           <p className="player__error" role="alert">
@@ -429,7 +474,7 @@ export function PlayerPanel({
     if (!nextEpisode) return
     setUpNext(null)
     setSelected(nextEpisode)
-    void start('stream', tvSrc(nextEpisode.season, nextEpisode.episode))
+    void start('stream', nextEpisode)
   }
 
   return (

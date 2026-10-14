@@ -140,6 +140,59 @@ describe('PlayerPanel', () => {
     )
   })
 
+  it('remembers the last episode played and offers to continue it', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ available: true }))) as unknown as typeof fetch
+    const withSeasons: MediaItem = {
+      ...series,
+      seasons: [
+        { number: 1, name: 'Season 1', episodeCount: 10 },
+        { number: 2, name: 'Season 2', episodeCount: 3 },
+      ],
+    }
+    const first = render(<PlayerPanel item={withSeasons} availability={on} fetchImpl={fetchImpl} />)
+    expect(screen.queryByText(/You were watching/)).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('Season'), '2')
+    await userEvent.selectOptions(screen.getByLabelText('Episode'), '3')
+    await userEvent.click(screen.getByRole('button', { name: 'Play S2 E3' }))
+    await screen.findByTitle('Fight Club player')
+    first.unmount()
+
+    // Another series has no history of its own.
+    const other = render(
+      <PlayerPanel item={{ ...withSeasons, id: 'tmdb-series-1', tmdbId: 1 }} availability={on} fetchImpl={fetchImpl} />,
+    )
+    expect(screen.queryByText(/You were watching/)).not.toBeInTheDocument()
+    other.unmount()
+
+    render(<PlayerPanel item={withSeasons} availability={on} fetchImpl={fetchImpl} />)
+    expect(screen.getByText(/You were watching/)).toHaveTextContent('You were watching S2 E3. Continue where you left off?')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue S2 E3' }))
+    expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/2/3')
+    expect(screen.getByLabelText('Season')).toHaveValue('2')
+    expect(screen.getByLabelText('Episode')).toHaveValue('3')
+    expect(screen.queryByText(/You were watching/)).not.toBeInTheDocument()
+  })
+
+  it('lets the viewer dismiss the continue prompt, and ignores movies and unplayable episodes', async () => {
+    window.localStorage.setItem('naijatr:last-episode:tmdb-series-1399', JSON.stringify({ season: 1, episode: 4 }))
+    window.localStorage.setItem('naijatr:last-episode:tmdb-movie-550', JSON.stringify({ season: 1, episode: 4 }))
+    const movie = render(<PlayerPanel item={base} availability={on} />)
+    expect(screen.queryByText(/You were watching/)).not.toBeInTheDocument()
+    movie.unmount()
+
+    const unavailable = reply({ available: false, reason: 'not-found' })
+    render(<PlayerPanel item={series} availability={on} fetchImpl={unavailable} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(screen.queryByText(/You were watching/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E1' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    // S1 E1 never played, so S1 E4 is still the one remembered.
+    expect(JSON.parse(window.localStorage.getItem('naijatr:last-episode:tmdb-series-1399') ?? '')).toEqual({
+      season: 1,
+      episode: 4,
+    })
+  })
+
   it('shows a NextStream error with retry when the video is unavailable', async () => {
     const fetchImpl = vi
       .fn()

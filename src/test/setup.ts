@@ -5,6 +5,7 @@ import { afterEach, vi } from 'vitest'
 afterEach(() => {
   cleanup()
   window.history.replaceState(null, '', '/')
+  window.localStorage.clear()
 })
 
 // jsdom does not implement layout or scrolling APIs; stub the ones the UI calls.
