@@ -36,9 +36,12 @@ export const FOOTBALL_TTL = {
   matchLive: 60,
   matchFinished: 60 * 60,
   rateLimited: 60,
-  streams: 60,
+  /** The stream provider's listing (one request, shared by every match). */
+  streams: 2 * 60,
   /** A match's stream link rarely changes, and each check is one provider request. */
-  streamLinks: 3 * 60,
+  streamLinks: 30 * 60,
+  /** A match without a stream yet is checked again sooner, as streams start near kick-off. */
+  noStreamLink: 5 * 60,
 } as const
 
 export type FootballErrorReason =
@@ -348,7 +351,8 @@ async function loadStreamLink(ctx: FootballContext, rapidKey: string, providerId
     ctx,
     `stream-link:${providerId}`,
     async () => ({ ok: true, data: await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl) }),
-    fixed(FOOTBALL_TTL.streamLinks),
+    (outcome) =>
+      outcome.ok && (outcome.data as unknown[]).length ? FOOTBALL_TTL.streamLinks : FOOTBALL_TTL.noStreamLink,
   )
   return link.outcome.ok ? (link.outcome.data as MatchStream['streams']) : []
 }
