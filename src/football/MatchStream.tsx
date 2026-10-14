@@ -159,6 +159,81 @@ function directUrl(url: string) {
   }
 }
 
+const START_AHEAD_S = 6
+const RESUME_AHEAD_S = 4
+const MAX_GAP_S = 6
+/** Play anyway after this long if some video is ready but the target isn't reached. */
+const MAX_HOLD_MS = 4000
+
+/**
+ * Starts playback only with a few seconds of video ready, and after a stall
+ * waits for some again, so a slow feed pauses briefly now and then instead of
+ * stuttering constantly. Small holes in the stream are skipped. A pause by
+ * the viewer is left alone.
+ */
+function gatePlayback(video: HTMLVideoElement) {
+  let started = false
+  let holding = true
+  let holdSince = performance.now()
+  let pausedByUs = false
+  video.autoplay = false
+
+  /** Seconds buffered from the current position; jumps a small hole first. */
+  const ahead = () => {
+    const t = video.currentTime
+    const { buffered } = video
+    for (let i = 0; i < buffered.length; i += 1) {
+      if (buffered.start(i) <= t + 0.25 && buffered.end(i) > t) return buffered.end(i) - t
+      if (buffered.start(i) > t && buffered.start(i) - t <= MAX_GAP_S) {
+        video.currentTime = buffered.start(i) + 0.05
+        return buffered.end(i) - video.currentTime
+      }
+    }
+    return 0
+  }
+
+  const check = () => {
+    if (!holding) return
+    const ready = ahead()
+    const waitedLong = ready > 0.5 && performance.now() - holdSince > MAX_HOLD_MS
+    if (ready < (started ? RESUME_AHEAD_S : START_AHEAD_S) && !waitedLong) return
+    holding = false
+    started = true
+    pausedByUs = false
+    void video.play().catch(() => undefined)
+  }
+
+  const onWaiting = () => {
+    if (video.paused || holding) return
+    holding = true
+    holdSince = performance.now()
+    pausedByUs = true
+    video.pause()
+    check()
+  }
+  // The viewer paused (not us): stop managing until they press play.
+  const onPause = () => {
+    if (!pausedByUs) holding = false
+  }
+  const onPlay = () => {
+    if (!pausedByUs) holding = false
+  }
+
+  video.addEventListener('waiting', onWaiting)
+  video.addEventListener('pause', onPause)
+  video.addEventListener('play', onPlay)
+  const timer = window.setInterval(check, 1000)
+  return {
+    check,
+    remove() {
+      window.clearInterval(timer)
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('pause', onPause)
+      video.removeEventListener('play', onPlay)
+    },
+  }
+}
+
 /**
  * Plays an HLS (.m3u8) stream: natively where the browser can (Safari, iOS),
  * otherwise with hls.js, which is only downloaded when a stream is played.
@@ -173,7 +248,13 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
     // The source server first (faster), then the provider's proxy link as given.
     const candidates = [directUrl(url), url].filter((u, i, all): u is string => Boolean(u) && all.indexOf(u) === i)
 
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    let destroyed = false
+    let removeNative: (() => void) | undefined
+    let removeGate: ReturnType<typeof gatePlayback> | undefined
+    // The browser's own HLS player, only where hls.js can't run (iPhone Safari).
+    // Chrome now has one too, but it stalls on these feeds; hls.js copes better.
+    const playNatively = () => {
+      if (!video.canPlayType('application/vnd.apple.mpegurl')) return setFailed(true)
       let index = 0
       const onError = () => {
         index += 1
@@ -182,24 +263,33 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
       }
       video.addEventListener('error', onError)
       video.src = candidates[0]
-      return () => {
+      removeNative = () => {
         video.removeEventListener('error', onError)
         video.removeAttribute('src')
       }
     }
 
-    let destroyed = false
     let hls: { destroy: () => void } | undefined
-    import('hls.js').then(
-      ({ default: Hls }) => {
+    let prefetcher: { destroy: () => void } | undefined
+    // Open the connection to the stream server while hls.js downloads.
+    const preconnect = document.createElement('link')
+    preconnect.rel = 'preconnect'
+    preconnect.href = new URL(candidates[0]).origin
+    preconnect.crossOrigin = 'anonymous'
+    document.head.append(preconnect)
+    Promise.all([import('hls.js'), import('./hlsPrefetch')]).then(
+      ([{ default: Hls, FetchLoader }, { attachPrefetcher }]) => {
         if (destroyed) return
-        if (!Hls.isSupported()) return setFailed(true)
+        if (!Hls.isSupported()) return playNatively()
+        const prefetch = attachPrefetcher(Hls, FetchLoader)
+        prefetcher = prefetch
         let index = 0
         let mediaRecoveries = 0
         let networkRetries = 0
         const player = new Hls({
           // These feeds are only just faster than real time, so stay well
           // behind live (the playlists ask for 15 s) with a deep buffer.
+          ...prefetch.config,
           lowLatencyMode: false,
           liveSyncDurationCount: 6,
           liveMaxLatencyDurationCount: 15,
@@ -215,16 +305,21 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
           },
         })
         hls = player
+        prefetch.follow(player)
         player.on(Hls.Events.FRAG_LOADED, () => {
           networkRetries = 0
         })
+        removeGate = gatePlayback(video)
+        player.on(Hls.Events.FRAG_BUFFERED, () => removeGate?.check())
         player.on(Hls.Events.ERROR, (_event, data) => {
           if (!data.fatal) return
           if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 3) {
             mediaRecoveries += 1
             return player.recoverMediaError()
           }
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 3) {
+          // A playlist that won't load at all: go straight to the next address.
+          const playlistFailed = /^(manifest|level)(Load|Parsing)/.test(data.details)
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !playlistFailed && networkRetries < 3) {
             networkRetries += 1
             return player.startLoad()
           }
@@ -239,11 +334,17 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
         player.loadSource(candidates[0])
         player.attachMedia(video)
       },
-      () => setFailed(true),
+      () => {
+        if (!destroyed) playNatively()
+      },
     )
     return () => {
       destroyed = true
+      removeNative?.()
+      removeGate?.remove()
       hls?.destroy()
+      prefetcher?.destroy()
+      preconnect.remove()
     }
   }, [url])
 

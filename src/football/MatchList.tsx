@@ -10,6 +10,8 @@ interface MatchRowProps {
 }
 
 export function TeamLogo({ src, size = 24 }: { src: string; size?: number }) {
+  // Matches from the stream provider have no league logos.
+  if (!src) return <span className="fb-logo" style={{ width: size, height: size }} aria-hidden="true" />
   return (
     <img
       className="fb-logo"
