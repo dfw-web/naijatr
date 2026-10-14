@@ -9,6 +9,7 @@ import {
   type NextStreamConfig,
 } from './server/nextstream.ts'
 import { handleDownload, handlePlay, splitApiUrl } from './server/handlers.ts'
+import { footballApi } from './server/football/vite.ts'
 
 /**
  * Serves /api/play/... and /api/download/... in dev and preview. The handlers
@@ -72,7 +73,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), nextStreamPlayback(nextStream)],
+    plugins: [react(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

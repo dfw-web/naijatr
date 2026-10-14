@@ -45,6 +45,7 @@ function App() {
   }, [scrollRequest])
 
   const handleNavigate = (link: NavLink) => {
+    if (link.href) return window.location.assign(link.href)
     const hash = hashForView(link.view)
     if (window.location.hash !== hash) {
       window.history.pushState(null, '', hash || window.location.pathname + window.location.search)

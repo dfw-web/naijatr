@@ -1,0 +1,682 @@
+/* Football section. Every class is prefixed fb- so nothing here touches the movie pages. */
+
+.fb-main {
+  min-height: 100vh;
+}
+
+.fb-page {
+  max-width: 1100px;
+  min-height: 70vh;
+  margin: 0 auto;
+  padding: calc(var(--nav-height) + 2.5rem) var(--gutter) 3rem;
+}
+
+.fb-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Header */
+.fb-header {
+  margin-bottom: 2rem;
+}
+
+.fb-header__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.fb-header__subtitle,
+.fb-header__filter {
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+}
+
+.fb-header__filter {
+  color: var(--accent-soft);
+}
+
+/* Sections */
+.fb-section {
+  margin-bottom: 2.75rem;
+}
+
+.fb-section__title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  font-size: clamp(1.2rem, 2.4vw, 1.5rem);
+  font-weight: 700;
+}
+
+.fb-section__title svg {
+  width: 1.2em;
+  height: 1.2em;
+  color: var(--text-muted);
+}
+
+.fb-note {
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-faint);
+}
+
+.fb-credit {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+
+.fb-more {
+  width: 100%;
+  margin-top: 1rem;
+  min-height: 44px;
+  font-size: 0.95rem;
+}
+
+/* Live indicator */
+.fb-pulse {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(229, 9, 20, 0.6);
+  animation: fb-pulse 1.6s ease-out infinite;
+}
+
+@keyframes fb-pulse {
+  70% {
+    box-shadow: 0 0 0 8px rgba(229, 9, 20, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 9, 20, 0);
+  }
+}
+
+/* League groups and match rows */
+.fb-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.fb-league {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fb-league__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.fb-league__country {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.fb-league__list {
+  list-style: none;
+}
+
+.fb-league__list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.fb-logo {
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.fb-match {
+  display: grid;
+  grid-template-columns: 4.25rem 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+
+.fb-match:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.fb-match__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-match--live .fb-match__status {
+  color: var(--accent-soft);
+}
+
+.fb-match__teams {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.fb-match__team {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  font-size: 0.95rem;
+}
+
+.fb-match__team--lost {
+  color: var(--text-muted);
+}
+
+.fb-match__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-match__score {
+  min-width: 1.5rem;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabs */
+.fb-tabs {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  margin-bottom: 1rem;
+  scrollbar-width: none;
+}
+
+.fb-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.fb-tab {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.fb-tab:hover {
+  color: var(--text);
+}
+
+.fb-tab[aria-selected='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.fb-panel__season {
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+
+/* Standings table */
+.fb-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fb-table-wrap + .fb-table-wrap {
+  margin-top: 1rem;
+}
+
+.fb-table__group {
+  padding: 0.7rem 1rem 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.fb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-table th,
+.fb-table td {
+  padding: 0.6rem 0.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.fb-table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fb-table abbr {
+  text-decoration: none;
+}
+
+.fb-table tbody tr {
+  border-top: 1px solid var(--border);
+}
+
+.fb-table th.fb-table__team {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: left;
+  font-weight: 500;
+}
+
+.fb-table thead th.fb-table__team {
+  display: table-cell;
+}
+
+.fb-table__rank {
+  width: 2.5rem;
+  color: var(--text-muted);
+  box-shadow: inset 3px 0 0 transparent;
+}
+
+.fb-table__rank--marked {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.fb-table__pts {
+  font-weight: 700;
+}
+
+.fb-form {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.fb-form__dot {
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--surface-2);
+}
+
+.fb-form__dot--W {
+  background: #1f9d55;
+}
+
+.fb-form__dot--L {
+  background: var(--accent);
+}
+
+.fb-form__dot--D {
+  background: #6b6b78;
+}
+
+/* Match details */
+.fb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.fb-back:hover {
+  color: var(--text);
+}
+
+.fb-back svg {
+  width: 20px;
+  height: 20px;
+}
+
+.fb-scoreboard {
+  margin-bottom: 1.5rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(229, 9, 20, 0.14), transparent 60%),
+    var(--surface);
+  text-align: center;
+}
+
+.fb-scoreboard__league {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.fb-scoreboard__main {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.fb-scoreboard__team {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.fb-scoreboard__name {
+  font-size: clamp(0.95rem, 2.4vw, 1.25rem);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.fb-scoreboard__score {
+  font-family: var(--font-display);
+  font-size: clamp(2.6rem, 8vw, 4rem);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-scoreboard__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.fb-scoreboard__status--live {
+  color: var(--accent-soft);
+}
+
+.fb-scoreboard__extra,
+.fb-scoreboard__meta {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+/* Events timeline */
+.fb-events {
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fb-event {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 1rem;
+}
+
+.fb-event + .fb-event {
+  border-top: 1px solid var(--border);
+}
+
+.fb-event--away {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.fb-event__minute {
+  min-width: 2.75rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-event__icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+.fb-event__icon--goal {
+  color: var(--text);
+}
+
+.fb-card {
+  flex-shrink: 0;
+  width: 12px;
+  height: 16px;
+  border-radius: 2px;
+  margin: 0 3px;
+}
+
+.fb-card--yellow {
+  background: var(--gold);
+}
+
+.fb-card--red {
+  background: var(--accent);
+}
+
+.fb-event__text {
+  display: grid;
+  min-width: 0;
+}
+
+.fb-event__main {
+  font-weight: 500;
+}
+
+.fb-event__sub {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+/* Lineups */
+.fb-lineups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1rem;
+}
+
+.fb-lineup {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fb-lineup__team {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 1rem;
+}
+
+.fb-lineup__heading {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.fb-lineup__players {
+  list-style: none;
+}
+
+.fb-lineup__players li {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+}
+
+.fb-lineup__number {
+  min-width: 1.6rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-lineup__name {
+  flex: 1;
+}
+
+.fb-lineup__pos {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.fb-lineup__coach {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Stats */
+.fb-stats {
+  list-style: none;
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.fb-stat__values {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fb-stat__label {
+  font-weight: 400;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.fb-stat__bar {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+
+.fb-stat__home,
+.fb-stat__away {
+  border-radius: 3px;
+}
+
+.fb-stat__home {
+  background: var(--accent);
+}
+
+.fb-stat__away {
+  background: var(--text-faint);
+}
+
+/* Skeletons (shimmer comes from the shared .skeleton class) */
+.fb-skeleton-title {
+  width: 40%;
+  margin: 0.9rem 1rem;
+}
+
+.fb-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.fb-skeleton-row__teams {
+  display: grid;
+  flex: 1;
+  gap: 0.5rem;
+}
+
+.fb-skeleton-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+}
+
+.fb-skeleton-score {
+  width: 5rem;
+  height: 3rem;
+  border-radius: 6px;
+}
+
+@media (max-width: 860px) {
+  .fb-page {
+    padding-top: calc(var(--nav-height-mobile) + 2rem);
+  }
+}
+
+@media (max-width: 600px) {
+  .fb-wide {
+    display: none;
+  }
+
+  .fb-match {
+    grid-template-columns: 3.5rem 1fr;
+    padding: 0.6rem 0.85rem;
+  }
+
+  .fb-scoreboard__main {
+    gap: 0.5rem;
+  }
+}
