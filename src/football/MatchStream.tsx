@@ -146,6 +146,20 @@ export function MatchStream({ match }: { match: Fixture }) {
 }
 
 /**
+ * The provider's links wrap the real playlist in its own proxy
+ * (https://football-live-stream.online/?url=<playlist>). The source server
+ * allows browser requests and answers faster, so play from it directly.
+ */
+function directUrl(url: string) {
+  try {
+    const inner = new URL(url).searchParams.get('url')
+    return inner && new URL(inner).protocol === 'https:' ? inner : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Plays an HLS (.m3u8) stream: natively where the browser can (Safari, iOS),
  * otherwise with hls.js, which is only downloaded when a stream is played.
  */
@@ -156,22 +170,73 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+    // The source server first (faster), then the provider's proxy link as given.
+    const candidates = [directUrl(url), url].filter((u, i, all): u is string => Boolean(u) && all.indexOf(u) === i)
+
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url
-      return () => video.removeAttribute('src')
+      let index = 0
+      const onError = () => {
+        index += 1
+        if (index < candidates.length) video.src = candidates[index]
+        else setFailed(true)
+      }
+      video.addEventListener('error', onError)
+      video.src = candidates[0]
+      return () => {
+        video.removeEventListener('error', onError)
+        video.removeAttribute('src')
+      }
     }
+
     let destroyed = false
     let hls: { destroy: () => void } | undefined
     import('hls.js').then(
       ({ default: Hls }) => {
         if (destroyed) return
         if (!Hls.isSupported()) return setFailed(true)
-        const player = new Hls({ lowLatencyMode: true })
-        hls = player
-        player.on(Hls.Events.ERROR, (_event, data) => {
-          if (data.fatal) setFailed(true)
+        let index = 0
+        let mediaRecoveries = 0
+        let networkRetries = 0
+        const player = new Hls({
+          // These feeds are only just faster than real time, so stay well
+          // behind live (the playlists ask for 15 s) with a deep buffer.
+          lowLatencyMode: false,
+          liveSyncDurationCount: 6,
+          liveMaxLatencyDurationCount: 15,
+          maxBufferLength: 30,
+          backBufferLength: 30,
+          fragLoadPolicy: {
+            default: {
+              maxTimeToFirstByteMs: 10_000,
+              maxLoadTimeMs: 20_000,
+              timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+              errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+            },
+          },
         })
-        player.loadSource(url)
+        hls = player
+        player.on(Hls.Events.FRAG_LOADED, () => {
+          networkRetries = 0
+        })
+        player.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 3) {
+            mediaRecoveries += 1
+            return player.recoverMediaError()
+          }
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 3) {
+            networkRetries += 1
+            return player.startLoad()
+          }
+          // Still failing: try the next address for the stream, if any.
+          index += 1
+          if (index < candidates.length) {
+            networkRetries = 0
+            return player.loadSource(candidates[index])
+          }
+          setFailed(true)
+        })
+        player.loadSource(candidates[0])
         player.attachMedia(video)
       },
       () => setFailed(true),
