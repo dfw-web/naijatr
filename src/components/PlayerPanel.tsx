@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Clapperboard, Download, Play, RotateCcw, SkipForward, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Captions,
+  Clapperboard,
+  Download,
+  Play,
+  RotateCcw,
+  SkipForward,
+  X,
+} from 'lucide-react'
 import { findFreeMovie, freeSourceUrl, type FreeMovie } from '../data/freeMovies'
 import type { MediaItem, Trailer } from '../types/media'
 import './PlayerPanel.css'
@@ -479,6 +488,12 @@ export function PlayerPanel({
           />
         )}
       </div>
+      {active.choice === 'stream' && (
+        <p className="player__hint">
+          <Captions aria-hidden="true" />
+          Subtitles: tap the CC button in the player to choose a language.
+        </p>
+      )}
       <button type="button" className="btn btn--ghost player__close" onClick={() => setRun(null)}>
         <X aria-hidden="true" /> Close player
       </button>

@@ -59,6 +59,7 @@ describe('PlayerPanel', () => {
     expect(frame.getAttribute('src')).toBe(
       'https://www.youtube-nocookie.com/embed/SUXWAEX2jlg?autoplay=1&rel=0',
     )
+    expect(screen.queryByText(/Subtitles:/)).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
@@ -113,6 +114,7 @@ describe('PlayerPanel', () => {
     expect(frame).toHaveAttribute('src', '/api/play/movie/550')
     // `*` so fullscreen still works after /api/play redirects to another host.
     expect(frame.getAttribute('allow')).toContain('fullscreen *')
+    expect(screen.getByText(/Subtitles: tap the CC button/)).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()

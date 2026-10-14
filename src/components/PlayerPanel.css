@@ -42,6 +42,21 @@
   color: var(--text-faint);
 }
 
+.player__hint {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.player__hint svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
 .player__close {
   align-self: flex-start;
 }
