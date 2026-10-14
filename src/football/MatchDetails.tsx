@@ -13,7 +13,7 @@ type Tab = 'events' | 'watch' | 'lineups' | 'stats'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'events', label: 'Events' },
-  { id: 'watch', label: 'Watch' },
+  { id: 'watch', label: 'Commentary' },
   { id: 'lineups', label: 'Lineups' },
   { id: 'stats', label: 'Stats' },
 ]
@@ -26,9 +26,7 @@ interface MatchDetailsProps {
 export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const [refreshMs, setRefreshMs] = useState<number | undefined>(LIVE_REFRESH_MS)
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
-  const [chosenTab, setTab] = useState<Tab | null>(null)
-  // Live matches open on the stream and commentary until a tab is picked.
-  const tab = chosenTab ?? (match && isLive(match.fixture.status) ? 'watch' : 'events')
+  const [tab, setTab] = useState<Tab>('events')
 
   // Keep refreshing only while the match can still change.
   const shouldRefresh = !match || !isFinished(match.fixture.status) ? LIVE_REFRESH_MS : undefined

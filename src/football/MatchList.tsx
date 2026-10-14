@@ -1,4 +1,4 @@
-import { MonitorPlay } from 'lucide-react'
+import { MessageSquareText } from 'lucide-react'
 import { hasStarted, isLive, matchLinkProps, statusLabel, type LeagueGroup } from './format'
 import type { Fixture } from './types'
 
@@ -41,7 +41,7 @@ export function MatchRow({ fixture, onOpen }: MatchRowProps) {
           {statusLabel(fixture)}
           {live && (
             <span className="fb-match__watch">
-              <MonitorPlay aria-hidden="true" /> Watch
+              <MessageSquareText aria-hidden="true" /> Live
             </span>
           )}
         </span>

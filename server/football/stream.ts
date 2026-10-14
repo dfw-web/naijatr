@@ -12,8 +12,11 @@
 export const STREAM_ORIGIN = 'https://football-live-stream-api.p.rapidapi.com'
 const STREAM_HOST = new URL(STREAM_ORIGIN).host
 
-/** Upstream path of the provider's match listing (streams and commentary). */
-export const STREAM_LISTING_PATH = '/matches'
+/** Upstream path of the provider's match listing ({ result: [...] }). */
+export const STREAM_LISTING_PATH = '/all-match'
+
+/** Upstream path of one listed match's stream link ({ url }), by the provider's id. */
+const streamLinkPath = (id: string) => `/link/${encodeURIComponent(id)}`
 
 const UPSTREAM_TIMEOUT_MS = 10000
 
@@ -35,23 +38,35 @@ export interface CommentaryLine {
 }
 
 /** What /api/football/stream sends to the browser. */
+/** The provider's live status line for the match, when it lists it. */
+export interface StreamStatus {
+  status: string | null
+  score: string | null
+  minute: string | null
+}
+
 export interface MatchStream {
   available: boolean
   streams: StreamSource[]
   commentary: CommentaryLine[]
+  status: StreamStatus | null
+  /** The provider's own match id, used to ask for its stream link. Not sent to the browser. */
+  providerId?: string
 }
 
-export const NO_STREAM: MatchStream = { available: false, streams: [], commentary: [] }
+export const NO_STREAM: MatchStream = { available: false, streams: [], commentary: [], status: null }
 
 export type StreamFetchResult =
   | { ok: true; items: unknown[] }
   | { ok: false; reason: 'rate-limited' | 'auth' | 'upstream-error' | 'unreachable' }
 
 /** One upstream call. Never throws; never includes the key in what it returns. */
-export async function fetchStreamListing(key: string, fetchImpl: typeof fetch = fetch): Promise<StreamFetchResult> {
+async function callStreamApi(key: string, path: string, fetchImpl: typeof fetch): Promise<
+  { ok: true; body: unknown } | { ok: false; reason: 'rate-limited' | 'auth' | 'upstream-error' | 'unreachable' }
+> {
   let upstream: Response
   try {
-    upstream = await fetchImpl(`${STREAM_ORIGIN}${STREAM_LISTING_PATH}`, {
+    upstream = await fetchImpl(`${STREAM_ORIGIN}${path}`, {
       headers: { 'x-rapidapi-key': key, 'x-rapidapi-host': STREAM_HOST, Accept: 'application/json' },
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     })
@@ -62,10 +77,25 @@ export async function fetchStreamListing(key: string, fetchImpl: typeof fetch = 
   if (upstream.status === 401 || upstream.status === 403) return { ok: false, reason: 'auth' }
   if (!upstream.ok) return { ok: false, reason: 'upstream-error' }
   try {
-    return { ok: true, items: listFrom(await upstream.json()) }
+    return { ok: true, body: await upstream.json() }
   } catch {
     return { ok: false, reason: 'upstream-error' }
   }
+}
+
+/** The provider's match listing. */
+export async function fetchStreamListing(key: string, fetchImpl: typeof fetch = fetch): Promise<StreamFetchResult> {
+  const result = await callStreamApi(key, STREAM_LISTING_PATH, fetchImpl)
+  return result.ok ? { ok: true, items: listFrom(result.body) } : result
+}
+
+/**
+ * One listed match's stream sources. The provider usually answers { url: "" },
+ * so an empty list here is normal and never an error.
+ */
+export async function fetchStreamLink(key: string, providerId: string, fetchImpl: typeof fetch = fetch) {
+  const result = await callStreamApi(key, streamLinkPath(providerId), fetchImpl)
+  return result.ok && isObject(result.body) ? collectStreams(result.body) : []
 }
 
 type Json = Record<string, unknown>
@@ -230,7 +260,15 @@ export function findMatchStream(items: unknown[], home: string, away: string): M
     if (!matches) continue
     const streams = collectStreams(item)
     const commentary = collectCommentary(item)
-    return { available: streams.length > 0 || commentary.length > 0, streams, commentary }
+    const text = (value: unknown) =>
+      typeof value === 'string' && value.trim() ? value.trim() : typeof value === 'number' ? String(value) : null
+    return {
+      available: streams.length > 0 || commentary.length > 0,
+      streams,
+      commentary,
+      status: { status: text(item.status), score: text(item.score), minute: text(item.currentMinutes ?? item.minute) },
+      providerId: text(item.id) ?? undefined,
+    }
   }
   return NO_STREAM
 }

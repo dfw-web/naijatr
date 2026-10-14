@@ -112,4 +112,5 @@ export interface MatchStream {
   available: boolean
   streams: StreamSource[]
   commentary: CommentaryLine[]
+  status: { status: string | null; score: string | null; minute: string | null } | null
 }

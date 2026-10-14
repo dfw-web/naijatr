@@ -11,7 +11,7 @@
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
 import type { ServerResponse } from 'node:http'
-import { fetchStreamListing, findMatchStream, NO_STREAM } from './stream.js'
+import { fetchStreamLink, fetchStreamListing, findMatchStream, NO_STREAM, type MatchStream } from './stream.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -324,7 +324,19 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     fixed(FOOTBALL_TTL.streams),
   )
   if (!listing.outcome.ok) return send(res, listing)
-  send(res, { ...listing, outcome: { ok: true, data: findMatchStream(listing.outcome.data as unknown[], home, away) } })
+  const { providerId, ...paired } = findMatchStream(listing.outcome.data as unknown[], home, away)
+  const result: MatchStream = paired
+  if (providerId && !result.streams.length) {
+    const link = await cached(
+      ctx,
+      `stream-link:${providerId}`,
+      async () => ({ ok: true, data: await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl) }),
+      fixed(FOOTBALL_TTL.streams),
+    )
+    if (link.outcome.ok) result.streams = link.outcome.data as MatchStream['streams']
+    result.available = result.streams.length > 0 || result.commentary.length > 0
+  }
+  send(res, { ...listing, outcome: { ok: true, data: result } })
 }
 
 const ROUTES = { live, fixtures, standings, match, stream }

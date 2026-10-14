@@ -1,72 +1,88 @@
 import { useState } from 'react'
-import { ExternalLink, MessageSquareText, MonitorPlay, TvMinimalPlay } from 'lucide-react'
+import { ExternalLink, MessageSquareText } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
-import { useFootball, type FootballError } from './api'
+import { useFootball } from './api'
 import { hasStarted, isFinished, isLive } from './format'
-import type { Fixture, MatchStream as MatchStreamData, StreamSource } from './types'
+import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamData, StreamSource } from './types'
 
 const LIVE_REFRESH_MS = 60_000
 
-/** Copy for a failed stream lookup. It only affects this tab, never the match page. */
-function describeStreamError(error: FootballError) {
-  switch (error.reason) {
-    case 'not-configured':
-      return { title: "Streams aren't set up yet", message: 'The stream provider key has not been added on the server.' }
-    case 'rate-limited':
-      return { title: 'Streams are taking a breather', message: "We've reached the stream provider's request limit. Try again shortly." }
-    case 'offline':
-      return { title: "You're offline", message: 'Connect to the internet to look for a stream.' }
-    default:
-      return { title: 'Streams are unavailable right now', message: "We couldn't reach the stream provider. The rest of the match page still works." }
+const minuteOf = (event: FixtureEvent) => `${event.time.elapsed}${event.time.extra ? `+${event.time.extra}` : ''}`
+
+/** One commentary line per API-Football event: goals, cards, substitutions and VAR. */
+function describeEvent(event: FixtureEvent): string {
+  const team = event.team.name
+  const player = event.player.name
+  const assist = event.assist.name
+  if (event.type === 'Goal') {
+    if (event.detail === 'Own Goal') return `Own goal by ${player ?? 'a defender'}. It counts for ${team}.`
+    if (event.detail === 'Missed Penalty') return `Penalty missed! ${player ?? 'The taker'} fails to score for ${team}.`
+    const how = event.detail === 'Penalty' ? ' from the penalty spot' : ''
+    return `GOAL! ${player ?? team} scores for ${team}${how}${assist ? `, set up by ${assist}` : ''}.`
   }
+  if (event.type === 'Card') {
+    const red = event.detail.toLowerCase().includes('red')
+    return `${red ? 'Red card' : 'Yellow card'} for ${player ?? 'a player'} (${team})${event.comments ? `: ${event.comments}` : ''}.`
+  }
+  if (event.type === 'subst') {
+    // API-Football lists the player coming off as `player` and the one coming on as `assist`.
+    return `Substitution for ${team}: ${assist ?? 'a substitute'} comes on${player ? ` for ${player}` : ''}.`
+  }
+  if (event.type === 'Var') return `VAR check for ${team}: ${event.detail}${player ? ` (${player})` : ''}.`
+  return `${event.detail}${player ? ` (${player})` : ''}, ${team}.`
 }
 
-/** The match page's "Watch" tab: stream sources and live commentary for one match. */
+/** Newest first, with kick-off, half-time and full-time markers. */
+function buildCommentary(match: Fixture): CommentaryLine[] {
+  const { status } = match.fixture
+  const { home, away } = match.teams
+  const lines: CommentaryLine[] = []
+  if (hasStarted(status)) lines.push({ minute: '1', text: `Kick-off! ${home.name} vs ${away.name} is under way.` })
+  const events = [...(match.events ?? [])].sort(
+    (a, b) => a.time.elapsed - b.time.elapsed || (a.time.extra ?? 0) - (b.time.extra ?? 0),
+  )
+  const ht = match.score?.halftime
+  let halfTimeAdded = false
+  const addHalfTime = () => {
+    if (halfTimeAdded || ht?.home == null || ht.away == null) return
+    lines.push({ minute: '45', text: `Half-time: ${home.name} ${ht.home} - ${ht.away} ${away.name}.` })
+    halfTimeAdded = true
+  }
+  for (const event of events) {
+    if (event.time.elapsed > 45) addHalfTime()
+    lines.push({ minute: minuteOf(event), text: describeEvent(event) })
+  }
+  if (status.short !== '1H') addHalfTime()
+  if (isFinished(status)) {
+    lines.push({ minute: null, text: `Full-time: ${home.name} ${match.goals.home ?? 0} - ${match.goals.away ?? 0} ${away.name}.` })
+  }
+  return lines.reverse()
+}
+
+/**
+ * The match page's "Commentary" tab. Commentary is written from the match's
+ * events (already loaded with the match), so it works for every match. The
+ * Football Live Stream API (RapidAPI) adds its live status and, if it ever
+ * returns one, a stream; any failure there only hides those extras.
+ */
 export function MatchStream({ match }: { match: Fixture }) {
   const live = isLive(match.fixture.status)
-  const { data, error, loading, retry } = useFootball<MatchStreamData>(
-    `stream?id=${match.fixture.id}`,
-    live ? LIVE_REFRESH_MS : undefined,
-  )
+  const { data } = useFootball<MatchStreamData>(`stream?id=${match.fixture.id}`, live ? LIVE_REFRESH_MS : undefined)
   const [selected, setSelected] = useState(0)
 
-  if (loading) {
-    return (
-      <div className="fb-stream" aria-hidden="true">
-        <div className="skeleton fb-stream__player" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <StatusMessage
-        icon={MonitorPlay}
-        compact
-        {...describeStreamError(error)}
-        action={error.reason === 'not-configured' ? undefined : { label: 'Try again', onClick: retry }}
-      />
-    )
-  }
-
-  if (!data?.available) {
-    const message = isFinished(match.fixture.status)
-      ? 'This match has finished, so there is no live stream or commentary.'
-      : hasStarted(match.fixture.status)
-        ? "Our stream provider doesn't cover this match. Follow the score and events in the other tabs."
-        : 'Check back closer to kick-off. Streams and commentary usually appear once the match is live.'
-    return <StatusMessage icon={MonitorPlay} compact title="No stream for this match" message={message} />
-  }
-
-  const source = data.streams[Math.min(selected, data.streams.length - 1)]
+  const commentary = [...(data?.commentary ?? []), ...buildCommentary(match)]
+  const streams = data?.streams ?? []
+  const source = streams[Math.min(selected, streams.length - 1)]
+  const providerStatus = data?.status
+  const started = hasStarted(match.fixture.status)
 
   return (
     <div className="fb-stream">
-      {source ? (
+      {source && (
         <>
-          {data.streams.length > 1 && (
+          {streams.length > 1 && (
             <div className="fb-tabs fb-stream__sources" role="group" aria-label="Stream sources">
-              {data.streams.map((s, index) => (
+              {streams.map((s, index) => (
                 <button
                   key={s.url}
                   type="button"
@@ -87,24 +103,25 @@ export function MatchStream({ match }: { match: Fixture }) {
             </a>
           </p>
         </>
-      ) : (
-        <StatusMessage
-          icon={TvMinimalPlay}
-          compact
-          title="No video stream"
-          message="Only commentary is available for this match."
-        />
       )}
 
       <section className="fb-commentary" aria-label="Live commentary">
         <h3 className="fb-commentary__title">
-          <MessageSquareText aria-hidden="true" /> Commentary
+          <MessageSquareText aria-hidden="true" /> {live ? 'Live commentary' : 'Commentary'}
+          {live && <span className="fb-pulse" aria-hidden="true" />}
         </h3>
-        {data.commentary.length ? (
+        {live && providerStatus && (providerStatus.score || providerStatus.minute) && (
+          <p className="fb-stream__note">
+            {[providerStatus.status, providerStatus.minute && `${providerStatus.minute.replace(/'$/, '')}'`, providerStatus.score]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        )}
+        {commentary.length ? (
           <ol className="fb-events">
-            {data.commentary.map((line, index) => (
+            {commentary.map((line, index) => (
               <li key={index} className="fb-event">
-                <span className="fb-event__minute">{line.minute ? `${line.minute.replace(/'$/, '')}'` : ''}</span>
+                <span className="fb-event__minute">{line.minute ? `${line.minute.replace(/'$/, '')}'` : 'FT'}</span>
                 <span className="fb-event__text">
                   <span>{line.text}</span>
                 </span>
@@ -112,7 +129,16 @@ export function MatchStream({ match }: { match: Fixture }) {
             ))}
           </ol>
         ) : (
-          <p className="fb-stream__note">No commentary for this match yet.</p>
+          <StatusMessage
+            icon={MessageSquareText}
+            compact
+            title={started ? 'No commentary yet' : 'Commentary starts at kick-off'}
+            message={
+              started
+                ? 'Goals, cards and substitutions will be described here as they happen.'
+                : 'Come back when the match is live for minute-by-minute updates.'
+            }
+          />
         )}
       </section>
     </div>
@@ -146,7 +172,7 @@ function StreamPlayer({ source, title }: { source: StreamSource; title: string }
   return (
     <div className="fb-stream__player fb-stream__player--link">
       <a className="btn btn--primary" href={source.url} target="_blank" rel="noopener noreferrer nofollow">
-        <MonitorPlay aria-hidden="true" /> Watch {source.label}
+        Watch {source.label}
       </a>
     </div>
   )
