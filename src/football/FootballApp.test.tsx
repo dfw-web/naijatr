@@ -37,8 +37,12 @@ function mockApi(routes: Routes) {
 
 const SEASON = { year: 2026, start: '2026-08-21', end: '2027-05-30' }
 
+let openMock: ReturnType<typeof vi.fn>
+
 beforeEach(() => {
   window.history.replaceState(null, '', '/football')
+  openMock = vi.fn(() => null)
+  vi.stubGlobal('open', openMock)
 })
 
 afterEach(() => {
@@ -153,6 +157,7 @@ describe('Football page', () => {
     expect(screen.getByText('B. Saka')).toBeInTheDocument()
     expect(screen.getByText('Assist: M. Ødegaard')).toBeInTheDocument()
 
+    await user.click(screen.getByRole('tab', { name: 'Lineups' })) // first click only opens the ad
     await user.click(screen.getByRole('tab', { name: 'Lineups' }))
     expect(screen.getByText("Lineups aren't available")).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'Stats' }))
@@ -162,7 +167,7 @@ describe('Football page', () => {
     expect(window.location.pathname).toBe('/football')
   })
 
-  it('lists live matches with a stream first and opens them on the Watch tab', async () => {
+  it('lists live matches with a stream first and still opens them on the Events tab', async () => {
     mockApi({
       live: { body: { data: [fixture(3, { fixture: LIVE.fixture }), LIVE] } },
       watchable: { body: { data: [1] } },
@@ -177,7 +182,7 @@ describe('Football page', () => {
     const watchBlock = await screen.findByRole('region', { name: 'Watch live' })
     await user.click(within(watchBlock).getByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63', watch live" }))
     expect(window.location.pathname + window.location.search).toBe('/football/match/1?tab=watch')
-    expect(await screen.findByRole('tab', { name: 'Watch' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByRole('tab', { name: 'Events' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('writes live commentary from match events, even without a stream', async () => {
@@ -203,10 +208,47 @@ describe('Football page', () => {
     const user = userEvent.setup()
     render(<FootballApp />)
 
-    await user.click(await screen.findByRole('tab', { name: 'Watch' }))
+    await user.click(await screen.findByRole('tab', { name: 'Watch' })) // first click only opens the ad
+    await user.click(screen.getByRole('tab', { name: 'Watch' }))
     expect(screen.getByText('Live commentary')).toBeInTheDocument()
     expect(screen.getByText('GOAL! B. Saka scores for Arsenal, set up by M. Ødegaard.')).toBeInTheDocument()
     expect(screen.getByText('Kick-off! Arsenal vs Chelsea is under way.')).toBeInTheDocument()
+  })
+
+  it('opens the ad on the first two tab clicks of each match visit, holding the tab on the first', async () => {
+    mockApi({
+      live: { body: { data: [LIVE] } },
+      fixtures: { body: { data: [] } },
+      standings: { body: { data: [], season: SEASON } },
+      match: { body: { data: LIVE } },
+    })
+    const user = userEvent.setup()
+    render(<FootballApp />)
+    const openMatch = async () => {
+      await user.click(await screen.findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63'" }))
+      await screen.findByRole('heading', { level: 1, name: 'Arsenal vs Chelsea' })
+    }
+    const selected = (name: string) => expect(screen.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+
+    await openMatch()
+    selected('Events')
+    await user.click(screen.getByRole('tab', { name: 'Watch' }))
+    expect(openMock).toHaveBeenCalledTimes(1)
+    selected('Events')
+    await user.click(screen.getByRole('tab', { name: 'Watch' }))
+    expect(openMock).toHaveBeenCalledTimes(2)
+    selected('Watch')
+    await user.click(screen.getByRole('tab', { name: 'Stats' }))
+    selected('Stats')
+    expect(openMock).toHaveBeenCalledTimes(2)
+    expect(openMock).toHaveBeenCalledWith('https://uplcm.com/4/12033849', '_blank', 'noopener,noreferrer')
+
+    await user.click(screen.getByRole('link', { name: /All football/ }))
+    await openMatch()
+    selected('Events')
+    await user.click(screen.getByRole('tab', { name: 'Lineups' }))
+    expect(openMock).toHaveBeenCalledTimes(3)
+    selected('Events')
   })
 
   it('opens a match page directly from its URL', async () => {

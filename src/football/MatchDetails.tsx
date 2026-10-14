@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowLeftRight, BarChart3, ChevronLeft, Goal, ShieldAlert, Tv, Users } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
+import { useAdTwice } from '../hooks/useAdTwice'
 import { describeFootballError, useFootball } from './api'
 import { FOOTBALL_PATH, hasStarted, isFinished, isLive, statusLabel } from './format'
 import { TeamLogo } from './MatchList'
@@ -26,9 +27,8 @@ interface MatchDetailsProps {
 export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const [refreshMs, setRefreshMs] = useState<number | undefined>(LIVE_REFRESH_MS)
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
-  const [tab, setTab] = useState<Tab>(() =>
-    new URLSearchParams(window.location.search).get('tab') === 'watch' ? 'watch' : 'events',
-  )
+  const [tab, setTab] = useState<Tab>('events')
+  const onTabClickCapture = useAdTwice()
 
   // Keep refreshing only while the match can still change.
   const shouldRefresh = !match || !isFinished(match.fixture.status) ? LIVE_REFRESH_MS : undefined
@@ -60,7 +60,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
       ) : match ? (
         <>
           <MatchHeader match={match} />
-          <div className="fb-tabs" role="tablist" aria-label="Match details">
+          <div className="fb-tabs" role="tablist" aria-label="Match details" onClickCapture={onTabClickCapture}>
             {TABS.map((t) => (
               <button
                 key={t.id}
