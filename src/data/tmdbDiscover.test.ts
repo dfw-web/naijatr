@@ -94,42 +94,32 @@ describe('planDiscover', () => {
     expect(planDiscover(f({ categories: ['zombie'] }), 'movie', LISTS, [], TODAY)).toBeNull()
   })
 
-  it('applies year, rating (with a vote floor), runtime (movies only) and sort', () => {
-    const filters = f({ yearFrom: 2010, yearTo: 2020, minRating: 7, runtime: 'long', sort: 'oldest' })
-    expect(planDiscover(filters, 'movie', LISTS, [], TODAY)!.params).toMatchObject({
-      'primary_release_date.gte': '2010-01-01',
-      'primary_release_date.lte': '2020-12-31',
-      'vote_average.gte': '7',
-      'vote_count.gte': '50',
-      'with_runtime.gte': '151',
+  it('maps sort to each endpoint, skipping undated, unreleased and barely-rated titles', () => {
+    expect(planDiscover(f({ sort: 'oldest' }), 'movie', LISTS, [], TODAY)!.params).toMatchObject({
       sort_by: 'primary_release_date.asc',
+      'primary_release_date.gte': '1900-01-01',
     })
-    const tv = planDiscover(filters, 'tv', LISTS, [], TODAY)!.params
-    expect(tv).toMatchObject({ 'first_air_date.gte': '2010-01-01', sort_by: 'first_air_date.asc' })
-    expect(tv['with_runtime.gte']).toBeUndefined()
-
-    const newest = planDiscover(f({ sort: 'newest' }), 'movie', LISTS, [], TODAY)!.params
-    expect(newest['primary_release_date.lte']).toBe(TODAY)
-    expect(planDiscover(f({ sort: 'top' }), 'tv', LISTS, [], TODAY)!.params['vote_count.gte']).toBe('50')
+    expect(planDiscover(f({ sort: 'newest' }), 'tv', LISTS, [], TODAY)!.params).toMatchObject({
+      sort_by: 'first_air_date.desc',
+      'first_air_date.lte': TODAY,
+    })
+    expect(planDiscover(f({ sort: 'top' }), 'tv', LISTS, [], TODAY)!.params).toMatchObject({
+      sort_by: 'vote_average.desc',
+      'vote_count.gte': '50',
+    })
+    expect(planDiscover(f({}), 'movie', LISTS, [], TODAY)!.params['vote_count.gte']).toBeUndefined()
   })
 })
 
 describe('planSearch', () => {
-  it('checks genre, origin country (or language), year and rating client-side', () => {
-    const plan = planSearch(
-      f({ industries: ['nollywood'], genres: ['comedy'], yearFrom: 2015, minRating: 6 }),
-      'movie',
-      LISTS,
-      'love',
-    )!
+  it('checks genre and origin country (or language) client-side', () => {
+    const plan = planSearch(f({ industries: ['nollywood'], genres: ['comedy'] }), 'movie', LISTS, 'love')!
     expect(plan.params).toEqual({ query: 'love', include_adult: 'false' })
-    const ok = { genre_ids: [35], origin_country: ['NG'], release_date: '2019-02-01', vote_average: 6.5, vote_count: 80 }
+    const ok = { genre_ids: [35], origin_country: ['NG'] }
     expect(plan.keep!(ok)).toBe(true)
     expect(plan.keep!({ ...ok, origin_country: ['US'] })).toBe(false)
     expect(plan.keep!({ ...ok, origin_country: undefined, original_language: 'yo' })).toBe(true)
     expect(plan.keep!({ ...ok, genre_ids: [28] })).toBe(false)
-    expect(plan.keep!({ ...ok, release_date: '2010-01-01' })).toBe(false)
-    expect(plan.keep!({ ...ok, vote_count: 3 })).toBe(false)
   })
 })
 
@@ -141,26 +131,20 @@ describe('filter URL', () => {
       genres: ['comedy', 'romance'],
       genreMatch: 'any',
       categories: ['anime'],
-      yearFrom: 2000,
-      yearTo: 2024,
-      minRating: 7,
-      runtime: 'short',
       sort: 'top',
     })
     const search = serializeFilters(filters)
     expect(search).toContain('industry=nollywood,korean')
     expect(parseFilters(search)).toEqual(filters)
     expect(serializeFilters(DEFAULT_FILTERS)).toBe('')
-    expect(parseFilters('?genre=comedy,nope&rating=99&sort=bogus&from=12')).toEqual(
-      f({ genres: ['comedy'], minRating: 9 }),
-    )
+    expect(parseFilters('?genre=comedy,nope&sort=bogus&industry=atlantis')).toEqual(f({ genres: ['comedy'] }))
   })
 
   it('lists active filters as removable chips', () => {
-    const filters = f({ industries: ['nollywood'], genres: ['comedy'], yearFrom: 2020, yearTo: 2020 })
+    const filters = f({ type: 'both', industries: ['nollywood'], genres: ['comedy'], categories: ['zombie'] })
     const chips = activeFilters(filters, 'movie')
-    expect(chips.map((c) => c.label)).toEqual(['Nollywood', 'Comedy', '2020'])
-    expect(chips[0].remove(filters).industries).toEqual([])
+    expect(chips.map((c) => c.label)).toEqual(['Movies & Series', 'Nollywood', 'Comedy', 'Zombie'])
+    expect(chips[1].remove(filters).industries).toEqual([])
   })
 })
 

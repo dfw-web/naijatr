@@ -102,8 +102,7 @@
   flex-shrink: 0;
 }
 
-.browse__sort select,
-.filter-select select {
+.browse__sort select {
   height: 44px;
   padding: 0 2rem 0 0.85rem;
   border: 1px solid var(--border);
@@ -118,13 +117,11 @@
   cursor: pointer;
 }
 
-.browse__sort select:hover,
-.filter-select select:hover {
+.browse__sort select:hover {
   border-color: var(--border-strong);
 }
 
-.browse__sort select:focus-visible,
-.filter-select select:focus-visible {
+.browse__sort select:focus-visible {
   border-color: var(--accent);
 }
 

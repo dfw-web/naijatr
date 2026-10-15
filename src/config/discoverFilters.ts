@@ -86,14 +86,6 @@ export const CATEGORIES: Category[] = [
   { id: 'martial-arts', label: 'Martial Arts', keyword: 'martial arts' },
 ]
 
-export type RuntimeKey = 'short' | 'normal' | 'long'
-
-export const RUNTIMES: { id: RuntimeKey; label: string; gte?: number; lte?: number }[] = [
-  { id: 'short', label: 'Short (<90 min)', lte: 89 },
-  { id: 'normal', label: 'Normal', gte: 90, lte: 150 },
-  { id: 'long', label: 'Long (>150 min)', gte: 151 },
-]
-
 export type DiscoverSort = 'popular' | 'top' | 'newest' | 'oldest'
 
 export const DISCOVER_SORTS: { id: DiscoverSort; label: string }[] = [
@@ -111,11 +103,9 @@ export const TYPE_OPTIONS: { id: TypeFilter; label: string }[] = [
   { id: 'both', label: 'Both' },
 ]
 
-export const MIN_YEAR = 1900
-export const MAX_RATING = 9
 /** TMDB refuses pages beyond 500. */
 export const MAX_PAGE = 500
-/** Votes required whenever a rating matters, so 1-vote titles don't flood the list. */
+/** Votes required for Top Rated, so 1-vote titles don't flood the list. */
 export const MIN_VOTES_FOR_RATING = 50
 
 export interface DiscoverFilters {
@@ -125,11 +115,6 @@ export interface DiscoverFilters {
   genres: string[]
   genreMatch: 'all' | 'any'
   categories: string[]
-  yearFrom: number | null
-  yearTo: number | null
-  /** 0 = no minimum. */
-  minRating: number
-  runtime: RuntimeKey | null
   sort: DiscoverSort
 }
 
@@ -139,22 +124,12 @@ export const DEFAULT_FILTERS: DiscoverFilters = {
   genres: [],
   genreMatch: 'all',
   categories: [],
-  yearFrom: null,
-  yearTo: null,
-  minRating: 0,
-  runtime: null,
   sort: 'popular',
 }
 
 /** Filters that narrow the results (type and sort don't). */
 export const hasNarrowingFilters = (f: DiscoverFilters) =>
-  f.industries.length > 0 ||
-  f.genres.length > 0 ||
-  f.categories.length > 0 ||
-  f.yearFrom !== null ||
-  f.yearTo !== null ||
-  f.minRating > 0 ||
-  f.runtime !== null
+  f.industries.length > 0 || f.genres.length > 0 || f.categories.length > 0
 
 export const resolveType = (f: DiscoverFilters, pageType: MediaType): TypeFilter => f.type ?? pageType
 
@@ -165,28 +140,17 @@ const known = (ids: string[], list: { id: string }[]) =>
 
 const listParam = (value: string | null) => (value ? value.split(',').filter(Boolean) : [])
 
-const yearParam = (value: string | null) => {
-  const year = Number(value)
-  return value && Number.isInteger(year) && year >= MIN_YEAR && year <= 2100 ? year : null
-}
-
 /** Reads filters from a query string. Unknown values are dropped, so a bad link can't break the page. */
 export function parseFilters(search: string): DiscoverFilters {
   const p = new URLSearchParams(search)
   const type = p.get('type')
-  const runtime = p.get('runtime')
   const sort = p.get('sort')
-  const rating = Number(p.get('rating'))
   return {
     type: TYPE_OPTIONS.some((t) => t.id === type) ? (type as TypeFilter) : null,
     industries: known(listParam(p.get('industry')), INDUSTRIES),
     genres: known(listParam(p.get('genre')), GENRES),
     genreMatch: p.get('match') === 'any' ? 'any' : 'all',
     categories: known(listParam(p.get('category')), CATEGORIES),
-    yearFrom: yearParam(p.get('from')),
-    yearTo: yearParam(p.get('to')),
-    minRating: Number.isFinite(rating) ? Math.min(MAX_RATING, Math.max(0, Math.round(rating))) : 0,
-    runtime: RUNTIMES.some((r) => r.id === runtime) ? (runtime as RuntimeKey) : null,
     sort: DISCOVER_SORTS.some((s) => s.id === sort) ? (sort as DiscoverSort) : 'popular',
   }
 }
@@ -199,10 +163,6 @@ export function serializeFilters(f: DiscoverFilters): string {
   if (f.genres.length) p.set('genre', f.genres.join(','))
   if (f.genres.length > 1 && f.genreMatch === 'any') p.set('match', 'any')
   if (f.categories.length) p.set('category', f.categories.join(','))
-  if (f.yearFrom !== null) p.set('from', String(f.yearFrom))
-  if (f.yearTo !== null) p.set('to', String(f.yearTo))
-  if (f.minRating > 0) p.set('rating', String(f.minRating))
-  if (f.runtime) p.set('runtime', f.runtime)
   if (f.sort !== 'popular') p.set('sort', f.sort)
   const query = p.toString().replace(/%2C/g, ',')
   return query ? `?${query}` : ''
@@ -252,26 +212,6 @@ export function activeFilters(f: DiscoverFilters, pageType: MediaType): ActiveFi
       label: labelOf(CATEGORIES, id),
       remove: (x) => ({ ...x, categories: without(x.categories, id) }),
     })
-  }
-  if (f.yearFrom !== null || f.yearTo !== null) {
-    chips.push({
-      key: 'years',
-      label:
-        f.yearFrom !== null && f.yearTo !== null
-          ? f.yearFrom === f.yearTo
-            ? String(f.yearFrom)
-            : `${f.yearFrom}–${f.yearTo}`
-          : f.yearFrom !== null
-            ? `From ${f.yearFrom}`
-            : `Up to ${f.yearTo}`,
-      remove: (x) => ({ ...x, yearFrom: null, yearTo: null }),
-    })
-  }
-  if (f.minRating > 0) {
-    chips.push({ key: 'rating', label: `★ ${f.minRating}+`, remove: (x) => ({ ...x, minRating: 0 }) })
-  }
-  if (f.runtime) {
-    chips.push({ key: 'runtime', label: labelOf(RUNTIMES, f.runtime), remove: (x) => ({ ...x, runtime: null }) })
   }
   return chips
 }

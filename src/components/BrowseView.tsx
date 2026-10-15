@@ -36,9 +36,8 @@ const COPY: Record<MediaType | 'both', { title: string; subtitle: string }> = {
   both: { title: 'Movies & Series', subtitle: 'Films and shows together, ranked side by side.' },
 }
 
-/** Filters that can't apply to a text search (they aren't in /search results). */
-const SEARCH_UNSUPPORTED = (f: DiscoverFilters) =>
-  f.categories.some((id) => id !== 'anime') || f.runtime !== null
+/** Keyword categories can't apply to a text search (keywords aren't in /search results). */
+const SEARCH_UNSUPPORTED = (f: DiscoverFilters) => f.categories.some((id) => id !== 'anime')
 
 /** Catalogue for one content type, with TMDB Discover filters, sort and infinite scroll. */
 export function BrowseView({ type: pageType, filters, committed, onFiltersChange, query, onSelect }: BrowseViewProps) {
@@ -146,7 +145,7 @@ export function BrowseView({ type: pageType, filters, committed, onFiltersChange
       <ActiveFilters filters={filters} pageType={pageType} onChange={onFiltersChange} />
 
       {text && SEARCH_UNSUPPORTED(filters) && (
-        <p className="browse__note">Category and runtime filters don’t apply to text searches.</p>
+        <p className="browse__note">Category filters don’t apply to text searches.</p>
       )}
 
       <div className={`browse__results ${settling ? 'browse__results--settling' : ''}`}>

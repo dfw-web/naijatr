@@ -4,7 +4,6 @@ import {
   GENRES,
   INDUSTRIES,
   MIN_VOTES_FOR_RATING,
-  RUNTIMES,
   type DiscoverFilters,
   type DiscoverSort,
 } from '../config/discoverFilters'
@@ -150,29 +149,17 @@ export function planDiscover(
   if (keywordIds.length) params.with_keywords = keywordIds.join('|')
 
   const dateField = endpoint === 'movie' ? 'primary_release_date' : 'first_air_date'
-  if (filters.yearFrom !== null) params[`${dateField}.gte`] = `${filters.yearFrom}-01-01`
-  else if (filters.sort === 'oldest') params[`${dateField}.gte`] = '1900-01-01' // skip undated titles
-  if (filters.yearTo !== null) params[`${dateField}.lte`] = `${filters.yearTo}-12-31`
-  else if (filters.sort === 'newest') params[`${dateField}.lte`] = today // skip unreleased titles
-
-  if (filters.minRating > 0) params['vote_average.gte'] = String(filters.minRating)
-  if (filters.minRating > 0 || filters.sort === 'top') {
-    params['vote_count.gte'] = String(MIN_VOTES_FOR_RATING)
-  }
-
-  const runtime = RUNTIMES.find((r) => r.id === filters.runtime)
-  if (endpoint === 'movie' && runtime) {
-    if (runtime.gte !== undefined) params['with_runtime.gte'] = String(runtime.gte)
-    if (runtime.lte !== undefined) params['with_runtime.lte'] = String(runtime.lte)
-  }
+  if (filters.sort === 'oldest') params[`${dateField}.gte`] = '1900-01-01' // skip undated titles
+  if (filters.sort === 'newest') params[`${dateField}.lte`] = today // skip unreleased titles
+  if (filters.sort === 'top') params['vote_count.gte'] = String(MIN_VOTES_FOR_RATING)
 
   return { params, keep }
 }
 
 /**
  * /search parameters plus a client-side check for the filters /search
- * ignores: genres, industry, language, year and rating. Keyword categories
- * and runtime aren't in list results, so they can't apply to text search.
+ * ignores: genres, industry and language. Keyword categories aren't in
+ * list results, so they can't apply to text search.
  */
 export function planSearch(
   filters: DiscoverFilters,
@@ -202,16 +189,6 @@ export function planSearch(
         ? origin.some((c) => countries.has(c))
         : fallbackLanguages.has(r.original_language ?? '')
       if (!fromCountry) return false
-    }
-    const date = (endpoint === 'movie' ? r.release_date : r.first_air_date) || ''
-    const year = date ? Number(date.slice(0, 4)) : null
-    if (filters.yearFrom !== null && (year === null || year < filters.yearFrom)) return false
-    if (filters.yearTo !== null && (year === null || year > filters.yearTo)) return false
-    if (
-      filters.minRating > 0 &&
-      ((r.vote_average ?? 0) < filters.minRating || (r.vote_count ?? 0) < MIN_VOTES_FOR_RATING)
-    ) {
-      return false
     }
     return true
   }
