@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { MediaImage } from './components/MediaImage'
 import { createFallbackProvider } from './data/fallbackProvider'
@@ -104,6 +104,34 @@ describe('details panel', () => {
     const backdrop = screen.getByRole('dialog').parentElement!
     await user.click(backdrop)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('title ad', () => {
+  const AD = ['https://uplcm.com/4/12033849', '_blank', 'noopener,noreferrer']
+
+  it('opens the ad once per title click, from cards and View Details, while the details still open', async () => {
+    const open = vi.mocked(window.open)
+    open.mockClear()
+    const { user } = renderApp()
+    await user.click(await screen.findByRole('button', { name: 'View Details' }))
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(open).toHaveBeenCalledWith(...AD)
+    const dialog = screen.getByRole('dialog', { name: 'The Last Light of Orion' })
+
+    // Clicks inside the details panel never open it.
+    await user.click(within(dialog).getByRole('button', { name: 'Close details' }))
+    expect(open).toHaveBeenCalledTimes(1)
+
+    const series = screen.getByRole('region', { name: 'Popular Series' })
+    const [first, second] = within(series).getAllByRole('button', { name: /^View details for / })
+    await user.click(first)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(open).toHaveBeenCalledTimes(2)
+    await user.keyboard('{Escape}')
+    await user.click(second)
+    expect(open).toHaveBeenCalledTimes(3)
+    expect(open).toHaveBeenLastCalledWith(...AD)
   })
 })
 

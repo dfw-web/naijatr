@@ -1,4 +1,5 @@
 import { Info, ListVideo, Star } from 'lucide-react'
+import { useAdOnce } from '../hooks/useAdOnce'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatYear, typeLabel } from '../utils/media'
 import { MediaImage } from './MediaImage'
@@ -11,6 +12,7 @@ interface HeroProps {
 }
 
 export function Hero({ item, onViewDetails, onBrowse }: HeroProps) {
+  const openAd = useAdOnce()
   if (!item) {
     return (
       <section className="hero hero--loading" aria-busy="true" aria-label="Loading featured title">
@@ -63,7 +65,14 @@ export function Hero({ item, onViewDetails, onBrowse }: HeroProps) {
         <p className="hero__description">{item.description}</p>
 
         <div className="hero__actions">
-          <button type="button" className="btn btn--primary" onClick={() => onViewDetails(item)}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              openAd()
+              onViewDetails(item)
+            }}
+          >
             <Info aria-hidden="true" /> View Details
           </button>
           <button type="button" className="btn btn--ghost" onClick={onBrowse}>
