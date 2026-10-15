@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 import { BrowseView } from './components/BrowseView'
 import { DetailsModal } from './components/DetailsModal'
 import { FallbackNotice } from './components/FallbackNotice'
@@ -110,6 +111,9 @@ function App() {
       <FallbackNotice onRetry={() => setRefreshKey((n) => n + 1)} />
 
       {selected && <DetailsModal item={selected} onClose={closeDetails} />}
+
+      {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
+      <Analytics />
     </>
   )
 }

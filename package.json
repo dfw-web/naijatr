@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "hls.js": "1.6.13",
     "lucide-react": "^1.56.0",
     "react": "^19.2.8",
