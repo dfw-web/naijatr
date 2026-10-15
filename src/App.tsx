@@ -87,7 +87,14 @@ function App() {
 
       <main className="app-main" key={refreshKey}>
         {isSearching && !isFilteredSearch ? (
-          <SearchResults query={query} onSelect={setSelected} onClear={() => setQuery('')} />
+          <SearchResults
+            query={query}
+            filters={filters}
+            committed={committed}
+            onFiltersChange={setFilters}
+            onSelect={setSelected}
+            onClear={() => setQuery('')}
+          />
         ) : view === 'home' ? (
           <HomeView onSelect={setSelected} onBrowseTrending={() => handleNavigate(TRENDING_LINK)} />
         ) : (

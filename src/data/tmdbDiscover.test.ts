@@ -195,6 +195,31 @@ describe('TMDB discover', () => {
     expect(again.filter((u) => u.startsWith('/api/tmdb/search/keyword'))).toHaveLength(1)
   })
 
+  it('looks up movie countries for an industry filter on a text search', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input), 'http://x').pathname.replace('/api/tmdb', '')
+      if (path === '/genre/movie/list') return new Response(JSON.stringify({ genres: LISTS.movie }))
+      if (path === '/genre/tv/list') return new Response(JSON.stringify({ genres: LISTS.tv }))
+      if (path === '/search/movie') {
+        return page([
+          { id: 10, title: 'Lagos Love', original_language: 'en' },
+          { id: 11, title: 'Love Actually', original_language: 'en' },
+        ])
+      }
+      if (path === '/movie/10') return new Response(JSON.stringify({ origin_country: ['NG'] }))
+      if (path === '/movie/11') return new Response(JSON.stringify({ origin_country: ['GB'] }))
+      return new Response('{}', { status: 404 })
+    })
+    const provider = createTmdbProvider(fetchMock as unknown as typeof fetch)
+    const result = await provider.discover({
+      filters: f({ industries: ['nollywood'] }),
+      type: 'movie',
+      query: 'love',
+      page: 1,
+    })
+    expect(result.items.map((i) => i.title)).toEqual(['Lagos Love'])
+  })
+
   it('skips the TV call for a movie-only genre', async () => {
     const fetchMock = mockTmdb()
     const provider = createTmdbProvider(fetchMock as unknown as typeof fetch)

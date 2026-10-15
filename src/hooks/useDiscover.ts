@@ -103,6 +103,8 @@ export function useDiscover(request: Request | null) {
 
   return {
     items: current?.items ?? [],
+    /** Last page loaded (0 before the first). */
+    page: current?.page ?? 0,
     totalResults: current?.totalResults ?? null,
     isLoading,
     isLoadingMore,

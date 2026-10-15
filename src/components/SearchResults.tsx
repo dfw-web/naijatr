@@ -1,45 +1,95 @@
 import { CloudOff, SearchX } from 'lucide-react'
-import { useSearch } from '../hooks/useCatalog'
+import { activeFilters, clearFilters, resolveType, type DiscoverFilters } from '../config/discoverFilters'
+import { SEARCH_DEBOUNCE_MS, useSearch } from '../hooks/useCatalog'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useDiscover } from '../hooks/useDiscover'
 import type { MediaItem } from '../types/media'
+import { discoverCountText, searchIgnoresCategories } from '../utils/discover'
+import { DiscoverResults } from './DiscoverResults'
+import { FilterControls } from './FilterControls'
 import { StatusMessage } from './StatusMessage'
 import { TitleGrid } from './TitleGrid'
 import './SearchResults.css'
 
 interface SearchResultsProps {
   query: string
+  /** Live filters (chips update instantly). */
+  filters: DiscoverFilters
+  /** Debounced filters that drive the request. */
+  committed: DiscoverFilters
+  onFiltersChange: (next: DiscoverFilters) => void
   onSelect: (item: MediaItem) => void
   onClear: () => void
 }
 
-export function SearchResults({ query, onSelect, onClear }: SearchResultsProps) {
-  const { state, retry, isPending } = useSearch(query)
-  const isLoading = isPending || state.status === 'loading' || state.status === 'idle'
-  const results = state.status === 'success' ? state.data : []
+/** Search covers movies and series unless the Type filter narrows it. */
+const SEARCH_TYPE = 'both'
+
+/** Uses the filtered search once any filter or a non-default sort is chosen. */
+const isFiltered = (f: DiscoverFilters) => activeFilters(f, SEARCH_TYPE).length > 0 || f.sort !== 'popular'
+
+export function SearchResults({ query, filters, committed, onFiltersChange, onSelect, onClear }: SearchResultsProps) {
+  const filtered = isFiltered(committed)
+  const text = query.trim()
+  const debouncedText = useDebouncedValue(text, SEARCH_DEBOUNCE_MS)
+
+  // Without filters: TMDB's multi-search, ranked by relevance (as before).
+  const plain = useSearch(filtered ? '' : query)
+  // With filters: per-type search, filtered client-side (see tmdbDiscover.ts).
+  const discover = useDiscover(
+    filtered && debouncedText
+      ? { filters: committed, type: resolveType(committed, SEARCH_TYPE), query: debouncedText }
+      : null,
+  )
+  const isPending = text !== debouncedText
+
+  const plainLoading = plain.isPending || plain.state.status === 'loading' || plain.state.status === 'idle'
+  const results = plain.state.status === 'success' ? plain.state.data : []
+
+  const count = filtered
+    ? isPending
+      ? 'Searching…'
+      : discoverCountText(discover)
+    : plainLoading
+      ? 'Searching…'
+      : plain.state.status === 'success'
+        ? `${results.length} ${results.length === 1 ? 'title' : 'titles'}`
+        : ''
 
   return (
     <section className="page search-results" aria-labelledby="search-heading">
       <header className="search-results__header">
         <h1 id="search-heading" className="page__title search-results__title">
-          Results for <span>“{query.trim()}”</span>
+          Results for <span>“{text}”</span>
         </h1>
         <p className="search-results__count" aria-live="polite">
-          {isLoading
-            ? 'Searching…'
-            : state.status === 'success'
-              ? `${results.length} ${results.length === 1 ? 'title' : 'titles'}`
-              : ''}
+          {count}
         </p>
       </header>
 
-      {state.status === 'error' && !isPending ? (
+      <FilterControls filters={filters} onChange={onFiltersChange} pageType={SEARCH_TYPE} query={debouncedText} />
+
+      {searchIgnoresCategories(filters.categories) && (
+        <p className="browse__note">Category filters don’t apply to text searches.</p>
+      )}
+
+      {filtered ? (
+        <DiscoverResults
+          discover={discover}
+          settling={filters !== committed || isPending}
+          errorSubject="search results"
+          onClearFilters={() => onFiltersChange(clearFilters(filters))}
+          onSelect={onSelect}
+        />
+      ) : plain.state.status === 'error' && !plain.isPending ? (
         <StatusMessage
           icon={CloudOff}
           tone="error"
           title="Search is unavailable right now"
-          message={state.error.message}
-          action={{ label: 'Try again', onClick: retry }}
+          message={plain.state.error.message}
+          action={{ label: 'Try again', onClick: plain.retry }}
         />
-      ) : !isLoading && results.length === 0 ? (
+      ) : !plainLoading && results.length === 0 ? (
         <StatusMessage
           icon={SearchX}
           title="No titles match your search"
@@ -47,7 +97,7 @@ export function SearchResults({ query, onSelect, onClear }: SearchResultsProps) 
           action={{ label: 'Clear search', onClick: onClear }}
         />
       ) : (
-        <TitleGrid items={results} isLoading={isLoading} skeletonCount={6} onSelect={onSelect} />
+        <TitleGrid items={results} isLoading={plainLoading} skeletonCount={6} onSelect={onSelect} />
       )}
     </section>
   )

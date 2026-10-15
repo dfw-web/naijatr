@@ -1,10 +1,9 @@
 import { X } from 'lucide-react'
-import { activeFilters, clearFilters, type DiscoverFilters } from '../config/discoverFilters'
-import type { MediaType } from '../types/media'
+import { activeFilters, clearFilters, type DiscoverFilters, type TypeFilter } from '../config/discoverFilters'
 
 interface ActiveFiltersProps {
   filters: DiscoverFilters
-  pageType: MediaType
+  pageType: TypeFilter
   onChange: (next: DiscoverFilters) => void
 }
 

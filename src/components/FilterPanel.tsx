@@ -6,15 +6,15 @@ import {
   resolveType,
   TYPE_OPTIONS,
   type DiscoverFilters,
+  type TypeFilter,
 } from '../config/discoverFilters'
-import type { MediaType } from '../types/media'
 import './FilterPanel.css'
 
 interface FilterPanelProps {
   value: DiscoverFilters
   onChange: (next: DiscoverFilters) => void
   /** The page's own type, used when no Type filter is chosen. */
-  pageType: MediaType
+  pageType: TypeFilter
   /** "panel": wrapping chip rows (desktop). "sheet": sideways-scrolling rows (mobile bottom sheet). */
   layout: 'panel' | 'sheet'
 }

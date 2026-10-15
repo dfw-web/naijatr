@@ -131,7 +131,8 @@ export const DEFAULT_FILTERS: DiscoverFilters = {
 export const hasNarrowingFilters = (f: DiscoverFilters) =>
   f.industries.length > 0 || f.genres.length > 0 || f.categories.length > 0
 
-export const resolveType = (f: DiscoverFilters, pageType: MediaType): TypeFilter => f.type ?? pageType
+/** The Type filter, or the page's default: movies on Movies, series on Series, both on search. */
+export const resolveType = (f: DiscoverFilters, pageType: TypeFilter): TypeFilter => f.type ?? pageType
 
 // ---- URL query string ------------------------------------------------------
 
@@ -183,7 +184,7 @@ const labelOf = (list: { id: string; label: string }[], id: string) =>
 const without = (ids: string[], id: string) => ids.filter((x) => x !== id)
 
 /** Every removable filter currently applied, in display order. */
-export function activeFilters(f: DiscoverFilters, pageType: MediaType): ActiveFilter[] {
+export function activeFilters(f: DiscoverFilters, pageType: TypeFilter): ActiveFilter[] {
   const chips: ActiveFilter[] = []
   if (f.type && f.type !== pageType) {
     chips.push({

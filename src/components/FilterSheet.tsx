@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import { clearFilters, resolveType, type DiscoverFilters } from '../config/discoverFilters'
+import { clearFilters, resolveType, type DiscoverFilters, type TypeFilter } from '../config/discoverFilters'
 import { useDiscover } from '../hooks/useDiscover'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { FILTER_DEBOUNCE_MS } from '../hooks/useFilterParams'
-import type { MediaType } from '../types/media'
 import { FilterPanel } from './FilterPanel'
 import './FilterSheet.css'
 
 interface FilterSheetProps {
   initial: DiscoverFilters
-  pageType: MediaType
+  pageType: TypeFilter
   query: string
   onApply: (filters: DiscoverFilters) => void
   onClose: () => void
@@ -58,7 +57,10 @@ export function FilterSheet({ initial, pageType, query, onApply, onClose }: Filt
   }, [onClose])
 
   const count = preview.totalResults ?? preview.items.length
-  const applyLabel = settling
+  // A filtered text search only knows its count page by page; with nothing on
+  // the first page yet more to check, don't claim zero.
+  const unknown = preview.totalResults === null && count === 0 && preview.hasMore
+  const applyLabel = settling || unknown
     ? 'Show results'
     : preview.error
       ? 'Apply'

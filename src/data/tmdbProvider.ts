@@ -367,6 +367,25 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
     return abortable(promise, signal)
   }
 
+  // Movie search results carry no origin country, so an industry filter on a
+  // text search looks each movie up (cached). null = unknown; the filter then
+  // falls back to the original language.
+  const movieCountries = async (id: number, signal?: AbortSignal): Promise<string[] | undefined> => {
+    try {
+      const details = await cachedJson<{
+        origin_country?: string[]
+        production_countries?: { iso_3166_1: string }[]
+      }>(`/movie/${id}`, {}, signal)
+      const countries = details.origin_country?.length
+        ? details.origin_country
+        : (details.production_countries ?? []).map((c) => c.iso_3166_1)
+      return countries.length ? countries : undefined
+    } catch (error) {
+      if (signal?.aborted) throw error
+      return undefined
+    }
+  }
+
   // Keyword IDs are looked up by name once, never hard-coded.
   const keywordId = (name: string) => {
     let promise = keywordPromises.get(name)
@@ -465,8 +484,16 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
           const path = `/${text ? 'search' : 'discover'}/${endpoint}`
           const data = await cachedJson<TmdbPage>(path, { ...plan.params, page: String(page) }, signal)
           const fallbackType: MediaType = endpoint === 'movie' ? 'movie' : 'series'
+          const results =
+            text && endpoint === 'movie' && filters.industries.length
+              ? await Promise.all(
+                  data.results.map(async (r) =>
+                    r.origin_country?.length ? r : { ...r, origin_country: await movieCountries(r.id, signal) },
+                  ),
+                )
+              : data.results
           return {
-            items: data.results
+            items: results
               .filter((r) => !plan.keep || plan.keep(r))
               .flatMap((r) => mapTmdbResult(r, fallbackType, names) ?? []),
             totalPages: Math.min(data.total_pages ?? 1, MAX_PAGE),

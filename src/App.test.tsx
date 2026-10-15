@@ -336,6 +336,34 @@ describe('search', () => {
     expect(labels.join()).toMatch(/Velvet Hour/)
   })
 
+  it('filters a search started from Home, keeping Home in the URL', async () => {
+    const { user } = renderApp()
+    await screen.findByRole('heading', { name: 'Trending Now' })
+    // No filter controls on Home itself.
+    expect(screen.queryByRole('button', { name: /^Filters/ })).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'drama')
+    expect(await screen.findByRole('heading', { name: /Results for/ })).toHaveTextContent('drama')
+    await waitFor(() => expect(posterButtons().length).toBeGreaterThan(0))
+    const labels = () => posterButtons().map((b) => b.getAttribute('aria-label')!)
+    expect(labels().some((l) => /, Movie, /.test(l))).toBe(true)
+    expect(labels().some((l) => /, Series, /.test(l))).toBe(true)
+
+    const genres = await openFilters(user)
+    const types = screen.getByRole('group', { name: 'Type' })
+    expect(within(types).getByRole('button', { name: 'Both' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(within(types).getByRole('button', { name: 'Series' }))
+    await waitFor(() => expect(labels().length > 0 && labels().every((l) => /, Series, /.test(l))).toBe(true))
+    await waitFor(() => expect(window.location.search).toBe('?type=series'))
+    expect(window.location.hash).toBe('')
+
+    await user.click(within(genres).getByRole('button', { name: 'Horror' }))
+    const empty = await screen.findByRole('status')
+    expect(empty).toHaveTextContent('No titles match')
+    await user.click(within(empty).getByRole('button', { name: 'Clear all filters' }))
+    await waitFor(() => expect(labels().some((l) => /, Movie, /.test(l))).toBe(true))
+  })
+
   it('shows an empty state that can clear the search', async () => {
     const { user } = renderApp()
     const input = screen.getByRole('searchbox', { name: 'Search titles' })
