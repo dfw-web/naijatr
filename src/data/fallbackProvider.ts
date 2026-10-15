@@ -42,6 +42,7 @@ export function createFallbackProvider(
     getHome: (signal) => withFallback((p) => p.getHome(signal), signal),
     getByType: (type, signal) => withFallback((p) => p.getByType(type, signal), signal),
     search: (query, signal) => withFallback((p) => p.search(query, signal), signal),
+    discover: (request, signal) => withFallback((p) => p.discover(request, signal), signal),
     // Details only enrich an item we already show; a failure is reported in the panel.
     getDetails: (item, signal) => primary.getDetails(item, signal),
     fallback: {

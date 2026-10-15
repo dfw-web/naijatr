@@ -6,6 +6,8 @@ import { Footer } from './components/Footer'
 import { HomeView } from './components/HomeView'
 import { Navbar } from './components/Navbar'
 import { SearchResults } from './components/SearchResults'
+import { hasNarrowingFilters } from './config/discoverFilters'
+import { useFilterParams } from './hooks/useFilterParams'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import './App.css'
@@ -20,8 +22,12 @@ function App() {
   const [scrollRequest, setScrollRequest] = useState<{ section: string | null } | null>(null)
   // Bumped by "Try again" to remount the views, which re-runs every request.
   const [refreshKey, setRefreshKey] = useState(0)
+  // Browse filters live in the query string (?genre=comedy&industry=nollywood#/movies).
+  const { filters, committed, setFilters, reset: resetFilters } = useFilterParams()
 
   const isSearching = query.trim().length > 0
+  // On a browse page with filters, a text search is filtered too (see BrowseView).
+  const isFilteredSearch = isSearching && view !== 'home' && hasNarrowingFilters(filters)
 
   // Browser Back/Forward between views.
   useEffect(() => {
@@ -46,12 +52,14 @@ function App() {
 
   const handleNavigate = (link: NavLink) => {
     if (link.href) return window.location.assign(link.href)
-    const hash = hashForView(link.view)
-    if (window.location.hash !== hash) {
-      window.history.pushState(null, '', hash || window.location.pathname + window.location.search)
+    // A new view starts unfiltered, so drop the filter query string too.
+    const url = window.location.pathname + hashForView(link.view)
+    if (window.location.hash !== hashForView(link.view) || window.location.search) {
+      window.history.pushState(null, '', url)
     }
     setView(link.view)
     setQuery('')
+    resetFilters()
     setScrollRequest({ section: link.section ?? null })
   }
 
@@ -63,7 +71,7 @@ function App() {
 
   const closeDetails = useCallback(() => setSelected(null), [])
 
-  const activeId = isSearching ? null : view
+  const activeId = isSearching && !isFilteredSearch ? null : view
 
   return (
     <>
@@ -76,7 +84,7 @@ function App() {
       />
 
       <main className="app-main" key={refreshKey}>
-        {isSearching ? (
+        {isSearching && !isFilteredSearch ? (
           <SearchResults query={query} onSelect={setSelected} onClear={() => setQuery('')} />
         ) : view === 'home' ? (
           <HomeView onSelect={setSelected} onBrowseTrending={() => handleNavigate(TRENDING_LINK)} />
@@ -84,6 +92,10 @@ function App() {
           <BrowseView
             key={view}
             type={view === 'movies' ? 'movie' : 'series'}
+            filters={filters}
+            committed={committed}
+            onFiltersChange={setFilters}
+            query={isFilteredSearch ? query : ''}
             onSelect={setSelected}
           />
         )}

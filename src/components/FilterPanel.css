@@ -1,0 +1,129 @@
+.filter-panel {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.filter-group {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.filter-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.filter-group__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.filter-group__label strong {
+  color: var(--text);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.filter-group__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.filter-match {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.filter-match__option {
+  min-height: 40px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.filter-match__option[aria-pressed='true'] {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.filter-extras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.1rem 2rem;
+  align-items: start;
+}
+
+.filter-years {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+.filter-select {
+  flex: 1;
+}
+
+.filter-select select {
+  width: 100%;
+}
+
+.filter-range {
+  width: 100%;
+  height: 44px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Bottom sheet: every group is one sideways-scrolling row of chips. */
+.filter-panel--sheet {
+  gap: 1.4rem;
+}
+
+.filter-panel--sheet .filter-group__chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin: 0 -1.25rem;
+  padding: 0.1rem 1.25rem;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.filter-panel--sheet .filter-group__chips::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-panel--sheet .filter-chip {
+  flex-shrink: 0;
+}
+
+.filter-panel--sheet .filter-extras {
+  grid-template-columns: 1fr;
+  gap: 1.4rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

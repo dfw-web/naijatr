@@ -324,6 +324,9 @@ describe('fallback provider', () => {
     search: async () => {
       throw new Error('down')
     },
+    discover: async () => {
+      throw new Error('down')
+    },
     getDetails: async (item) => item,
   }
 

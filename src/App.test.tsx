@@ -156,24 +156,138 @@ describe('Movies and Series navigation', () => {
     expect(window.location.hash).toBe('#/series')
   })
 
-  it('filters by genre and sorts', async () => {
+  it('filters by genre, keeps filters in the URL, and removes them as chips', async () => {
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
-    const genres = await screen.findByRole('group', { name: 'Filter by genre' })
+    const genres = await screen.findByRole('group', { name: 'Genres' })
     await waitFor(() => expect(posterButtons().length).toBe(16))
 
     await user.click(within(genres).getByRole('button', { name: 'Horror' }))
     expect(within(genres).getByRole('button', { name: 'Horror' })).toHaveAttribute('aria-pressed', 'true')
-    const horrorTitles = posterButtons().map((b) => b.getAttribute('aria-label'))
-    expect(horrorTitles).toHaveLength(2)
-    expect(horrorTitles.join()).toMatch(/Hollow Ground/)
-    expect(horrorTitles.join()).toMatch(/Whispers in the Pines/)
+    await waitFor(() => expect(posterButtons()).toHaveLength(2))
+    const horrorTitles = posterButtons().map((b) => b.getAttribute('aria-label')).join()
+    expect(horrorTitles).toMatch(/Hollow Ground/)
+    expect(horrorTitles).toMatch(/Whispers in the Pines/)
+    expect(screen.getByText('2 titles')).toBeInTheDocument()
+    await waitFor(() => expect(window.location.search).toBe('?genre=horror'))
+    expect(window.location.hash).toBe('#/movies')
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'title')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'oldest')
+    await waitFor(() => expect(window.location.search).toBe('?genre=horror&sort=oldest'))
+
+    const active = screen.getByRole('group', { name: 'Active filters' })
+    await user.click(within(active).getByRole('button', { name: 'Remove filter: Horror' }))
+    await waitFor(() => expect(posterButtons()).toHaveLength(16))
+    expect(screen.queryByRole('group', { name: 'Active filters' })).not.toBeInTheDocument()
+    await waitFor(() => expect(window.location.search).toBe('?sort=oldest'))
+  })
+
+  it('shows an empty state with Clear all when nothing matches', async () => {
+    const { user } = renderApp()
+    await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
+    const genres = await screen.findByRole('group', { name: 'Genres' })
+    await user.click(within(genres).getByRole('button', { name: 'Horror' }))
+    await user.click(within(genres).getByRole('button', { name: 'Comedy' }))
+
+    const empty = await screen.findByRole('status')
+    expect(empty).toHaveTextContent('No titles match')
+    expect(empty).toHaveTextContent('Try removing a filter.')
+
+    // Match any: Horror OR Comedy.
+    await user.click(screen.getByRole('button', { name: 'Match any' }))
+    await waitFor(() => expect(posterButtons().length).toBeGreaterThan(2))
+
+    await user.click(within(screen.getByRole('group', { name: 'Active filters' })).getByRole('button', { name: 'Clear all' }))
+    await waitFor(() => expect(posterButtons()).toHaveLength(16))
+    await waitFor(() => expect(window.location.search).toBe(''))
+  })
+
+  it('restores filters from a shared link and drops them on navigation', async () => {
+    window.history.replaceState(null, '', '/?genre=mystery&type=both#/movies')
+    const { user } = renderApp()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Movies & Series' })).toBeInTheDocument()
+    expect(within(screen.getByRole('group', { name: 'Genres' })).getByRole('button', { name: 'Mystery' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await waitFor(() => expect(posterButtons().length).toBeGreaterThan(0))
+    const labels = posterButtons().map((b) => b.getAttribute('aria-label')!)
+    expect(labels.some((l) => /, Series, /.test(l))).toBe(true)
+    expect(labels.some((l) => /, Movie, /.test(l))).toBe(true)
+
+    await user.click(within(primaryNav()).getByRole('button', { name: 'Series' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Series' })).toBeInTheDocument()
+    expect(window.location.search).toBe('')
+    expect(screen.queryByRole('group', { name: 'Active filters' })).not.toBeInTheDocument()
+  })
+
+  it('steps back through filter changes with the Back button', async () => {
+    const { user } = renderApp()
+    await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
+    const genres = await screen.findByRole('group', { name: 'Genres' })
+    await user.click(within(genres).getByRole('button', { name: 'Horror' }))
+    await waitFor(() => expect(window.location.search).toBe('?genre=horror'))
+
+    window.history.back()
+    await waitFor(() => expect(window.location.search).toBe(''))
+    await waitFor(() =>
+      expect(within(screen.getByRole('group', { name: 'Genres' })).getByRole('button', { name: 'Horror' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      ),
+    )
+    await waitFor(() => expect(posterButtons()).toHaveLength(16))
+  })
+
+  it('filters a text search when filters are active, and cards still open the ad', async () => {
+    const open = vi.mocked(window.open)
+    open.mockClear()
+    const { user } = renderApp()
+    await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
+    const genres = await screen.findByRole('group', { name: 'Genres' })
+    await user.click(within(genres).getByRole('button', { name: 'Horror' }))
+    await waitFor(() => expect(posterButtons()).toHaveLength(2))
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'hollow')
+    expect(await screen.findByText(/matching your filters/)).toBeInTheDocument()
+    await waitFor(() => expect(posterButtons()).toHaveLength(1))
     expect(posterButtons()[0]).toHaveAccessibleName(/^View details for Hollow Ground/)
 
-    await user.click(within(genres).getByRole('button', { name: 'All' }))
-    expect(posterButtons()).toHaveLength(16)
+    await user.click(posterButtons()[0])
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('uses a bottom sheet with a live count and Apply on mobile', async () => {
+    const original = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+    try {
+      const { user } = renderApp()
+      await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
+      await waitFor(() => expect(posterButtons().length).toBe(16))
+      expect(screen.queryByRole('group', { name: 'Genres' })).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Filters' }))
+      const sheet = screen.getByRole('dialog', { name: 'Filters' })
+      await user.click(within(within(sheet).getByRole('group', { name: 'Genres' })).getByRole('button', { name: 'Horror' }))
+      const apply = await within(sheet).findByRole('button', { name: 'Show 2 titles' })
+      // Nothing changes until Apply.
+      expect(posterButtons()).toHaveLength(16)
+
+      await user.click(apply)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      await waitFor(() => expect(posterButtons()).toHaveLength(2))
+      for (const chip of within(screen.getByRole('group', { name: 'Active filters' })).getAllByRole('button')) {
+        expect(chip.className).toMatch(/active-filters/)
+      }
+    } finally {
+      window.matchMedia = original
+    }
   })
 
   it('opens the right view from a deep link', async () => {
@@ -193,6 +307,7 @@ describe('search', () => {
     const labels = posterButtons().map((b) => b.getAttribute('aria-label')!)
     expect(labels.some((l) => /, Movie, /.test(l))).toBe(true)
     expect(labels.some((l) => /, Series, /.test(l))).toBe(true)
+    expect(labels.some((l) => /, Movie, /.test(l))).toBe(true)
     expect(labels.join()).toMatch(/Velvet Hour/)
   })
 
@@ -306,6 +421,9 @@ describe('TMDB upgrade features', () => {
         throw new Error('TMDB request failed (503).')
       },
       search: async () => {
+        throw new Error('TMDB request failed (503).')
+      },
+      discover: async () => {
         throw new Error('TMDB request failed (503).')
       },
       getDetails: async (item) => item,

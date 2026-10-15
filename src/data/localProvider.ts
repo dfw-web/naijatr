@@ -1,8 +1,44 @@
+import { GENRES, RUNTIMES, type DiscoverFilters } from '../config/discoverFilters'
 import type { CatalogProvider, MediaItem } from '../types/media'
 import { matchesQuery, sortItems } from '../utils/media'
 import { sampleItems } from './sampleData'
 
 const SECTION_SIZE = 12
+const DISCOVER_PAGE_SIZE = 20
+
+/** Minutes from a "2h 14m" length string, or null. */
+const runtimeMinutes = (length?: string) => {
+  const match = length?.match(/^(?:(\d+)h)?\s*(?:(\d+)m)?$/)
+  return match && (match[1] || match[2]) ? Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0) : null
+}
+
+/**
+ * Browse filters against sample data. Samples have no country, language or
+ * keyword data, so industry and keyword filters (and Anime) match nothing
+ * rather than pretending.
+ */
+function matchesFilters(item: MediaItem, f: DiscoverFilters) {
+  if (f.industries.length || f.categories.length) return false
+  const genreNames = f.genres.map((id) => {
+    const chip = GENRES.find((g) => g.id === id)!
+    return [chip.label, chip.movie, chip.tv].filter(Boolean) as string[]
+  })
+  const has = (names: string[]) => names.some((n) => item.genres.includes(n))
+  if (genreNames.length && !(f.genreMatch === 'all' ? genreNames.every(has) : genreNames.some(has))) {
+    return false
+  }
+  if (f.yearFrom !== null && (item.year === null || item.year < f.yearFrom)) return false
+  if (f.yearTo !== null && (item.year === null || item.year > f.yearTo)) return false
+  if (f.minRating > 0 && (item.voteCount === 0 || item.score < f.minRating)) return false
+  const runtime = RUNTIMES.find((r) => r.id === f.runtime)
+  if (runtime && item.type === 'movie') {
+    const minutes = runtimeMinutes(item.length)
+    if (minutes === null) return false
+    if (runtime.gte !== undefined && minutes < runtime.gte) return false
+    if (runtime.lte !== undefined && minutes > runtime.lte) return false
+  }
+  return true
+}
 
 /** Resolves after `ms`, or rejects straight away if the request is aborted. */
 function delay(ms: number, signal?: AbortSignal) {
@@ -56,6 +92,31 @@ export function createLocalProvider({
         items.filter((item) => item.type === type),
         'popular',
       )
+    },
+
+    async discover({ filters, type, query, page }, signal) {
+      await delay(Math.min(latencyMs, 200), signal)
+      const matches = items.filter(
+        (item) =>
+          (type === 'both' || item.type === type) &&
+          matchesQuery(item, query) &&
+          matchesFilters(item, filters),
+      )
+      const sorted =
+        filters.sort === 'popular'
+          ? sortItems(matches, 'popular')
+          : filters.sort === 'top'
+            ? sortItems(matches, 'rating')
+            : filters.sort === 'newest'
+              ? sortItems(matches, 'newest')
+              : sortItems(matches, 'newest').reverse()
+      const start = (page - 1) * DISCOVER_PAGE_SIZE
+      return {
+        items: sorted.slice(start, start + DISCOVER_PAGE_SIZE),
+        page,
+        totalPages: Math.ceil(sorted.length / DISCOVER_PAGE_SIZE),
+        totalResults: sorted.length,
+      }
     },
 
     async getDetails(item, signal) {

@@ -11,30 +11,66 @@
   font-size: 0.9rem;
 }
 
+.browse__query {
+  color: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+
 .browse__toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem 1.5rem;
-  margin: 1.5rem 0 2rem;
+  gap: 0.75rem 1.5rem;
+  margin: 1.5rem 0 1rem;
 }
 
-.browse__genres {
-  display: flex;
-  flex-wrap: wrap;
+.browse__filters-button {
+  display: inline-flex;
+  align-items: center;
   gap: 0.5rem;
-  min-width: 0;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.92rem;
+  font-weight: 600;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.browse__filters-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.browse__filters-button:hover,
+.browse__filters-button[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.browse__filters-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  font-size: 0.75rem;
+  color: #fff;
 }
 
 .filter-chip {
-  padding: 0.45rem 0.95rem;
+  min-height: 44px;
+  padding: 0 1rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-muted);
+  white-space: nowrap;
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
@@ -66,8 +102,9 @@
   flex-shrink: 0;
 }
 
-.browse__sort select {
-  height: 38px;
+.browse__sort select,
+.filter-select select {
+  height: 44px;
   padding: 0 2rem 0 0.85rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -81,41 +118,126 @@
   cursor: pointer;
 }
 
-.browse__sort select:hover:not(:disabled) {
+.browse__sort select:hover,
+.filter-select select:hover {
   border-color: var(--border-strong);
 }
 
-.browse__sort select:focus-visible {
+.browse__sort select:focus-visible,
+.filter-select select:focus-visible {
   border-color: var(--accent);
 }
 
-/* On narrow screens, genres scroll sideways instead of wrapping into a wall. */
+.browse__panel {
+  margin-bottom: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.active-filters__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.75rem 0 1rem;
+  border: 1px solid rgba(229, 9, 20, 0.5);
+  border-radius: 999px;
+  background: rgba(229, 9, 20, 0.14);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.active-filters__chip svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-soft);
+}
+
+.active-filters__chip:hover {
+  border-color: var(--accent);
+}
+
+.active-filters__clear {
+  min-height: 44px;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.browse__note {
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+
+.browse__results {
+  margin-top: 1.5rem;
+  transition: opacity 150ms ease;
+}
+
+/* Filters changed; the new results are on their way. */
+.browse__results--settling {
+  opacity: 0.55;
+}
+
+.browse__more {
+  display: flex;
+  justify-content: center;
+  min-height: 1px;
+  margin-top: 2rem;
+}
+
+.browse__more .btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 @media (max-width: 640px) {
-  /* nowrap matters: a wrapping column sizes its line to the widest child (all the chips). */
   .browse__toolbar {
-    flex-direction: column;
     flex-wrap: nowrap;
-    align-items: stretch;
   }
 
-  .browse__genres {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    margin: 0 calc(var(--gutter) * -1);
-    padding: 0.25rem var(--gutter);
-    scrollbar-width: none;
-  }
-
-  .browse__genres::-webkit-scrollbar {
+  .browse__sort span {
     display: none;
   }
 
-  .filter-chip {
-    flex-shrink: 0;
+  .browse__sort {
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 0;
   }
 
   .browse__sort select {
-    flex: 1;
-    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Active filters scroll sideways instead of stacking into a wall. */
+  .active-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-inline: calc(var(--gutter) * -1);
+    padding: 0 var(--gutter);
+    scrollbar-width: none;
+  }
+
+  .active-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .active-filters > * {
+    flex-shrink: 0;
   }
 }

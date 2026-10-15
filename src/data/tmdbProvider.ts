@@ -1,11 +1,23 @@
+import { MAX_PAGE } from '../config/discoverFilters'
 import type {
   CatalogProvider,
+  DiscoverPage,
   MediaItem,
   MediaType,
   Trailer,
   WatchProvider,
   WatchProviders,
 } from '../types/media'
+import {
+  isoDate,
+  keywordNames,
+  pickKeyword,
+  planDiscover,
+  planSearch,
+  sortMerged,
+  type Endpoint,
+  type GenreLists,
+} from './tmdbDiscover'
 
 /**
  * TMDB-backed catalogue.
@@ -33,10 +45,18 @@ export interface TmdbResult {
   vote_count?: number
   popularity?: number
   adult?: boolean
+  origin_country?: string[]
+  original_language?: string
 }
 
 interface TmdbPage {
   results: TmdbResult[]
+  total_pages?: number
+  total_results?: number
+}
+
+interface TmdbKeywordPage {
+  results: { id: number; name: string }[]
 }
 
 interface TmdbGenreList {
@@ -258,6 +278,20 @@ async function requestJson<T>(
   return (await response.json()) as T
 }
 
+/** Rejects as soon as `signal` aborts, without cancelling the shared `promise`. */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+const RESPONSE_CACHE_SIZE = 200
+const RESPONSE_CACHE_TTL_MS = 10 * 60 * 1000
+
 /** Converts a TMDB list result into our MediaItem shape. Returns null for people and adult titles. */
 export function mapTmdbResult(
   result: TmdbResult,
@@ -287,18 +321,23 @@ export function mapTmdbResult(
 }
 
 export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)): CatalogProvider {
-  let genresPromise: Promise<Map<number, string>> | null = null
+  let genresPromise: Promise<{ lists: GenreLists; names: Map<number, string> }> | null = null
+  const keywordPromises = new Map<string, Promise<number | null>>()
+  const responses = new Map<string, { at: number; promise: Promise<unknown> }>()
 
-  // Genre names are shared by every list, so fetch both lists once and cache them.
+  // Genre lists are shared by every list and filter, so fetch both once and cache them.
   // The shared fetch deliberately ignores any single caller's AbortSignal:
   // otherwise one cancelled request would poison the cache for everyone else.
-  const loadGenres = () => {
+  const loadGenreData = () => {
     if (!genresPromise) {
-      const promise: Promise<Map<number, string>> = Promise.all([
+      const promise = Promise.all([
         requestJson<TmdbGenreList>(fetchImpl, '/genre/movie/list'),
         requestJson<TmdbGenreList>(fetchImpl, '/genre/tv/list'),
       ])
-        .then(([movie, tv]) => new Map([...movie.genres, ...tv.genres].map((g) => [g.id, g.name])))
+        .then(([movie, tv]) => ({
+          lists: { movie: movie.genres, tv: tv.genres },
+          names: new Map([...movie.genres, ...tv.genres].map((g) => [g.id, g.name])),
+        }))
         .catch((error: unknown) => {
           if (genresPromise === promise) genresPromise = null // let a retry try again
           throw error
@@ -306,6 +345,42 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
       genresPromise = promise
     }
     return genresPromise
+  }
+  const loadGenres = () => loadGenreData().then((data) => data.names)
+
+  // Filter requests repeat a lot (Back, toggling a chip off and on, the mobile
+  // sheet's count then Apply), so keep recent responses. Like the genre
+  // cache, the shared fetch ignores any single caller's AbortSignal.
+  const cachedJson = <T,>(path: string, params: Record<string, string>, signal?: AbortSignal) => {
+    const key = `${path}?${new URLSearchParams(params)}`
+    const hit = responses.get(key)
+    if (hit && Date.now() - hit.at < RESPONSE_CACHE_TTL_MS) {
+      return abortable(hit.promise as Promise<T>, signal)
+    }
+    const promise = requestJson<T>(fetchImpl, path, params).catch((error: unknown) => {
+      if (responses.get(key)?.promise === promise) responses.delete(key)
+      throw error
+    })
+    responses.delete(key)
+    responses.set(key, { at: Date.now(), promise })
+    if (responses.size > RESPONSE_CACHE_SIZE) responses.delete(responses.keys().next().value!)
+    return abortable(promise, signal)
+  }
+
+  // Keyword IDs are looked up by name once, never hard-coded.
+  const keywordId = (name: string) => {
+    let promise = keywordPromises.get(name)
+    if (!promise) {
+      const lookup = requestJson<TmdbKeywordPage>(fetchImpl, '/search/keyword', { query: name })
+        .then((page) => pickKeyword(page.results, name))
+        .catch((error: unknown) => {
+          if (keywordPromises.get(name) === lookup) keywordPromises.delete(name)
+          throw error
+        })
+      keywordPromises.set(name, lookup)
+      promise = lookup
+    }
+    return promise
   }
 
   const list = async (
@@ -362,6 +437,56 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
 
     search(query, signal) {
       return list('/search/multi', 'movie', signal, { query, include_adult: 'false' })
+    },
+
+    async discover({ filters, type, query, page }, signal) {
+      const endpoints: Endpoint[] =
+        type === 'both' ? ['movie', 'tv'] : [type === 'movie' ? 'movie' : 'tv']
+      const text = query.trim()
+      const [{ lists, names }, keywordIds] = await abortable(
+        Promise.all([
+          loadGenreData(),
+          text
+            ? Promise.resolve([])
+            : Promise.all(keywordNames(filters).map(keywordId)).then((ids) =>
+                ids.filter((id): id is number => id !== null),
+              ),
+        ]),
+        signal,
+      )
+      const today = isoDate(new Date())
+
+      const results = await Promise.all(
+        endpoints.map(async (endpoint) => {
+          const plan = text
+            ? planSearch(filters, endpoint, lists, text)
+            : planDiscover(filters, endpoint, lists, keywordIds, today)
+          if (!plan) return null
+          const path = `/${text ? 'search' : 'discover'}/${endpoint}`
+          const data = await cachedJson<TmdbPage>(path, { ...plan.params, page: String(page) }, signal)
+          const fallbackType: MediaType = endpoint === 'movie' ? 'movie' : 'series'
+          return {
+            items: data.results
+              .filter((r) => !plan.keep || plan.keep(r))
+              .flatMap((r) => mapTmdbResult(r, fallbackType, names) ?? []),
+            totalPages: Math.min(data.total_pages ?? 1, MAX_PAGE),
+            totalResults: plan.keep ? null : (data.total_results ?? 0),
+          }
+        }),
+      )
+
+      const answered = results.filter((r) => r !== null)
+      const items = answered.flatMap((r) => r.items)
+      // Both types: merge the two pages by the chosen sort (popularity by default).
+      const merge = answered.length > 1 || (text !== '' && filters.sort !== 'popular')
+      return {
+        items: merge ? sortMerged(items, filters.sort) : items,
+        page,
+        totalPages: Math.max(0, ...answered.map((r) => r.totalPages)),
+        totalResults: answered.some((r) => r.totalResults === null)
+          ? null
+          : answered.reduce((sum, r) => sum + (r.totalResults ?? 0), 0),
+      } satisfies DiscoverPage
     },
 
     async getDetails(item, signal) {

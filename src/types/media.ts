@@ -1,3 +1,5 @@
+import type { DiscoverFilters, TypeFilter } from '../config/discoverFilters'
+
 export type MediaType = 'movie' | 'series'
 
 export interface MediaItem {
@@ -93,6 +95,11 @@ export interface CatalogProvider {
   getHome(signal?: AbortSignal): Promise<HomeCatalog>
   getByType(type: MediaType, signal?: AbortSignal): Promise<MediaItem[]>
   search(query: string, signal?: AbortSignal): Promise<MediaItem[]>
+  /**
+   * One page of titles matching the Browse filters (`type` already resolved).
+   * With a text `query`, searches by title and applies the filters client-side.
+   */
+  discover(request: DiscoverRequest, signal?: AbortSignal): Promise<DiscoverPage>
   /** Returns the item enriched with extra detail (runtime, cast, ...), when available. */
   getDetails(item: MediaItem, signal?: AbortSignal): Promise<MediaItem>
   /** Present when the provider can fall back to another source (see fallbackProvider.ts). */
@@ -108,4 +115,21 @@ export interface FallbackStatus {
 export interface FallbackStore {
   getStatus(): FallbackStatus
   subscribe(listener: () => void): () => void
+}
+
+export interface DiscoverRequest {
+  filters: DiscoverFilters
+  type: TypeFilter
+  /** Text search; blank for plain discovery. */
+  query: string
+  /** 1-based. */
+  page: number
+}
+
+export interface DiscoverPage {
+  items: MediaItem[]
+  page: number
+  totalPages: number
+  /** Total matches, or null when unknown (text search filtered client-side). */
+  totalResults: number | null
 }
