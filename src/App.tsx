@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Analytics } from '@vercel/analytics/react'
+import { hashRouteAsPath } from './analytics'
 import { BrowseView } from './components/BrowseView'
 import { DetailsModal } from './components/DetailsModal'
 import { FallbackNotice } from './components/FallbackNotice'
@@ -113,7 +114,7 @@ function App() {
       {selected && <DetailsModal item={selected} onClose={closeDetails} />}
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
-      <Analytics />
+      <Analytics beforeSend={hashRouteAsPath} />
     </>
   )
 }
