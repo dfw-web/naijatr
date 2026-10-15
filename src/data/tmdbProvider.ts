@@ -1,4 +1,5 @@
 import { MAX_PAGE } from '../config/discoverFilters'
+import { isTvMode } from '../tv/tvMode'
 import type {
   CatalogProvider,
   DiscoverPage,
@@ -87,6 +88,15 @@ export interface TmdbDetails {
   backdrop_path?: string | null
   videos?: { results: TmdbVideo[] }
   'watch/providers'?: { results: Record<string, TmdbRegionProviders | undefined> }
+  recommendations?: { results?: TmdbResult[] }
+  // Basics, used when a title is opened from a link with nothing but its id.
+  title?: string
+  name?: string
+  release_date?: string
+  first_air_date?: string
+  vote_average?: number
+  vote_count?: number
+  popularity?: number
 }
 
 export interface TmdbVideo {
@@ -114,6 +124,8 @@ export interface TmdbRegionProviders {
 }
 
 const CAST_LIMIT = 6
+/** How many "More like this" titles to keep. */
+const SIMILAR_LIMIT = 12
 
 /**
  * Discover filters that keep lists to well-known titles: a minimum number of
@@ -245,6 +257,18 @@ export function mergeTmdbDetails(item: MediaItem, details: TmdbDetails): MediaIt
     watchProviders: details['watch/providers']
       ? pickWatchProviders(details['watch/providers'].results)
       : item.watchProviders,
+    // A title opened from a link (?title=) starts with only its id: fill in the basics.
+    ...(item.title
+      ? {}
+      : {
+          title: details.title ?? details.name ?? 'Untitled',
+          description: details.overview?.trim() || item.description,
+          releaseDate: (item.type === 'movie' ? details.release_date : details.first_air_date) || null,
+          year: Number((item.type === 'movie' ? details.release_date : details.first_air_date)?.slice(0, 4)) || null,
+          score: Math.round((details.vote_average ?? 0) * 10) / 10,
+          voteCount: details.vote_count ?? 0,
+          popularity: details.popularity ?? 0,
+        }),
   }
 }
 
@@ -519,10 +543,12 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
     async getDetails(item, signal) {
       if (item.tmdbId === undefined) return item
       const path = item.type === 'movie' ? `/movie/${item.tmdbId}` : `/tv/${item.tmdbId}`
+      // TV only: recommendations for the "More like this" row.
+      const extra = isTvMode() ? ',recommendations' : ''
       const append =
         item.type === 'movie'
-          ? 'credits,release_dates,videos,watch/providers'
-          : 'aggregate_credits,content_ratings,videos,watch/providers'
+          ? `credits,release_dates,videos,watch/providers${extra}`
+          : `aggregate_credits,content_ratings,videos,watch/providers${extra}`
       const details = await requestJson<TmdbDetails & { aggregate_credits?: TmdbCredits }>(
         fetchImpl,
         path,
@@ -531,10 +557,19 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
         signal,
       )
       // TV uses aggregate_credits (cast across all seasons); normalise to `credits`.
-      return mergeTmdbDetails(item, {
+      const merged = mergeTmdbDetails(item, {
         ...details,
         credits: details.credits ?? details.aggregate_credits,
       })
+      const recommended = details.recommendations?.results ?? []
+      if (!recommended.length) return merged
+      // Genre names are only for the cards; never fail the details over them.
+      const genreNames = await loadGenres().catch(() => new Map<number, string>())
+      const similar = recommended
+        .flatMap((r) => mapTmdbResult(r, item.type, genreNames) ?? [])
+        .filter((r) => r.id !== item.id)
+        .slice(0, SIMILAR_LIMIT)
+      return similar.length ? { ...merged, similar } : merged
     },
   }
 }

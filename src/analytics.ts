@@ -1,5 +1,6 @@
 import type { BeforeSend } from '@vercel/analytics/react'
 import { tagAdStatus } from './ads/adStatus'
+import { isTvMode } from './tv/tvMode'
 
 /**
  * Views live after the "#" (/#/movies), which the Vercel Analytics dashboard
@@ -14,8 +15,17 @@ export const hashRouteAsPath: BeforeSend = (event) => {
   return { ...event, url: `${url.origin}${route.pathname}${route.search || url.search}` }
 }
 
-/** Everything sent to Vercel Analytics: hash routes as paths, tagged ?ad=… when the ad was blocked. */
+/** Tags events from smart TVs with ?device=tv, so TV visits can be counted. */
+export const tagTvDevice: BeforeSend = (event) => {
+  if (!isTvMode()) return event
+  const url = new URL(event.url)
+  url.searchParams.set('device', 'tv')
+  return { ...event, url: url.toString() }
+}
+
+/** Everything sent to Vercel Analytics: hash routes as paths, tagged ?ad=… when the ad was blocked and ?device=tv on TVs. */
 export const analyticsBeforeSend: BeforeSend = (event) => {
   const routed = hashRouteAsPath(event)
-  return routed && tagAdStatus(routed)
+  const tagged = routed && tagAdStatus(routed)
+  return tagged && tagTvDevice(tagged)
 }

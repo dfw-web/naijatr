@@ -12,7 +12,11 @@ import {
 } from 'lucide-react'
 import { findFreeMovie, freeSourceUrl, type FreeMovie } from '../data/freeMovies'
 import type { MediaItem, Trailer } from '../types/media'
-import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
+import { enterFullscreen, exitFullscreen, fullscreenElement } from '../tv/fullscreen'
+import { QrCode } from '../tv/QrCode'
+import { playAfterAdBreak } from '../tv/tvAdBreakStore'
+import { isTvMode, phoneLink } from '../tv/tvMode'
+import { readLastEpisode, saveLastEpisode, saveRecentTitle, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -272,6 +276,53 @@ export function PlayerPanel({
     }
   }, [watchingSrc, hasNext, creditsUrl])
 
+  // TV: the remote plays and pauses the video (OK on the video, or the media
+  // keys), and pausing shows a "watch on your phone" QR code.
+  const tv = isTvMode()
+  const sectionRef = useRef<HTMLElement>(null)
+  const frameBoxRef = useRef<HTMLDivElement>(null)
+  const [paused, setPaused] = useState(false)
+  const pausedRef = useRef(false)
+  const controllable =
+    tv && (active?.state.status === 'loading' || active?.state.status === 'playing') && active.choice !== 'trailer'
+      ? `${active.choice}-${active.attempt}`
+      : null
+  useEffect(() => {
+    if (!controllable) return
+    frameBoxRef.current?.focus({ preventScroll: true })
+    let player: Window | null = null
+    const show = (isPaused: boolean) => {
+      pausedRef.current = isPaused
+      setPaused(isPaused)
+    }
+    const onMessage = (ev: MessageEvent) => {
+      const data = ev.data as { source?: unknown; event?: unknown } | null
+      if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
+      player = ev.source as Window
+      if (data.event === 'play') show(false)
+      if (data.event === 'pause') show(true)
+    }
+    const onMedia = (ev: Event) => {
+      const mode = (ev as CustomEvent<'toggle' | 'play' | 'pause'>).detail
+      const pause = mode === 'pause' || (mode === 'toggle' && !pausedRef.current)
+      const video = frameBoxRef.current?.querySelector('video')
+      if (video) {
+        if (pause) video.pause()
+        else void video.play().catch(() => undefined)
+      } else {
+        // The stream player (embedmaster) takes play/pause commands like the others it gets here.
+        player?.postMessage({ source: PLAYER_COMMANDS, command: pause ? 'pause' : 'play' }, '*')
+      }
+      show(pause)
+    }
+    window.addEventListener('message', onMessage)
+    window.addEventListener('tv:media', onMedia)
+    return () => {
+      window.removeEventListener('message', onMessage)
+      window.removeEventListener('tv:media', onMedia)
+    }
+  }, [controllable])
+
   if (!streamSrc && !free && !trailer) {
     return (
       <p className="player__unavailable" role={isLoading ? 'status' : undefined}>
@@ -289,6 +340,9 @@ export function PlayerPanel({
   /** Plays `choice`; for a series stream, `ep` picks the episode (default: the selected one). */
   const start = async (choice: Choice, ep: EpisodeRef = { season, episode }) => {
     const attempt = (run?.attempt ?? 0) + 1
+    pausedRef.current = false
+    setPaused(false)
+    if (choice !== 'trailer') saveRecentTitle(item)
     const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
@@ -316,6 +370,20 @@ export function PlayerPanel({
     } catch {
       update(attempt, { status: 'error', message: STREAM_MESSAGES.unreachable })
     }
+  }
+
+  /** A Play button: on a TV, the title's first play shows the ad break, then the player goes fullscreen. */
+  const play = (choice: Choice, ep?: EpisodeRef) => {
+    const go = () => {
+      if (tv) enterFullscreen(sectionRef.current)
+      void start(choice, ep)
+    }
+    if (choice === 'trailer') return go()
+    playAfterAdBreak(`title:${item.id}`, go, phoneLink(item))
+  }
+  const closePlayer = () => {
+    if (fullscreenElement()) exitFullscreen()
+    setRun(null)
   }
 
   const checking = active?.state.status === 'checking'
@@ -389,7 +457,7 @@ export function PlayerPanel({
         className="btn btn--primary"
         onClick={() => {
           setSelected(lastEpisode)
-          void start('stream', lastEpisode)
+          play('stream', lastEpisode)
         }}
       >
         <Play aria-hidden="true" /> Continue S{lastEpisode.season} E{lastEpisode.episode}
@@ -406,7 +474,7 @@ export function PlayerPanel({
         <button
           type="button"
           className="btn btn--primary"
-          onClick={() => void start('stream')}
+          onClick={() => play('stream')}
           disabled={checking}
         >
           <Play aria-hidden="true" />
@@ -417,7 +485,7 @@ export function PlayerPanel({
         <button
           type="button"
           className={streamSrc ? 'btn btn--ghost' : 'btn btn--primary'}
-          onClick={() => void start('free')}
+          onClick={() => play('free')}
         >
           <Play aria-hidden="true" /> Watch Free
         </button>
@@ -426,7 +494,7 @@ export function PlayerPanel({
         <button
           type="button"
           className={streamSrc || free ? 'btn btn--ghost' : 'btn btn--primary'}
-          onClick={() => void start('trailer')}
+          onClick={() => play('trailer')}
         >
           <Clapperboard aria-hidden="true" /> Play Trailer
         </button>
@@ -442,7 +510,7 @@ export function PlayerPanel({
 
   if (!active || active.state.status === 'checking' || active.state.status === 'error') {
     return (
-      <section className="player" aria-label="Watch">
+      <section ref={sectionRef} className="player" aria-label="Watch">
         {!active && resumePrompt}
         {pickers}
         {active?.state.status === 'error' && (
@@ -478,9 +546,23 @@ export function PlayerPanel({
   }
 
   return (
-    <section className="player" aria-label="Watch">
+    <section ref={sectionRef} className="player" aria-label="Watch">
       {active.choice === 'stream' && pickers}
-      <div className="player__frame">
+      <div
+        ref={frameBoxRef}
+        className="player__frame"
+        tabIndex={tv ? 0 : undefined}
+        aria-label={tv && active.choice !== 'trailer' ? 'Video: press OK to play or pause' : undefined}
+        onKeyDown={
+          tv
+            ? (event) => {
+                if (event.key !== 'Enter' || event.target !== event.currentTarget) return
+                event.preventDefault()
+                window.dispatchEvent(new CustomEvent('tv:media', { detail: 'toggle' }))
+              }
+            : undefined
+        }
+      >
         {active.state.status === 'loading' && (
           <div className="player__overlay" role="status">
             <span className="player__spinner" aria-hidden="true" />
@@ -532,6 +614,15 @@ export function PlayerPanel({
             onDismiss={() => setUpNext((u) => u && { ...u, dismissed: true })}
           />
         )}
+        {tv && paused && active.choice !== 'trailer' && (
+          <div className="player__paused" role="status">
+            <QrCode url={phoneLink(item)} label="QR code: watch this on your phone" size="8em" />
+            <p>
+              <strong>Paused</strong> Press OK to resume
+            </p>
+            <p className="player__paused-note">Scan to watch on your phone</p>
+          </div>
+        )}
       </div>
       {active.choice === 'stream' && (
         <p className="player__hint">
@@ -539,7 +630,7 @@ export function PlayerPanel({
           Subtitles: tap the CC button in the player to choose a language.
         </p>
       )}
-      <button type="button" className="btn btn--ghost player__close" onClick={() => setRun(null)}>
+      <button type="button" className="btn btn--ghost player__close" onClick={closePlayer}>
         <X aria-hidden="true" /> Close player
       </button>
     </section>
@@ -560,6 +651,9 @@ interface UpNextProps {
 function UpNext({ label, onPlay, onDismiss }: UpNextProps) {
   const [left, setLeft] = useState(NEXT_EPISODE_DELAY_S)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (isTvMode()) buttonRef.current?.focus({ preventScroll: true })
+  }, [])
   const actions = useRef({ onPlay, onDismiss })
   useEffect(() => {
     actions.current = { onPlay, onDismiss }

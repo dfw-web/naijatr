@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Download, Menu, Search, X } from 'lucide-react'
 import type { NavLink } from '../navigation'
 import { promptInstall, useCanInstall } from '../pwa'
+import { isTvMode } from '../tv/tvMode'
 import './Navbar.css'
 
 interface NavbarProps {
@@ -17,6 +18,11 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const canInstall = useCanInstall()
+  // TV: moving onto the search box mustn't pop up the on-screen keyboard, so
+  // it stays read-only until OK is pressed on it.
+  const tv = isTvMode()
+  const [typing, setTyping] = useState(false)
+  const refocusing = useRef(false)
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 24)
@@ -75,11 +81,26 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
           <input
             type="search"
             value={query}
-            placeholder="Search titles, genres, years"
+            placeholder={tv ? 'Search: press OK to type' : 'Search titles, genres, years'}
             aria-label="Search titles"
+            readOnly={tv && !typing}
             onChange={(event) => onQueryChange(event.target.value)}
+            onClick={() => tv && setTyping(true)}
+            onBlur={() => !refocusing.current && setTyping(false)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onQueryChange('')
+              if (tv && event.key === 'Enter' && !typing) {
+                event.preventDefault()
+                setTyping(true)
+                // Re-focus once editable, which brings up the TV's keyboard.
+                const input = event.currentTarget
+                window.setTimeout(() => {
+                  refocusing.current = true
+                  input.blur()
+                  input.focus()
+                  refocusing.current = false
+                }, 0)
+              }
             }}
           />
           {query && (

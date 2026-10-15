@@ -43,6 +43,8 @@ export interface MediaItem {
   trailer?: Trailer | null
   /** TMDB "Where to watch" providers (JustWatch data); null when none are listed. */
   watchProviders?: WatchProviders | null
+  /** TMDB recommendations ("More like this"), when known. */
+  similar?: MediaItem[]
 }
 
 export interface Trailer {

@@ -1,3 +1,4 @@
+import { isTvMode } from '../tv/tvMode'
 import { setAdStatus } from './adStatus'
 import { requestAdBreak } from './adBreakStore'
 
@@ -107,10 +108,11 @@ const handledTaps = new WeakSet<Event>()
  * allows the new tab inside the tap itself. If the browser blocks it anyway, the
  * page with `adKey` shows a one-time ad break instead (see AdBreak).
  *
- * Returns false when nothing opened (test visit, or this tap already opened it).
+ * Returns false when nothing opened (test visit, TV, or this tap already opened it).
  */
 export function openAd(tap: Event | undefined, adKey: string): boolean {
-  if (adsDisabled()) return false
+  // TV browsers can't switch to a new tab: TVs get an ad break before playback instead (src/tv).
+  if (adsDisabled() || isTvMode()) return false
   const event = tap ?? window.event
   if (event) {
     if (handledTaps.has(event)) return false

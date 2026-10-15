@@ -11,18 +11,55 @@ import { Navbar } from './components/Navbar'
 import { SearchResults } from './components/SearchResults'
 import { hasNarrowingFilters } from './config/discoverFilters'
 import { useFilterParams } from './hooks/useFilterParams'
+import { TvAdBreakHost } from './tv/TvAdBreak'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import './App.css'
 
 const TRENDING_LINK: NavLink = { ...NAV_LINKS[0], section: 'trending' }
 
+/**
+ * A title opened from a link (?title=movie-550 or ?title=series-1399, e.g. the
+ * TV's "watch on your phone" QR code). Only the id is known; the details
+ * panel fills in the rest.
+ */
+function titleFromUrl(search = window.location.search): MediaItem | null {
+  const match = /^(movie|series)-([1-9]\d{0,9})$/.exec(new URLSearchParams(search).get('title') ?? '')
+  if (!match) return null
+  const type = match[1] as MediaItem['type']
+  const tmdbId = Number(match[2])
+  return {
+    id: `tmdb-${type}-${tmdbId}`,
+    tmdbId,
+    type,
+    title: '',
+    year: null,
+    releaseDate: null,
+    genres: [],
+    score: 0,
+    voteCount: 0,
+    popularity: 0,
+    description: '',
+    poster: null,
+    backdrop: null,
+  }
+}
+
+/** Drops the link's ?title= (and its tracking tag) once the panel closes, so a reload doesn't reopen it. */
+function forgetTitleLink() {
+  const url = new URL(window.location.href)
+  if (!url.searchParams.has('title')) return
+  url.searchParams.delete('title')
+  url.searchParams.delete('utm_source')
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+}
+
 function App() {
   // Before useFilterParams rewrites the query string.
   useState(() => rememberNoAdsFlag())
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<MediaItem | null>(null)
+  const [selected, setSelected] = useState<MediaItem | null>(titleFromUrl)
   // Wrapped in an object so clicking the same link twice still scrolls.
   const [scrollRequest, setScrollRequest] = useState<{ section: string | null } | null>(null)
   // Bumped by "Try again" to remount the views, which re-runs every request.
@@ -74,7 +111,10 @@ function App() {
     setQuery(next)
   }
 
-  const closeDetails = useCallback(() => setSelected(null), [])
+  const closeDetails = useCallback(() => {
+    forgetTitleLink()
+    setSelected(null)
+  }, [])
 
   const activeId = isSearching && !isFilteredSearch ? null : view
 
@@ -121,7 +161,10 @@ function App() {
 
       <FallbackNotice onRetry={() => setRefreshKey((n) => n + 1)} />
 
-      {selected && <DetailsModal item={selected} onClose={closeDetails} />}
+      {selected && (
+        <DetailsModal key={selected.id} item={selected} onClose={closeDetails} onSelect={setSelected} />
+      )}
+      <TvAdBreakHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

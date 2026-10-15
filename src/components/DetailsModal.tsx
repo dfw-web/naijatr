@@ -5,7 +5,10 @@ import { titleAdKey } from '../hooks/useAdOnce'
 import { useItemDetails } from '../hooks/useCatalog'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatVotes, formatYear, typeLabel } from '../utils/media'
+import { QrCode } from '../tv/QrCode'
+import { isTvMode, phoneLink } from '../tv/tvMode'
 import { MediaImage } from './MediaImage'
+import { MediaRow } from './MediaRow'
 import { PlayerPanel } from './PlayerPanel'
 import { WatchProviders } from './WatchProviders'
 import './DetailsModal.css'
@@ -13,6 +16,8 @@ import './DetailsModal.css'
 interface DetailsModalProps {
   item: MediaItem
   onClose: () => void
+  /** Opens another title (the TV "More like this" row). */
+  onSelect?: (item: MediaItem) => void
 }
 
 const FOCUSABLE =
@@ -23,7 +28,7 @@ const formatReleaseDate = (date: string) =>
     new Date(`${date}T00:00:00`),
   )
 
-export function DetailsModal({ item: baseItem, onClose }: DetailsModalProps) {
+export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModalProps) {
   const { state: detailState } = useItemDetails(baseItem)
   // Show what we have immediately; swap in the enriched item when it arrives.
   const item = detailState.status === 'success' ? detailState.data : baseItem
@@ -106,7 +111,7 @@ export function DetailsModal({ item: baseItem, onClose }: DetailsModalProps) {
         <div className="modal__body">
           <span className={`modal__type modal__type--${item.type}`}>{typeLabel(item.type)}</span>
           <h2 id="modal-title" className="modal__title">
-            {item.title}
+            {item.title || 'Loading…'}
           </h2>
           {item.tagline && <p className="modal__tagline">{item.tagline}</p>}
 
@@ -192,7 +197,21 @@ export function DetailsModal({ item: baseItem, onClose }: DetailsModalProps) {
 
           <PlayerPanel item={item} isLoading={isLoadingMore} />
           {item.watchProviders && <WatchProviders providers={item.watchProviders} />}
+          {isTvMode() && item.tmdbId !== undefined && (
+            <div className="tv-phone-card">
+              <QrCode url={phoneLink(item)} label={`QR code: watch ${item.title} on your phone`} size="7em" />
+              <p>
+                <strong>Scan to watch on your phone</strong>
+                Opens {item.title || 'this title'} on naijatr.com.
+              </p>
+            </div>
+          )}
         </div>
+        {isTvMode() && onSelect && item.similar && item.similar.length > 0 && (
+          <div className="modal__more">
+            <MediaRow id="more-like-this" title="More like this" items={item.similar} onSelect={onSelect} />
+          </div>
+        )}
       </div>
       <AdBreak adKey={titleAdKey(baseItem)} />
     </div>

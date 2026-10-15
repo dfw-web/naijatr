@@ -1,10 +1,16 @@
+import { Fragment, useState } from 'react'
 import { CloudOff } from 'lucide-react'
+import { MATCH_ALERTS_URL, TV_BANNER_ZONE } from '../config/tvAds'
 import { freeMovieItems } from '../data/freeMovies'
 import { useHomeCatalog } from '../hooks/useCatalog'
 import type { MediaItem } from '../types/media'
 import { Hero } from './Hero'
 import { MediaRow } from './MediaRow'
 import { StatusMessage } from './StatusMessage'
+import { AdSlot } from '../tv/AdSlot'
+import { QrCode } from '../tv/QrCode'
+import { isTvMode } from '../tv/tvMode'
+import { readRecentTitles } from '../utils/watchHistory'
 
 interface HomeViewProps {
   onSelect: (item: MediaItem) => void
@@ -21,6 +27,9 @@ const LOADING_SECTIONS = [
 
 export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
   const { state, retry } = useHomeCatalog()
+  const tv = isTvMode()
+  // Read once per visit to the home page; playing a title updates it for next time.
+  const [recent] = useState(() => (tv ? readRecentTitles() : []))
 
   if (state.status === 'error') {
     return (
@@ -46,21 +55,36 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
         <Hero item={catalog?.featured ?? null} onViewDetails={onSelect} onBrowse={onBrowseTrending} />
       )}
       <div className={`app-rows ${catalog && !catalog.featured ? 'app-rows--no-hero' : ''}`}>
-        {sections.map((section) => {
+        {recent.length > 0 && (
+          <MediaRow id="continue-watching" title="Continue watching" items={recent} onSelect={onSelect} />
+        )}
+        {sections.map((section, index) => {
           const isTrending = section.id === 'trending'
           return (
-            <MediaRow
-              key={section.id}
-              id={section.id}
-              title={section.title}
-              subtitle={isTrending ? 'Top 10 this week' : undefined}
-              items={isTrending ? section.items.slice(0, 10) : section.items}
-              variant={isTrending ? 'ranked' : 'default'}
-              isLoading={!catalog}
-              onSelect={onSelect}
-            />
+            <Fragment key={section.id}>
+              <MediaRow
+                id={section.id}
+                title={section.title}
+                subtitle={isTrending ? 'Top 10 this week' : undefined}
+                items={isTrending ? section.items.slice(0, 10) : section.items}
+                variant={isTrending ? 'ranked' : 'default'}
+                isLoading={!catalog}
+                onSelect={onSelect}
+              />
+              {/* TV only: one ad between the first and second rows. */}
+              {tv && index === 0 && TV_BANNER_ZONE && <AdSlot zone={TV_BANNER_ZONE} className="tv-ad-slot--row" />}
+            </Fragment>
           )
         })}
+        {tv && MATCH_ALERTS_URL && (
+          <aside className="tv-alerts-card" aria-label="Match alerts">
+            <QrCode url={MATCH_ALERTS_URL} label="QR code: join our match alerts channel" size="7em" />
+            <p>
+              <strong>Get match alerts</strong>
+              Scan to join our WhatsApp/Telegram channel.
+            </p>
+          </aside>
+        )}
         {/* Legal full movies are curated locally, so this row never waits on the catalogue. */}
         <MediaRow
           id="watch-free"

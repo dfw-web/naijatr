@@ -3,6 +3,7 @@ import { ArrowLeftRight, BarChart3, ChevronLeft, Goal, ShieldAlert, Tv, Users } 
 import { StatusMessage } from '../components/StatusMessage'
 import { AdBreak } from '../ads/AdBreak'
 import { useAdTwice } from '../hooks/useAdTwice'
+import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { describeFootballError, useFootball } from './api'
 import { FOOTBALL_PATH, hasStarted, isFinished, isLive, statusLabel } from './format'
 import { TeamLogo } from './MatchList'
@@ -40,6 +41,8 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
       <a
         className="fb-back"
         href={FOOTBALL_PATH}
+        // The TV remote's Back key follows this link (see src/tv/remote.ts).
+        data-tv-back
         onClick={(event) => {
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return
           event.preventDefault()
@@ -71,7 +74,10 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
                 className="fb-tab"
                 aria-selected={tab === t.id}
                 aria-controls="fb-match-panel"
-                onClick={() => setTab(t.id)}
+                // On a TV, the match's first Watch shows the ad break first.
+                onClick={() =>
+                  t.id === 'watch' ? playAfterAdBreak(`match:${id}`, () => setTab('watch')) : setTab(t.id)
+                }
               >
                 {t.label}
               </button>

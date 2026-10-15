@@ -79,6 +79,12 @@ export default defineConfig(({ mode }) => {
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
       __DOWNLOAD_ENABLED__: JSON.stringify(downloads),
     },
+    // Smart TVs run old Chromium (2019+ Samsung/LG: Chromium 64-94), so the
+    // bundle is compiled down for them; src/tv/polyfills.ts fills the APIs.
+    build: {
+      target: ['es2019', 'chrome64', 'safari12', 'firefox68', 'edge79'],
+      cssTarget: ['chrome64', 'safari12', 'firefox68', 'edge79'],
+    },
     server: { proxy: tmdbProxy },
     preview: { proxy: tmdbProxy },
     test: {

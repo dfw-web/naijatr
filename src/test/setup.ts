@@ -3,6 +3,7 @@ import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetAdBreaks } from '../ads/adBreakStore'
 import { adTiming } from '../ads/directLink'
+import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 
 afterEach(() => {
   cleanup()
@@ -10,6 +11,8 @@ afterEach(() => {
   window.localStorage.clear()
   window.sessionStorage.clear()
   resetAdBreaks()
+  resetTvAdBreaks()
+  document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()
 })
