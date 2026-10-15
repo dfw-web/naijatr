@@ -42,7 +42,7 @@ const SEARCH_UNSUPPORTED = (f: DiscoverFilters) => f.categories.some((id) => id 
 /** Catalogue for one content type, with TMDB Discover filters, sort and infinite scroll. */
 export function BrowseView({ type: pageType, filters, committed, onFiltersChange, query, onSelect }: BrowseViewProps) {
   const isMobile = useMediaQuery('(max-width: 760px)')
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
 
   const text = query.trim()

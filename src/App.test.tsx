@@ -25,6 +25,12 @@ const primaryNav = () => screen.getByRole('navigation', { name: 'Primary' })
 /** Poster buttons are labelled "View details for <title>, <Movie|Series>, <year>, ...". */
 const posterButtons = () => screen.getAllByRole('button', { name: /^View details for / })
 
+/** The filter options are hidden until the Filters button is clicked. */
+async function openFilters(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: /^Filters/ }))
+  return screen.getByRole('group', { name: 'Genres' })
+}
+
 describe('homepage', () => {
   it('shows skeletons, then the hero and all four sections', async () => {
     renderApp(createLocalProvider({ latencyMs: 50 }))
@@ -156,10 +162,26 @@ describe('Movies and Series navigation', () => {
     expect(window.location.hash).toBe('#/series')
   })
 
+  it('shows the filter options only while the Filters button is toggled on', async () => {
+    const { user } = renderApp()
+    await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
+    const button = await screen.findByRole('button', { name: /^Filters/ })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('group', { name: 'Genres' })).not.toBeInTheDocument()
+
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('group', { name: 'Genres' })).toBeInTheDocument()
+
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('group', { name: 'Genres' })).not.toBeInTheDocument()
+  })
+
   it('filters by genre, keeps filters in the URL, and removes them as chips', async () => {
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
-    const genres = await screen.findByRole('group', { name: 'Genres' })
+    const genres = await openFilters(user)
     await waitFor(() => expect(posterButtons().length).toBe(16))
 
     await user.click(within(genres).getByRole('button', { name: 'Horror' }))
@@ -185,7 +207,7 @@ describe('Movies and Series navigation', () => {
   it('shows an empty state with Clear all when nothing matches', async () => {
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
-    const genres = await screen.findByRole('group', { name: 'Genres' })
+    const genres = await openFilters(user)
     await user.click(within(genres).getByRole('button', { name: 'Horror' }))
     await user.click(within(genres).getByRole('button', { name: 'Comedy' }))
 
@@ -206,6 +228,9 @@ describe('Movies and Series navigation', () => {
     window.history.replaceState(null, '', '/?genre=mystery&type=both#/movies')
     const { user } = renderApp()
     expect(await screen.findByRole('heading', { level: 1, name: 'Movies & Series' })).toBeInTheDocument()
+    // Applied filters show as chips, but the options stay hidden until asked for.
+    expect(screen.queryByRole('group', { name: 'Genres' })).not.toBeInTheDocument()
+    await openFilters(user)
     expect(within(screen.getByRole('group', { name: 'Genres' })).getByRole('button', { name: 'Mystery' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -224,7 +249,7 @@ describe('Movies and Series navigation', () => {
   it('steps back through filter changes with the Back button', async () => {
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
-    const genres = await screen.findByRole('group', { name: 'Genres' })
+    const genres = await openFilters(user)
     await user.click(within(genres).getByRole('button', { name: 'Horror' }))
     await waitFor(() => expect(window.location.search).toBe('?genre=horror'))
 
@@ -244,7 +269,7 @@ describe('Movies and Series navigation', () => {
     open.mockClear()
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
-    const genres = await screen.findByRole('group', { name: 'Genres' })
+    const genres = await openFilters(user)
     await user.click(within(genres).getByRole('button', { name: 'Horror' }))
     await waitFor(() => expect(posterButtons()).toHaveLength(2))
 
