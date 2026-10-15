@@ -112,8 +112,11 @@ describe('PlayerPanel', () => {
     expect(fetchImpl).toHaveBeenCalledWith('/api/play/movie/550?check=1')
     const frame = await screen.findByTitle('Fight Club player')
     expect(frame).toHaveAttribute('src', '/api/play/movie/550')
-    // `*` so fullscreen still works after /api/play redirects to another host.
-    expect(frame.getAttribute('allow')).toContain('fullscreen *')
+    // `*` so autoplay still works after /api/play redirects to another host.
+    expect(frame.getAttribute('allow')).toContain('autoplay *')
+    // Fullscreen goes through ours, which keeps Skip and Close on screen.
+    expect(frame.getAttribute('allow')).not.toContain('fullscreen')
+    expect(frame).not.toHaveAttribute('allowfullscreen')
     expect(screen.getByText(/Subtitles: tap the CC button/)).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
@@ -332,6 +335,85 @@ describe('PlayerPanel', () => {
         vi.useRealTimers()
       }
       expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/1')
+    })
+
+    it('can skip to the next episode at any time, keeping the player up while it loads', async () => {
+      const frame = await watch('1')
+      post(frame, 'time', 30)
+      await userEvent.click(screen.getByRole('button', { name: 'Skip to S1 E2' }))
+      // No trip back to the Play buttons in between (that would leave fullscreen).
+      expect(screen.queryByRole('button', { name: /^Play S/ })).not.toBeInTheDocument()
+      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/2')
+      expect(screen.getByLabelText('Episode')).toHaveValue('2')
+      // The last episode of a season skips to the next season.
+      await userEvent.click(screen.getByRole('button', { name: 'Skip to S2 E1' }))
+      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/2/1')
+    })
+
+    it('has no Skip on the last episode', async () => {
+      render(<PlayerPanel item={show} availability={on} fetchImpl={reply({ available: true })} />)
+      await userEvent.selectOptions(screen.getByLabelText('Season'), '2')
+      await userEvent.selectOptions(screen.getByLabelText('Episode'), '3')
+      await userEvent.click(screen.getByRole('button', { name: 'Play S2 E3' }))
+      await screen.findByTitle('Fight Club player')
+      expect(screen.queryByRole('button', { name: /^Skip to/ })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    })
+
+    it('goes fullscreen with the Skip button, and stays fullscreen on the next episode', async () => {
+      const doc = document as Document & { fullscreenEnabled: boolean; fullscreenElement: Element | null }
+      let current: Element | null = null
+      Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true })
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => current })
+      const change = (el: Element | null) => {
+        current = el
+        document.dispatchEvent(new Event('fullscreenchange'))
+      }
+      const request = vi.fn(function (this: Element) {
+        change(this)
+        return Promise.resolve()
+      })
+      const { requestFullscreen } = HTMLElement.prototype
+      const { exitFullscreen } = document
+      HTMLElement.prototype.requestFullscreen = request
+      document.exitFullscreen = vi.fn(() => {
+        change(null)
+        return Promise.resolve()
+      })
+      try {
+        await watch('1')
+        await userEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+        const section = screen.getByRole('region', { name: 'Watch' })
+        expect(request.mock.contexts).toEqual([section])
+        expect(doc.fullscreenElement).toBe(section)
+        // The Skip button is inside what went fullscreen.
+        const skip = screen.getByRole('button', { name: 'Skip to S1 E2' })
+        expect(section).toContainElement(skip)
+        await userEvent.click(skip)
+        expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/2')
+        expect(doc.fullscreenElement).toBe(section)
+        await userEvent.click(screen.getByRole('button', { name: 'Exit fullscreen' }))
+        expect(doc.fullscreenElement).toBeNull()
+        expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+      } finally {
+        HTMLElement.prototype.requestFullscreen = requestFullscreen
+        document.exitFullscreen = exitFullscreen
+        delete (document as Partial<typeof doc>).fullscreenEnabled
+        delete (document as Partial<typeof doc>).fullscreenElement
+      }
+    })
+
+    it('fills the window where only videos can go fullscreen (iPhone), and Escape leaves it', async () => {
+      await watch('1')
+      const section = screen.getByRole('region', { name: 'Watch' })
+      await userEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+      expect(section).toHaveClass('player--fill')
+      await userEvent.click(screen.getByRole('button', { name: 'Skip to S1 E2' }))
+      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/2')
+      expect(section).toHaveClass('player--fill')
+      await userEvent.keyboard('{Escape}')
+      expect(section).not.toHaveClass('player--fill')
+      expect(screen.getByTitle('Fight Club player')).toBeInTheDocument()
     })
 
     it('ignores ended messages from other frames', async () => {

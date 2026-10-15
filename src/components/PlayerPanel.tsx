@@ -5,6 +5,8 @@ import {
   Clapperboard,
   Download,
   History,
+  Maximize,
+  Minimize,
   Play,
   RotateCcw,
   SkipForward,
@@ -12,7 +14,13 @@ import {
 } from 'lucide-react'
 import { findFreeMovie, freeSourceUrl, type FreeMovie } from '../data/freeMovies'
 import type { MediaItem, Trailer } from '../types/media'
-import { enterFullscreen, exitFullscreen, fullscreenElement } from '../tv/fullscreen'
+import {
+  enterFullscreen,
+  exitFullscreen,
+  fullscreenElement,
+  fullscreenSupported,
+  onFullscreenChange,
+} from '../tv/fullscreen'
 import { QrCode } from '../tv/QrCode'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
@@ -50,6 +58,8 @@ interface Run {
   streamSrc: string | null
   attempt: number
   state: PlayerState
+  /** Moving on to the next episode: keep the player (and fullscreen) up while it's checked. */
+  keepPlayer?: boolean
 }
 
 /** How long a player may take to load before we call it failed. */
@@ -323,6 +333,37 @@ export function PlayerPanel({
     }
   }, [controllable])
 
+  // Fullscreen covers the whole player section, so the Skip and Close buttons stay
+  // on screen. Where only videos can go fullscreen (iPhone), the section fills the
+  // window instead.
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [filling, setFilling] = useState(false)
+  useEffect(
+    () =>
+      onFullscreenChange(() =>
+        setIsFullscreen(Boolean(sectionRef.current) && fullscreenElement() === sectionRef.current),
+      ),
+    [],
+  )
+  useEffect(() => {
+    if (!filling) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      // Leave the fill first; the details panel stays open.
+      event.stopImmediatePropagation()
+      setFilling(false)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [filling])
+  const toggleFullscreen = () => {
+    if (filling) return setFilling(false)
+    if (isFullscreen) return exitFullscreen()
+    if (fullscreenSupported()) enterFullscreen(sectionRef.current)
+    else setFilling(true)
+  }
+  const sectionClass = filling ? 'player player--fill' : 'player'
+
   if (!streamSrc && !free && !trailer) {
     return (
       <p className="player__unavailable" role={isLoading ? 'status' : undefined}>
@@ -337,8 +378,11 @@ export function PlayerPanel({
     setRun((r) => (r && r.itemId === item.id && r.attempt === attempt ? { ...r, state } : r))
   const loaded = () => active && update(active.attempt, { status: 'playing' })
 
-  /** Plays `choice`; for a series stream, `ep` picks the episode (default: the selected one). */
-  const start = async (choice: Choice, ep: EpisodeRef = { season, episode }) => {
+  /**
+   * Plays `choice`; for a series stream, `ep` picks the episode (default: the
+   * selected one). `keepPlayer` keeps the player on screen while it's checked.
+   */
+  const start = async (choice: Choice, ep: EpisodeRef = { season, episode }, keepPlayer = false) => {
     const attempt = (run?.attempt ?? 0) + 1
     pausedRef.current = false
     setPaused(false)
@@ -350,7 +394,7 @@ export function PlayerPanel({
     }
     if (!src) return
     dismissResume()
-    setRun({ itemId: item.id, choice, streamSrc: src, attempt, state: { status: 'checking' } })
+    setRun({ itemId: item.id, choice, streamSrc: src, attempt, state: { status: 'checking' }, keepPlayer })
     try {
       const response = await fetchImpl(`${src}?check=1`)
       const body = (await response.json().catch(() => ({}))) as {
@@ -383,6 +427,7 @@ export function PlayerPanel({
   }
   const closePlayer = () => {
     if (fullscreenElement()) exitFullscreen()
+    setFilling(false)
     setRun(null)
   }
 
@@ -508,9 +553,13 @@ export function PlayerPanel({
     </div>
   )
 
-  if (!active || active.state.status === 'checking' || active.state.status === 'error') {
+  if (
+    !active ||
+    (active.state.status === 'checking' && !active.keepPlayer) ||
+    active.state.status === 'error'
+  ) {
     return (
-      <section ref={sectionRef} className="player" aria-label="Watch">
+      <section ref={sectionRef} className={sectionClass} aria-label="Watch">
         {!active && resumePrompt}
         {pickers}
         {active?.state.status === 'error' && (
@@ -542,11 +591,13 @@ export function PlayerPanel({
     if (!nextEpisode) return
     setUpNext(null)
     setSelected(nextEpisode)
-    void start('stream', nextEpisode)
+    void start('stream', nextEpisode, true)
   }
 
+  const fullscreenOn = isFullscreen || filling
+
   return (
-    <section ref={sectionRef} className="player" aria-label="Watch">
+    <section ref={sectionRef} className={sectionClass} aria-label="Watch">
       {active.choice === 'stream' && pickers}
       <div
         ref={frameBoxRef}
@@ -563,21 +614,22 @@ export function PlayerPanel({
             : undefined
         }
       >
-        {active.state.status === 'loading' && (
+        {(active.state.status === 'loading' || active.state.status === 'checking') && (
           <div className="player__overlay" role="status">
             <span className="player__spinner" aria-hidden="true" />
-            Loading player…
+            {active.state.status === 'checking' ? `Loading S${season} E${episode}…` : 'Loading player…'}
           </div>
         )}
-        {active.choice === 'stream' && active.streamSrc ? (
+        {active.state.status === 'checking' ? null : active.choice === 'stream' && active.streamSrc ? (
           <iframe
             key={key}
             ref={frameRef}
             src={active.streamSrc}
             title={titles.stream}
             // `*`: /api/play may redirect to another host, which must keep these.
-            allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"
-            allowFullScreen
+            // No fullscreen: the player's own would hide our Skip and Close
+            // buttons, so it goes fullscreen through ours (toggleFullscreen).
+            allow="autoplay *; encrypted-media *; picture-in-picture *"
             referrerPolicy="origin"
             onLoad={loaded}
           />
@@ -624,15 +676,28 @@ export function PlayerPanel({
           </div>
         )}
       </div>
+      <div className="player__bar">
+        {active.choice === 'stream' && nextEpisode && (
+          <button type="button" className="btn btn--primary" onClick={playNext}>
+            <SkipForward aria-hidden="true" /> Skip to S{nextEpisode.season} E{nextEpisode.episode}
+          </button>
+        )}
+        {active.choice !== 'trailer' && (
+          <button type="button" className="btn btn--ghost" onClick={toggleFullscreen} aria-pressed={fullscreenOn}>
+            {fullscreenOn ? <Minimize aria-hidden="true" /> : <Maximize aria-hidden="true" />}
+            {fullscreenOn ? 'Exit fullscreen' : 'Fullscreen'}
+          </button>
+        )}
+        <button type="button" className="btn btn--ghost player__close" onClick={closePlayer}>
+          <X aria-hidden="true" /> Close player
+        </button>
+      </div>
       {active.choice === 'stream' && (
         <p className="player__hint">
           <Captions aria-hidden="true" />
           Subtitles: tap the CC button in the player to choose a language.
         </p>
       )}
-      <button type="button" className="btn btn--ghost player__close" onClick={closePlayer}>
-        <X aria-hidden="true" /> Close player
-      </button>
     </section>
   )
 }

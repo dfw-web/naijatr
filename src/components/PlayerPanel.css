@@ -57,8 +57,44 @@
   height: 18px;
 }
 
-.player__close {
-  align-self: flex-start;
+.player__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.player__bar .btn {
+  min-height: 44px;
+}
+
+/* Fullscreen where only videos can go fullscreen (iPhone): fill the window instead. */
+.player--fill {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  margin: 0;
+  padding: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right))
+    max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
+  gap: 0.5rem;
+  justify-content: center;
+  background: #000;
+}
+
+.player--fill .player__frame,
+.player:fullscreen .player__frame,
+.player:-webkit-full-screen .player__frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+/* In fullscreen only the video and its buttons: the pickers and hint stay in the page. */
+.player--fill .player__pickers,
+.player--fill .player__hint,
+.player:fullscreen .player__hint {
+  display: none;
 }
 
 .player__frame {
