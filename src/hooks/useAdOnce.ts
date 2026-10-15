@@ -1,15 +1,19 @@
 import { useCallback } from 'react'
+import type { SyntheticEvent } from 'react'
+import { openAd } from '../ads/directLink'
+import type { MediaItem } from '../types/media'
 
-const AD_URL = 'https://uplcm.com/4/12033849'
+/** Ad key for a title: its details page shows the ad break if the ad was blocked. */
+export const titleAdKey = (item: Pick<MediaItem, 'type' | 'id'>) => `title:${item.type}:${item.id}`
 
 /**
- * Returns a function that opens the ad in a new tab, once per call. Call it
- * synchronously inside the click handler (before anything async), or mobile
- * browsers treat it as an unprompted popup and block it. It never touches the
- * current tab, so the click's own action carries on as normal.
+ * Returns a function that opens the ad in a new tab, once per tap. Call it
+ * first thing in the click handler, before onSelect or anything async: Safari
+ * only allows the new tab inside the tap itself. It never touches the current
+ * tab, so the click's own action carries on as normal.
  */
 export function useAdOnce() {
-  return useCallback(() => {
-    window.open(AD_URL, '_blank', 'noopener,noreferrer')
+  return useCallback((event: SyntheticEvent, item: Pick<MediaItem, 'type' | 'id'>) => {
+    openAd(event.nativeEvent, titleAdKey(item))
   }, [])
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { CalendarDays, Clock, Star, X } from 'lucide-react'
+import { AdBreak } from '../ads/AdBreak'
+import { titleAdKey } from '../hooks/useAdOnce'
 import { useItemDetails } from '../hooks/useCatalog'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatVotes, formatYear, typeLabel } from '../utils/media'
@@ -192,6 +194,7 @@ export function DetailsModal({ item: baseItem, onClose }: DetailsModalProps) {
           {item.watchProviders && <WatchProviders providers={item.watchProviders} />}
         </div>
       </div>
+      <AdBreak adKey={titleAdKey(baseItem)} />
     </div>
   )
 }

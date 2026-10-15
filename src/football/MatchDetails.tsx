@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowLeftRight, BarChart3, ChevronLeft, Goal, ShieldAlert, Tv, Users } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
+import { AdBreak } from '../ads/AdBreak'
 import { useAdTwice } from '../hooks/useAdTwice'
 import { describeFootballError, useFootball } from './api'
 import { FOOTBALL_PATH, hasStarted, isFinished, isLive, statusLabel } from './format'
@@ -28,7 +29,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const [refreshMs, setRefreshMs] = useState<number | undefined>(LIVE_REFRESH_MS)
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
   const [tab, setTab] = useState<Tab>('events')
-  const onTabClickCapture = useAdTwice()
+  const onTabClickCapture = useAdTwice(`match:${id}`)
 
   // Keep refreshing only while the match can still change.
   const shouldRefresh = !match || !isFinished(match.fixture.status) ? LIVE_REFRESH_MS : undefined
@@ -84,6 +85,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
           </div>
         </>
       ) : null}
+      <AdBreak adKey={`match:${id}`} />
     </div>
   )
 }

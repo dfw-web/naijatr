@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Analytics } from '@vercel/analytics/react'
-import { hashRouteAsPath } from './analytics'
+import { rememberNoAdsFlag } from './ads/directLink'
+import { analyticsBeforeSend } from './analytics'
 import { BrowseView } from './components/BrowseView'
 import { DetailsModal } from './components/DetailsModal'
 import { FallbackNotice } from './components/FallbackNotice'
@@ -17,6 +18,8 @@ import './App.css'
 const TRENDING_LINK: NavLink = { ...NAV_LINKS[0], section: 'trending' }
 
 function App() {
+  // Before useFilterParams rewrites the query string.
+  useState(() => rememberNoAdsFlag())
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MediaItem | null>(null)
@@ -121,7 +124,7 @@ function App() {
       {selected && <DetailsModal item={selected} onClose={closeDetails} />}
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
-      <Analytics beforeSend={hashRouteAsPath} />
+      <Analytics beforeSend={analyticsBeforeSend} />
     </>
   )
 }

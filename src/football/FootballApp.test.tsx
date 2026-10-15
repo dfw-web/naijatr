@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AD_LINK, adLinkClicks } from '../test/ads'
 import App from '../App'
 import FootballApp from './FootballApp'
 import type { Fixture } from './types'
@@ -233,21 +234,21 @@ describe('Football page', () => {
     await openMatch()
     selected('Events')
     await user.click(screen.getByRole('tab', { name: 'Watch' }))
-    expect(openMock).toHaveBeenCalledTimes(1)
+    expect(adLinkClicks()).toHaveLength(1)
     selected('Events')
     await user.click(screen.getByRole('tab', { name: 'Watch' }))
-    expect(openMock).toHaveBeenCalledTimes(2)
+    expect(adLinkClicks()).toHaveLength(2)
     selected('Watch')
     await user.click(screen.getByRole('tab', { name: 'Stats' }))
     selected('Stats')
-    expect(openMock).toHaveBeenCalledTimes(2)
-    expect(openMock).toHaveBeenCalledWith('https://uplcm.com/4/12033849', '_blank', 'noopener,noreferrer')
+    expect(adLinkClicks()).toHaveLength(2)
+    expect(adLinkClicks()).toEqual([AD_LINK, AD_LINK])
 
     await user.click(screen.getByRole('link', { name: /All football/ }))
     await openMatch()
     selected('Events')
     await user.click(screen.getByRole('tab', { name: 'Lineups' }))
-    expect(openMock).toHaveBeenCalledTimes(3)
+    expect(adLinkClicks()).toHaveLength(3)
     selected('Events')
   })
 

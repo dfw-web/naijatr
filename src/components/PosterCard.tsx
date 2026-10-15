@@ -33,8 +33,8 @@ export function PosterCard({ item, onSelect, rank }: PosterCardProps) {
       <button
         type="button"
         className="poster-card__button"
-        onClick={() => {
-          openAd()
+        onClick={(event) => {
+          openAd(event, item)
           onSelect(item)
         }}
         aria-label={`View details for ${label}`}

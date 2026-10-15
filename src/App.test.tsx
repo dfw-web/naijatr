@@ -1,11 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { adTiming } from './ads/directLink'
+import { analyticsBeforeSend } from './analytics'
 import App from './App'
 import { MediaImage } from './components/MediaImage'
 import { createFallbackProvider } from './data/fallbackProvider'
 import { createLocalProvider } from './data/localProvider'
 import { CatalogProviderContext } from './data/provider'
+import { AD_LINK, adLinkClicks } from './test/ads'
 import type { CatalogProvider } from './types/media'
 
 const fastProvider = createLocalProvider({ latencyMs: 0 })
@@ -19,6 +22,9 @@ function renderApp(provider: CatalogProvider = fastProvider) {
   )
   return { user }
 }
+
+/** Debounced filters plus a debounced search can outlast waitFor's 1s default on a busy machine. */
+const SLOW = { timeout: 5000 }
 
 const primaryNav = () => screen.getByRole('navigation', { name: 'Primary' })
 
@@ -114,30 +120,76 @@ describe('details panel', () => {
 })
 
 describe('title ad', () => {
-  const AD = ['https://uplcm.com/4/12033849', '_blank', 'noopener,noreferrer']
-
   it('opens the ad once per title click, from cards and View Details, while the details still open', async () => {
-    const open = vi.mocked(window.open)
-    open.mockClear()
     const { user } = renderApp()
     await user.click(await screen.findByRole('button', { name: 'View Details' }))
-    expect(open).toHaveBeenCalledTimes(1)
-    expect(open).toHaveBeenCalledWith(...AD)
+    expect(adLinkClicks()).toEqual([AD_LINK])
     const dialog = screen.getByRole('dialog', { name: 'The Last Light of Orion' })
 
     // Clicks inside the details panel never open it.
     await user.click(within(dialog).getByRole('button', { name: 'Close details' }))
-    expect(open).toHaveBeenCalledTimes(1)
+    expect(adLinkClicks()).toHaveLength(1)
 
     const series = screen.getByRole('region', { name: 'Popular Series' })
     const [first, second] = within(series).getAllByRole('button', { name: /^View details for / })
     await user.click(first)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(open).toHaveBeenCalledTimes(2)
+    expect(adLinkClicks()).toHaveLength(2)
     await user.keyboard('{Escape}')
     await user.click(second)
-    expect(open).toHaveBeenCalledTimes(3)
-    expect(open).toHaveBeenLastCalledWith(...AD)
+    expect(adLinkClicks()).toEqual([AD_LINK, AD_LINK, AD_LINK])
+    expect(window.open).not.toHaveBeenCalled()
+  })
+
+  it('skips the ad with ?noads=1 for the rest of the visit', async () => {
+    window.history.replaceState(null, '', '/?noads=1')
+    const { user } = renderApp()
+    await user.click(await screen.findByRole('button', { name: 'View Details' }))
+    await user.keyboard('{Escape}')
+    window.history.replaceState(null, '', '/#/movies')
+    const series = screen.getByRole('region', { name: 'Popular Series' })
+    await user.click(within(series).getAllByRole('button', { name: /^View details for / })[0])
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(adLinkClicks()).toHaveLength(0)
+  })
+
+  it('shows a one-time ad break on the details page when the browser blocks the ad', async () => {
+    adTiming.blockCheckMs = 20
+    const { user } = renderApp()
+    await user.click(await screen.findByRole('button', { name: 'View Details' }))
+    const adBreak = await screen.findByRole('dialog', { name: 'Ads keep NAIJA TR free' })
+    expect(within(adBreak).getByText(/Skip in 5s/)).toBeInTheDocument()
+    expect(analyticsBeforeSend({ type: 'pageview', url: 'https://www.naijatr.com/#/movies' })?.url).toBe(
+      'https://www.naijatr.com/movies?ad=blocked',
+    )
+
+    // Escape stays with the ad break: the details stay open underneath.
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('dialog', { name: 'The Last Light of Orion' })).toBeInTheDocument()
+
+    await user.click(within(adBreak).getByRole('button', { name: /Continue/ }))
+    expect(adLinkClicks()).toEqual([AD_LINK, AD_LINK])
+    expect(screen.queryByRole('dialog', { name: 'Ads keep NAIJA TR free' })).not.toBeInTheDocument()
+    const details = screen.getByRole('dialog', { name: 'The Last Light of Orion' })
+    expect(analyticsBeforeSend({ type: 'pageview', url: 'https://www.naijatr.com/' })?.url).toBe(
+      'https://www.naijatr.com/?ad=fallback-continue',
+    )
+
+    // At most once per title.
+    await user.click(within(details).getByRole('button', { name: 'Close details' }))
+    await user.click(screen.getByRole('button', { name: 'View Details' }))
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(screen.queryByRole('dialog', { name: 'Ads keep NAIJA TR free' })).not.toBeInTheDocument()
+  })
+
+  it('shows no ad break when the ad tab took over the page', async () => {
+    adTiming.blockCheckMs = 20
+    // The new tab takes focus as the link is clicked.
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementationOnce(() => fireEvent.blur(window))
+    const { user } = renderApp()
+    await user.click(await screen.findByRole('button', { name: 'View Details' }))
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(screen.queryByRole('dialog', { name: 'Ads keep NAIJA TR free' })).not.toBeInTheDocument()
   })
 })
 
@@ -265,8 +317,6 @@ describe('Movies and Series navigation', () => {
   })
 
   it('filters a text search when filters are active, and cards still open the ad', async () => {
-    const open = vi.mocked(window.open)
-    open.mockClear()
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
     const genres = await openFilters(user)
@@ -279,7 +329,7 @@ describe('Movies and Series navigation', () => {
     expect(posterButtons()[0]).toHaveAccessibleName(/^View details for Hollow Ground/)
 
     await user.click(posterButtons()[0])
-    expect(open).toHaveBeenCalledTimes(1)
+    expect(adLinkClicks()).toHaveLength(1)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
@@ -344,7 +394,7 @@ describe('search', () => {
 
     await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'drama')
     expect(await screen.findByRole('heading', { name: /Results for/ })).toHaveTextContent('drama')
-    await waitFor(() => expect(posterButtons().length).toBeGreaterThan(0))
+    await waitFor(() => expect(posterButtons().length).toBeGreaterThan(0), SLOW)
     const labels = () => posterButtons().map((b) => b.getAttribute('aria-label')!)
     expect(labels().some((l) => /, Movie, /.test(l))).toBe(true)
     expect(labels().some((l) => /, Series, /.test(l))).toBe(true)
@@ -353,16 +403,17 @@ describe('search', () => {
     const types = screen.getByRole('group', { name: 'Type' })
     expect(within(types).getByRole('button', { name: 'Both' })).toHaveAttribute('aria-pressed', 'true')
     await user.click(within(types).getByRole('button', { name: 'Series' }))
-    await waitFor(() => expect(labels().length > 0 && labels().every((l) => /, Series, /.test(l))).toBe(true))
-    await waitFor(() => expect(window.location.search).toBe('?type=series'))
+    await waitFor(() => expect(labels().length > 0 && labels().every((l) => /, Series, /.test(l))).toBe(true), SLOW)
+    await waitFor(() => expect(window.location.search).toBe('?type=series'), SLOW)
     expect(window.location.hash).toBe('')
 
     await user.click(within(genres).getByRole('button', { name: 'Horror' }))
-    const empty = await screen.findByRole('status')
+    const empty = await screen.findByRole('status', {}, SLOW)
     expect(empty).toHaveTextContent('No titles match')
     await user.click(within(empty).getByRole('button', { name: 'Clear all filters' }))
-    await waitFor(() => expect(labels().some((l) => /, Movie, /.test(l))).toBe(true))
-  })
+    // Back to the plain search, which waits out its own debounce.
+    await waitFor(() => expect(labels().some((l) => /, Movie, /.test(l))).toBe(true), SLOW)
+  }, 15_000)
 
   it('shows an empty state that can clear the search', async () => {
     const { user } = renderApp()

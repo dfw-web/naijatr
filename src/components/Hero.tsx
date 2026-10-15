@@ -68,8 +68,8 @@ export function Hero({ item, onViewDetails, onBrowse }: HeroProps) {
           <button
             type="button"
             className="btn btn--primary"
-            onClick={() => {
-              openAd()
+            onClick={(event) => {
+              openAd(event, item)
               onViewDetails(item)
             }}
           >
