@@ -1,0 +1,282 @@
+/* Telegram call-to-action, always branded as ours: NT logo, Telegram logo, OFFICIAL pill. */
+
+.tg-button,
+.tg-header-link,
+.tg-menu-link {
+  text-decoration: none;
+}
+
+.tg-icon {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.tg-official {
+  display: inline-block;
+  flex: none;
+  padding: 0.12em 0.5em;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  vertical-align: 0.15em;
+}
+
+.tg-marks {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.tg-marks__nt {
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 0.3em;
+}
+
+.tg-marks .tg-icon {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+.tg-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* The red "Join Channel" button. */
+.tg-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 6px 18px rgba(229, 9, 20, 0.3);
+  color: #fff;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color 150ms ease;
+}
+
+.tg-button:hover,
+.tg-button:focus-visible {
+  background: var(--accent-hover);
+}
+
+/* Header */
+.tg-header-link {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.tg-header-link:hover,
+.tg-header-link:focus-visible {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tg-header-link__nt {
+  width: 1.35em;
+  height: 1.35em;
+}
+
+/* Mobile menu */
+.tg-menu-link {
+  display: none;
+}
+
+/* Home banner */
+.tg-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: var(--max-width);
+  margin: 0 var(--gutter) 1.75rem;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  border: 1px solid rgba(229, 9, 20, 0.45);
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, rgba(229, 9, 20, 0.16), var(--surface) 55%);
+}
+
+@media (min-width: 1550px) {
+  .tg-banner {
+    margin-inline: auto;
+  }
+}
+
+.tg-banner .tg-marks {
+  font-size: 1.15rem;
+}
+
+.tg-banner__text,
+.tg-card__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tg-banner__text p,
+.tg-card__text p {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.tg-banner__close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.tg-banner__close:hover,
+.tg-banner__close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.tg-banner__close svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Details and match card */
+.tg-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
+  border-left: 3px solid var(--accent, #e50914);
+  border-radius: var(--radius, 10px);
+  background: var(--surface, #101015);
+}
+
+.tg-card__text {
+  flex-basis: 14rem;
+}
+
+/* Footer */
+.tg-footer {
+  margin-top: 1rem;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.tg-footer p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.35rem;
+}
+
+.tg-footer__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 860px) {
+  .tg-header-link {
+    margin-left: auto;
+    gap: 0.35rem;
+    padding: 0 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  /* Install drops to the search row, as an icon, so the first row keeps the channel link. */
+  .tg-header-link + .navbar__install {
+    order: 3;
+    margin-left: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .tg-header-link + .navbar__install svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* The search shares its row with the install icon (when shown). */
+  .navbar .navbar__search {
+    flex: 1 1 12rem;
+    width: auto;
+  }
+
+  .tg-header-link__nt {
+    display: none;
+  }
+
+  .tg-menu-link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 52px;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 374px) {
+  .tg-header-link .tg-official {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .tg-banner {
+    flex-wrap: wrap;
+    position: relative;
+    padding-right: 3rem;
+  }
+
+  .tg-banner__text {
+    flex-basis: calc(100% - 5rem);
+  }
+
+  .tg-banner .tg-button {
+    width: 100%;
+  }
+
+  .tg-banner__close {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+  }
+}

@@ -3,6 +3,7 @@ import { Download, Menu, Search, X } from 'lucide-react'
 import type { NavLink } from '../navigation'
 import { promptInstall, useCanInstall } from '../pwa'
 import { isTvMode } from '../tv/tvMode'
+import { TelegramHeaderLink, TelegramMenuLink } from './Telegram'
 import './Navbar.css'
 
 interface NavbarProps {
@@ -70,6 +71,7 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
               {link.label}
             </button>
           ))}
+          <TelegramMenuLink />
         </nav>
 
         <form
@@ -114,6 +116,8 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
             </button>
           )}
         </form>
+
+        <TelegramHeaderLink />
 
         {canInstall && (
           <button

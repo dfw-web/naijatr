@@ -10,6 +10,7 @@ import { isTvMode, phoneLink } from '../tv/tvMode'
 import { MediaImage } from './MediaImage'
 import { MediaRow } from './MediaRow'
 import { PlayerPanel } from './PlayerPanel'
+import { TelegramCard } from './Telegram'
 import { WatchProviders } from './WatchProviders'
 import './DetailsModal.css'
 
@@ -197,6 +198,7 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
 
           <PlayerPanel item={item} isLoading={isLoadingMore} />
           {item.watchProviders && <WatchProviders providers={item.watchProviders} />}
+          <TelegramCard from="details" />
           {isTvMode() && item.tmdbId !== undefined && (
             <div className="tv-phone-card">
               <QrCode url={phoneLink(item)} label={`QR code: watch ${item.title} on your phone`} size="7em" />

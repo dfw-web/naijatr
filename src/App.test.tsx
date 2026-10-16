@@ -91,9 +91,14 @@ describe('details panel', () => {
     expect(dialog).toHaveTextContent('8.7 / 10')
     expect(dialog).toHaveTextContent('21 November 2025')
 
-    // Only one focusable element: Tab and Shift+Tab must stay on it.
+    // Close and the Telegram card's Join Channel: Tab and Shift+Tab cycle between them.
+    const join = within(dialog).getByRole('link', { name: /Join Channel/ })
+    await user.tab()
+    expect(join).toHaveFocus()
     await user.tab()
     expect(close).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(join).toHaveFocus()
     await user.tab({ shift: true })
     expect(close).toHaveFocus()
 

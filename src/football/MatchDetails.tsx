@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ArrowLeftRight, BarChart3, ChevronLeft, Goal, ShieldAlert, Tv, Users } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { AdBreak } from '../ads/AdBreak'
+import { TelegramCard } from '../components/Telegram'
 import { useAdTwice } from '../hooks/useAdTwice'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { describeFootballError, useFootball } from './api'
@@ -89,6 +90,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
             {tab === 'lineups' && <Lineups lineups={match.lineups ?? []} />}
             {tab === 'stats' && <Stats stats={match.statistics ?? []} />}
           </div>
+          <TelegramCard from="match" />
         </>
       ) : null}
       <AdBreak adKey={`match:${id}`} />

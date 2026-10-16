@@ -10,6 +10,24 @@ import {
 } from './server/nextstream.ts'
 import { handleDownload, handlePlay, splitApiUrl } from './server/handlers.ts'
 import { footballApi } from './server/football/vite.ts'
+import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
+
+/**
+ * /go/telegram (go/telegram/index.html, its own page): fills in the channel
+ * link, and serves the page at /go/telegram in dev and preview like Vercel does.
+ */
+function telegramPage(): Plugin {
+  const rewrite = (req: IncomingMessage, _res: ServerResponse, next: () => void) => {
+    if (req.url && /^\/go\/telegram\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/go\/telegram\/?/, '/go/telegram/index.html')
+    next()
+  }
+  return {
+    name: 'telegram-page',
+    transformIndexHtml: (html) => html.replaceAll('%TELEGRAM_CHANNEL_URL%', TELEGRAM_CHANNEL_URL),
+    configureServer: (server) => void server.middlewares.use(rewrite),
+    configurePreviewServer: (server) => void server.middlewares.use(rewrite),
+  }
+}
 
 /**
  * Serves /api/play/... and /api/download/... in dev and preview. The handlers
@@ -73,7 +91,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
@@ -84,6 +102,8 @@ export default defineConfig(({ mode }) => {
     build: {
       target: ['es2019', 'chrome64', 'safari12', 'firefox68', 'edge79'],
       cssTarget: ['chrome64', 'safari12', 'firefox68', 'edge79'],
+      // The app, plus the /go/telegram redirect page.
+      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html' } },
     },
     server: { proxy: tmdbProxy },
     preview: { proxy: tmdbProxy },

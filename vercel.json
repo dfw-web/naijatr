@@ -7,6 +7,7 @@
     { "source": "/api/tmdb/:path*", "destination": "/api/tmdb?__path=:path*" },
     { "source": "/api/play/:path*", "destination": "/api/play?__path=:path*" },
     { "source": "/api/download/:path*", "destination": "/api/download?__path=:path*" },
+    { "source": "/go/telegram", "destination": "/go/telegram/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

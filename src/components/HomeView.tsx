@@ -7,6 +7,7 @@ import type { MediaItem } from '../types/media'
 import { Hero } from './Hero'
 import { MediaRow } from './MediaRow'
 import { StatusMessage } from './StatusMessage'
+import { TelegramBanner } from './Telegram'
 import { AdSlot } from '../tv/AdSlot'
 import { QrCode } from '../tv/QrCode'
 import { isTvMode } from '../tv/tvMode'
@@ -55,6 +56,8 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
         <Hero item={catalog?.featured ?? null} onViewDetails={onSelect} onBrowse={onBrowseTrending} />
       )}
       <div className={`app-rows ${catalog && !catalog.featured ? 'app-rows--no-hero' : ''}`}>
+        {/* First in the rows, which overlap the hero's fade, so it sits right under the hero. */}
+        <TelegramBanner />
         {recent.length > 0 && (
           <MediaRow id="continue-watching" title="Continue watching" items={recent} onSelect={onSelect} />
         )}
@@ -81,7 +84,7 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
             <QrCode url={MATCH_ALERTS_URL} label="QR code: join our match alerts channel" size="7em" />
             <p>
               <strong>Get match alerts</strong>
-              Scan to join our WhatsApp/Telegram channel.
+              Scan to join the official NAIJA TR Telegram channel.
             </p>
           </aside>
         )}

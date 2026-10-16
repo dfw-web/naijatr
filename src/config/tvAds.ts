@@ -1,3 +1,5 @@
+import { OFFICIAL_SITE, telegramGoPath } from './telegram'
+
 /**
  * TV ad and promo settings. TV browsers can't open the direct-link ad in a new
  * tab, and the Vignette / In-Page Push tags can't be closed with a remote, so
@@ -23,7 +25,7 @@ export const TV_BANNER_ZONE: AdZone | null = null
 export const TV_AD_BREAK_SECONDS = 5
 
 /**
- * TODO: your WhatsApp or Telegram channel link (e.g. https://whatsapp.com/channel/…
- * or https://t.me/…). While empty, the "Get match alerts" QR card is hidden.
+ * The "Get match alerts" QR card on TVs: the official Telegram channel, through
+ * /go/telegram so scans are counted. Empty hides the card.
  */
-export const MATCH_ALERTS_URL = ''
+export const MATCH_ALERTS_URL = `https://${OFFICIAL_SITE}${telegramGoPath('tv')}`
