@@ -116,7 +116,7 @@ export function TelegramCard({ from }: { from: 'details' | 'match' }) {
       <TelegramMarks />
       <div className="tg-card__text">
         <OfficialChannelName />
-        <p>Get alerts from the official NAIJA TR channel when new episodes and matches drop.</p>
+        <p>Get alerts from the official NAIJA TR channel when new episodes and matches drop, and for daily news updates.</p>
       </div>
       <TelegramLink from={from} className="tg-button">
         <TelegramIcon /> Join Channel

@@ -31,13 +31,13 @@ describe('Telegram call-to-action', () => {
     const card = screen.getByRole('complementary', { name: 'NAIJA TR Official Channel on Telegram' })
     expect(card).toHaveTextContent('NAIJA TR Official Channel')
     expect(within(card).getByText('Official')).toHaveClass('tg-official')
-    expect(card).toHaveTextContent('Get alerts from the official NAIJA TR channel when new episodes and matches drop.')
+    expect(card).toHaveTextContent('Get alerts from the official NAIJA TR channel when new episodes and matches drop, and for daily news updates.')
   })
 
   it('hides the home banner for a week after X', async () => {
     const { unmount } = render(<TelegramBanner />)
     const banner = screen.getByRole('complementary', { name: 'NAIJA TR Official Channel on Telegram' })
-    expect(banner).toHaveTextContent('Join the official NAIJA TR Telegram – daily movie picks & match links straight from naijatr.com.')
+    expect(banner).toHaveTextContent('Join the official NAIJA TR Telegram – daily movie picks, match links and daily news updates straight from naijatr.com.')
     expect(within(banner).getByRole('link', { name: /Join Channel/ })).toHaveAttribute('href', '/go/telegram?from=home-banner')
     await userEvent.click(within(banner).getByRole('button', { name: 'Dismiss for a week' }))
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()

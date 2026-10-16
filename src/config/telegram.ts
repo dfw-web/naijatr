@@ -7,7 +7,7 @@ export const TELEGRAM_USERNAME = new URL(TELEGRAM_CHANNEL_URL).pathname.replace(
 /** Our only website, shown next to the channel so copycats are easy to spot. */
 export const OFFICIAL_SITE = 'naijatr.com'
 
-export const TELEGRAM_PITCH = `Join the official NAIJA TR Telegram – daily movie picks & match links straight from ${OFFICIAL_SITE}.`
+export const TELEGRAM_PITCH = `Join the official NAIJA TR Telegram – daily movie picks, match links and daily news updates straight from ${OFFICIAL_SITE}.`
 
 /** Where the site's placements send people: /go/telegram records the visit, then opens the channel. */
 export type TelegramPlacement = 'header' | 'menu' | 'home-banner' | 'details' | 'match' | 'footer' | 'tv'
