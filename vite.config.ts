@@ -110,6 +110,8 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
+      // The ad tests need ads on; src/ads/adsOff.test.tsx checks the real default (off).
+      env: { VITE_ADS_ENABLED: 'true' },
     },
   }
 })

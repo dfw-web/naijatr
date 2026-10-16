@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ADS_ENABLED } from '../config/ads'
 import { TV_AD_BREAK_SECONDS, TV_BANNER_ZONE } from '../config/tvAds'
 import { AdSlot } from './AdSlot'
 import { QrCode } from './QrCode'
@@ -13,7 +14,7 @@ import { cancelAdBreak, continueAfterAdBreak, usePendingAdBreak } from './tvAdBr
  */
 export function TvAdBreakHost() {
   const pending = usePendingAdBreak()
-  if (!pending) return null
+  if (!ADS_ENABLED || !pending) return null
   return createPortal(<TvAdBreak key={pending.key} phoneUrl={pending.phoneUrl} />, document.body)
 }
 

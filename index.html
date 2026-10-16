@@ -5,8 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
-      // Smart TV detection (ES5: TV browsers are often old). Runs before the ad
-      // tags so they can be skipped on TVs. ?tv=1 / ?tv=0 forces it and is remembered.
+      // Smart TV detection (ES5: TV browsers are often old). The ad tags (src/ads/monetag.ts)
+      // read it so they can be skipped on TVs. ?tv=1 / ?tv=0 forces it and is remembered.
       (function () {
         var tv = false, forced = null
         try {
@@ -26,6 +26,7 @@
         if (tv) document.documentElement.className += ' tv-mode'
       })()
     </script>
+    <!-- Monetag site verification: keep it, even while ads are off (src/config/ads.ts). -->
     <meta name="monetag" content="eb7847d40cb2036e91b6ddc8b7181e6e">
     <meta name="theme-color" content="#050508" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -48,8 +49,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>/* Not on TVs: a remote can't close these (see src/tv). */if(!/tv-mode/.test(document.documentElement.className))(function(s){s.dataset.zone='12033043',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
-    <script>/* Not on TVs: a remote can't close these (see src/tv). */if(!/tv-mode/.test(document.documentElement.className))(function(s){s.dataset.zone='12033047',s.src='https://n6wxm.com/vignette.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
-    <script>/* Not on TVs: a remote can't close these (see src/tv). */if(!/tv-mode/.test(document.documentElement.className))(function(s){s.dataset.zone='12038439',s.src='https://n6wxm.com/vignette.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
   </body>
 </html>

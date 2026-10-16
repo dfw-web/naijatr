@@ -1,3 +1,4 @@
+import { ADS_ENABLED } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { setAdStatus } from './adStatus'
 import { requestAdBreak } from './adBreakStore'
@@ -36,8 +37,12 @@ export function rememberNoAdsFlag(href = window.location.href): void {
   noAdsFlag(new URL(href))
 }
 
-/** True for test visits (localhost, the home network, ?noads=1), so no impressions are wasted. */
+/**
+ * True while ads are switched off (ADS_ENABLED) and for test visits (localhost,
+ * the home network, ?noads=1), so no impressions are wasted.
+ */
 export function adsDisabled(href = window.location.href): boolean {
+  if (!ADS_ENABLED) return true
   const url = new URL(href)
   if (noAdsFlag(url)) return true
   // The test runner's page is http://localhost/; it checks the ads, so let them run there.
@@ -130,5 +135,6 @@ function blocked(adKey: string) {
 
 /** Opens the ad from the ad break's own button: a fresh tap, which Safari allows. */
 export function openAdFromAdBreak(): void {
+  if (!ADS_ENABLED) return
   if (!clickAdLink()) windowOpenAd()
 }

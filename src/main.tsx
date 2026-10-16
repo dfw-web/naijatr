@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './tv/tv.css'
 import App from './App.tsx'
+import { loadMonetagTags } from './ads/monetag'
 import { listenForInstallPrompt, registerServiceWorker } from './pwa'
 import { isFootballPath } from './football/format'
 import { FootballRoot } from './football/FootballRoot'
@@ -21,3 +22,6 @@ createRoot(document.getElementById('root')!).render(
     {isFootballPath(window.location.pathname) ? <FootballRoot /> : <App />}
   </StrictMode>,
 )
+
+// The Vignette / In-Page Push tags: only while ADS_ENABLED (src/config/ads.ts).
+loadMonetagTags()

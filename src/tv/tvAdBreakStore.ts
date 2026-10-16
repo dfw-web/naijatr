@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from 'react'
+import { ADS_ENABLED } from '../config/ads'
 import { isTvMode } from './tvMode'
 
 /**
  * The TV ad break: in TV mode, the first Play of each title (or match) this
  * visit shows a full-screen ad break first; its Continue button then runs the
- * playback. Off TV, and for later plays, the playback runs straight away.
+ * playback. Off TV, for later plays, and while ADS_ENABLED is false, the
+ * playback runs straight away.
  */
 
 interface Pending {
@@ -21,7 +23,7 @@ const emit = () => listeners.forEach((listener) => listener())
 
 /** Runs `action` now, or after the ad break when this is the title's first play on a TV. */
 export function playAfterAdBreak(key: string, action: () => void, phoneUrl?: string) {
-  if (!isTvMode() || shown.has(key)) return action()
+  if (!ADS_ENABLED || !isTvMode() || shown.has(key)) return action()
   shown.add(key)
   pending = { key, action, phoneUrl }
   emit()

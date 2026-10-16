@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
 import { CloudOff } from 'lucide-react'
+import { ADS_ENABLED } from '../config/ads'
 import { MATCH_ALERTS_URL, TV_BANNER_ZONE } from '../config/tvAds'
 import { freeMovieItems } from '../data/freeMovies'
 import { useHomeCatalog } from '../hooks/useCatalog'
@@ -75,7 +76,7 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
                 onSelect={onSelect}
               />
               {/* TV only: one ad between the first and second rows. */}
-              {tv && index === 0 && TV_BANNER_ZONE && <AdSlot zone={TV_BANNER_ZONE} className="tv-ad-slot--row" />}
+              {tv && index === 0 && ADS_ENABLED && TV_BANNER_ZONE && <AdSlot zone={TV_BANNER_ZONE} className="tv-ad-slot--row" />}
             </Fragment>
           )
         })}
