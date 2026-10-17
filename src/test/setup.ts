@@ -14,7 +14,7 @@ afterEach(() => {
   resetAdBreaks()
   resetTvAdBreaks()
   resetGate()
-  document.cookie = 'naijatr_gate=; Path=/; Max-Age=0'
+  document.cookie = 'naijatr_gate_joined=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()

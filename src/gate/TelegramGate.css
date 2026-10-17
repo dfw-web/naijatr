@@ -93,35 +93,13 @@
   line-height: 1.5;
 }
 
-.tg-gate__steps {
-  display: grid;
-  gap: 0.75rem;
-  width: 100%;
-  margin: 0.25rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.tg-gate__steps li {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.tg-gate__step {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-muted, #b3b3bd);
-}
-
 .tg-gate .tg-gate__button {
   width: 100%;
   min-height: 52px;
   white-space: normal;
 }
 
-.tg-gate__verify {
+.tg-gate__continue {
   width: 100%;
   min-height: 52px;
   padding: 0 1rem;
@@ -135,24 +113,9 @@
   transition: background-color 150ms ease;
 }
 
-.tg-gate__verify:hover,
-.tg-gate__verify:focus-visible {
+.tg-gate__continue:hover,
+.tg-gate__continue:focus-visible {
   background: #1b8cc2;
-}
-
-.tg-gate__verify:disabled {
-  cursor: progress;
-  opacity: 0.7;
-}
-
-.tg-gate__message {
-  margin: 0;
-  padding: 0.6rem 0.8rem;
-  border-radius: var(--radius, 10px);
-  background: rgba(229, 9, 20, 0.15);
-  color: var(--text, #f5f5f7);
-  font-size: 0.9rem;
-  line-height: 1.45;
 }
 
 .tg-gate__note {

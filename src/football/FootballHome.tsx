@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CalendarDays, Radio, SearchX } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { describeFootballError, useFootball } from './api'
-import { groupByLeague, localDate, matchesQuery, type OpenMatch } from './format'
+import { groupByLeague, localDate, matchesQuery, sortByImportance, type OpenMatch } from './format'
 import { LeagueBlock, MatchListSkeleton, WatchBlock } from './MatchList'
 import { Standings } from './Standings'
 import type { Fixture } from './types'
@@ -70,7 +70,7 @@ interface ListProps extends FootballHomeProps {
 function LiveMatches({ query, onOpenMatch, watchIds }: ListProps) {
   const { data, stale, error, loading, retry } = useFootball<Fixture[]>('live', LIVE_REFRESH_MS)
   const streaming = useMemo(
-    () => (data ?? []).filter((f) => watchIds.has(f.fixture.id) && matchesQuery(f, query)),
+    () => sortByImportance((data ?? []).filter((f) => watchIds.has(f.fixture.id) && matchesQuery(f, query))),
     [data, watchIds, query],
   )
   const rest = useMemo(() => (data ?? []).filter((f) => !watchIds.has(f.fixture.id)), [data, watchIds])

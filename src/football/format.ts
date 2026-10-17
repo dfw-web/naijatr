@@ -48,6 +48,37 @@ export const FEATURED_LEAGUES = [
   { id: 399, name: 'NPFL' },
 ] as const
 
+/**
+ * The order of the "Watch live" list: Premier League, La Liga, Champions
+ * League, Europa League, then the other featured leagues, then everything else.
+ * API-Football ids, plus the names the stream provider's feed uses (its league
+ * ids are its own, and it's what the site shows when API-Football is down).
+ */
+const WATCH_PRIORITY: { id: number; name: RegExp }[] = [
+  { id: 39, name: /^(English )?Premier League$/i },
+  { id: 140, name: /^(Spanish )?La ?Liga( EA Sports)?$/i },
+  { id: 2, name: /^(UEFA )?Champions League$/i },
+  { id: 3, name: /^(UEFA )?Europa League$/i },
+  { id: 135, name: /^(Italian )?Serie A$/i },
+  { id: 78, name: /^(German )?Bundesliga$/i },
+  { id: 61, name: /^(French )?Ligue 1$/i },
+  { id: 399, name: /^(NPFL|Nigeria(n)? (Premier|Professional Football) League)$/i },
+]
+
+/** Provider league ids are 10 digits; API-Football's are small. */
+const isApiFootballLeague = (id: number) => id < 1_000_000
+
+/** Streaming matches, most important league first (API order kept within a league rank). */
+export function sortByImportance(fixtures: Fixture[]): Fixture[] {
+  const rank = (fixture: Fixture) => {
+    const { id, name } = fixture.league
+    // By id when it's API-Football's (its plain "Serie A" is also Brazil's), by name for the provider's.
+    const index = WATCH_PRIORITY.findIndex((league) => (isApiFootballLeague(id) ? league.id === id : league.name.test(name.trim())))
+    return index === -1 ? WATCH_PRIORITY.length : index
+  }
+  return [...fixtures].sort((a, b) => rank(a) - rank(b))
+}
+
 const LIVE = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE'])
 const FINISHED = new Set(['FT', 'AET', 'PEN'])
 

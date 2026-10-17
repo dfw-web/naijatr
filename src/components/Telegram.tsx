@@ -48,6 +48,7 @@ interface TelegramLinkProps {
   'aria-label'?: string
   /** A new tab on phones too, so this page (e.g. the gate) is still there when the visitor comes back. */
   newTab?: boolean
+  onClick?: () => void
 }
 
 /**
@@ -55,7 +56,7 @@ interface TelegramLinkProps {
  * tab on desktop; on phones the same tab, so the hand-over to the Telegram app
  * doesn't leave an empty tab behind.
  */
-export function TelegramLink({ from, className, children, newTab = false, ...rest }: TelegramLinkProps) {
+export function TelegramLink({ from, className, children, newTab = false, onClick, ...rest }: TelegramLinkProps) {
   const touch = useMediaQuery('(pointer: coarse)') && !newTab
   return (
     <a
@@ -64,6 +65,7 @@ export function TelegramLink({ from, className, children, newTab = false, ...res
       target={touch ? undefined : '_blank'}
       rel="noopener"
       aria-label={rest['aria-label']}
+      onClick={onClick}
     >
       {children}
     </a>

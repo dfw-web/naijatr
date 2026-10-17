@@ -186,6 +186,57 @@ describe('Football page', () => {
     expect(await screen.findByRole('tab', { name: 'Events' })).toHaveAttribute('aria-selected', 'true')
   })
 
+  it('lists the most important leagues first under Watch live', async () => {
+    const live = (id: number, league: Fixture['league']) =>
+      fixture(id, { fixture: { ...LIVE.fixture, id }, league })
+    const other = { id: 71, name: 'Serie A', country: 'Brazil', logo: '' }
+    const europa = { id: 3, name: 'UEFA Europa League', country: 'World', logo: '' }
+    const champions = { id: 2, name: 'UEFA Champions League', country: 'World', logo: '' }
+    const laLiga = { id: 140, name: 'La Liga', country: 'Spain', logo: '' }
+    mockApi({
+      live: { body: { data: [live(5, other), live(4, europa), live(3, champions), live(2, laLiga), LIVE] } },
+      watchable: { body: { data: [1, 2, 3, 4, 5] } },
+      fixtures: { body: { data: [] } },
+      standings: { body: { data: [], season: SEASON } },
+    })
+    render(<FootballApp />)
+
+    const watchBlock = await screen.findByRole('region', { name: 'Watch live' })
+    // Premier League, La Liga, Champions League, Europa League, then the rest.
+    expect(within(watchBlock).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '/football/match/1?tab=watch',
+      '/football/match/2?tab=watch',
+      '/football/match/3?tab=watch',
+      '/football/match/4?tab=watch',
+      '/football/match/5?tab=watch',
+    ])
+  })
+
+  it('orders Watch live by league name on the stream provider feed', async () => {
+    const live = (id: number, name: string) =>
+      fixture(id, { fixture: { ...LIVE.fixture, id: 9_000_000_000 + id }, league: { id: 9_100_000_000 + id, name, country: '', logo: '' } })
+    mockApi({
+      live: {
+        body: {
+          source: 'rapidapi',
+          data: [live(1, 'Brazilian Serie A'), live(2, 'English Football League Championship'), live(3, 'Spanish La Liga'), live(4, 'English Premier League')],
+        },
+      },
+      watchable: { body: { data: [9_000_000_001, 9_000_000_002, 9_000_000_003, 9_000_000_004] } },
+      fixtures: { body: { data: [] } },
+      standings: { body: { data: [], season: SEASON } },
+    })
+    render(<FootballApp />)
+
+    const watchBlock = await screen.findByRole('region', { name: 'Watch live' })
+    expect(within(watchBlock).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '/football/match/9000000004?tab=watch',
+      '/football/match/9000000003?tab=watch',
+      '/football/match/9000000001?tab=watch',
+      '/football/match/9000000002?tab=watch',
+    ])
+  })
+
   it('writes live commentary from match events, even without a stream', async () => {
     const detailed: Fixture = {
       ...LIVE,
