@@ -12,6 +12,7 @@ import { SearchResults } from './components/SearchResults'
 import { hasNarrowingFilters } from './config/discoverFilters'
 import { useFilterParams } from './hooks/useFilterParams'
 import { TvAdBreakHost } from './tv/TvAdBreak'
+import { TelegramGateHost } from './gate/TelegramGate'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import './App.css'
@@ -165,6 +166,7 @@ function App() {
         <DetailsModal key={selected.id} item={selected} onClose={closeDetails} onSelect={setSelected} />
       )}
       <TvAdBreakHost />
+      <TelegramGateHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

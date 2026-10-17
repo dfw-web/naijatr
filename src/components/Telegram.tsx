@@ -46,6 +46,8 @@ interface TelegramLinkProps {
   className?: string
   children: ReactNode
   'aria-label'?: string
+  /** A new tab on phones too, so this page (e.g. the gate) is still there when the visitor comes back. */
+  newTab?: boolean
 }
 
 /**
@@ -53,8 +55,8 @@ interface TelegramLinkProps {
  * tab on desktop; on phones the same tab, so the hand-over to the Telegram app
  * doesn't leave an empty tab behind.
  */
-export function TelegramLink({ from, className, children, ...rest }: TelegramLinkProps) {
-  const touch = useMediaQuery('(pointer: coarse)')
+export function TelegramLink({ from, className, children, newTab = false, ...rest }: TelegramLinkProps) {
+  const touch = useMediaQuery('(pointer: coarse)') && !newTab
   return (
     <a
       href={telegramGoPath(from)}

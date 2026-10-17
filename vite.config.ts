@@ -10,6 +10,7 @@ import {
 } from './server/nextstream.ts'
 import { handleDownload, handlePlay, splitApiUrl } from './server/handlers.ts'
 import { footballApi } from './server/football/vite.ts'
+import { handleGate, readGateEnv, type GateEnv } from './server/telegramGate.ts'
 import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 
 /**
@@ -57,6 +58,21 @@ function nextStreamPlayback(config: NextStreamConfig): Plugin {
   }
 }
 
+/** Serves /api/telegram/* (the Telegram gate) in dev and preview, like api/telegram/[action].ts on Vercel. */
+function telegramGateApi(gate: GateEnv): Plugin {
+  // Connect strips the mount path; handleGate only needs the last segment (/verify).
+  const middleware = (req: IncomingMessage, res: ServerResponse) => void handleGate(gate, req, res)
+  return {
+    name: 'telegram-gate-api',
+    configureServer: (server) => {
+      server.middlewares.use('/api/telegram', middleware)
+    },
+    configurePreviewServer: (server) => {
+      server.middlewares.use('/api/telegram', middleware)
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Load every variable (empty prefix) for use *here*, on the server only.
@@ -91,7 +107,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? ''), telegramGateApi(readGateEnv(env))],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

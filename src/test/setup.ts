@@ -3,6 +3,7 @@ import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetAdBreaks } from '../ads/adBreakStore'
 import { adTiming } from '../ads/directLink'
+import { resetGate } from '../gate/gateStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 
 afterEach(() => {
@@ -12,6 +13,8 @@ afterEach(() => {
   window.sessionStorage.clear()
   resetAdBreaks()
   resetTvAdBreaks()
+  resetGate()
+  document.cookie = 'naijatr_gate=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()

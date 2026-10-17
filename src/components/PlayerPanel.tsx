@@ -22,6 +22,7 @@ import {
   onFullscreenChange,
 } from '../tv/fullscreen'
 import { QrCode } from '../tv/QrCode'
+import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
 import { readLastEpisode, saveLastEpisode, saveRecentTitle, type EpisodeRef } from '../utils/watchHistory'
@@ -416,14 +417,18 @@ export function PlayerPanel({
     }
   }
 
-  /** A Play button: on a TV, the title's first play shows the ad break, then the player goes fullscreen. */
+  /**
+   * A Play button: the first play on a phone, tablet or TV asks to join the
+   * Telegram channel (the gate); on a TV, the title's first play shows the ad
+   * break, then the player goes fullscreen. Trailers skip both.
+   */
   const play = (choice: Choice, ep?: EpisodeRef) => {
     const go = () => {
       if (tv) enterFullscreen(sectionRef.current)
       void start(choice, ep)
     }
     if (choice === 'trailer') return go()
-    playAfterAdBreak(`title:${item.id}`, go, phoneLink(item))
+    playAfterGate(() => playAfterAdBreak(`title:${item.id}`, go, phoneLink(item)))
   }
   const closePlayer = () => {
     if (fullscreenElement()) exitFullscreen()

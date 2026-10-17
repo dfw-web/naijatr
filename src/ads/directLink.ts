@@ -46,8 +46,12 @@ export function adsDisabled(href = window.location.href): boolean {
   const url = new URL(href)
   if (noAdsFlag(url)) return true
   // The test runner's page is http://localhost/; it checks the ads, so let them run there.
-  return import.meta.env.MODE !== 'test' && LOCAL_HOST.test(url.hostname)
+  return isDevHost(url.hostname)
 }
+
+/** localhost or the home network: a developer's visit. (The test runner's page counts as a real one.) */
+export const isDevHost = (hostname = window.location.hostname) =>
+  import.meta.env.MODE !== 'test' && LOCAL_HOST.test(hostname)
 
 /** Opens the ad through a real link click: Safari treats this as the user's own tap. */
 function clickAdLink(): boolean {

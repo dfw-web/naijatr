@@ -101,6 +101,8 @@ describe('TV mode', () => {
   })
 
   it('shows the ad break before the first Play, then plays and remembers the title', async () => {
+    // This TV already went through the Telegram gate (src/gate), which comes before the ad break.
+    localStorage.setItem('naijatr.gate.tv', '1')
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ available: true }))) as unknown as typeof fetch
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })

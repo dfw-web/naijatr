@@ -3,6 +3,7 @@ import { Analytics } from '@vercel/analytics/react'
 import { rememberNoAdsFlag } from '../ads/directLink'
 import { analyticsBeforeSend } from '../analytics'
 import { TvAdBreakHost } from '../tv/TvAdBreak'
+import { TelegramGateHost } from '../gate/TelegramGate'
 
 // Loaded on demand, so the movie pages never download the Football section.
 const FootballApp = lazy(() => import('./FootballApp'))
@@ -17,6 +18,7 @@ export function FootballRoot() {
       </Suspense>
       {/* Vercel Web Analytics for the Football section (a separate root from App). */}
       <TvAdBreakHost />
+      <TelegramGateHost />
       <Analytics beforeSend={analyticsBeforeSend} />
     </>
   )

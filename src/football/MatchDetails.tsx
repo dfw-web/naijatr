@@ -4,6 +4,7 @@ import { StatusMessage } from '../components/StatusMessage'
 import { AdBreak } from '../ads/AdBreak'
 import { TelegramCard } from '../components/Telegram'
 import { useAdTwice } from '../hooks/useAdTwice'
+import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { describeFootballError, useFootball } from './api'
 import { FOOTBALL_PATH, hasStarted, isFinished, isLive, statusLabel } from './format'
@@ -75,9 +76,11 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
                 className="fb-tab"
                 aria-selected={tab === t.id}
                 aria-controls="fb-match-panel"
-                // On a TV, the match's first Watch shows the ad break first.
+                // The first Watch asks to join the Telegram channel (phones, tablets, TVs); on a TV, the ad break follows.
                 onClick={() =>
-                  t.id === 'watch' ? playAfterAdBreak(`match:${id}`, () => setTab('watch')) : setTab(t.id)
+                  t.id === 'watch'
+                    ? playAfterGate(() => playAfterAdBreak(`match:${id}`, () => setTab('watch')))
+                    : setTab(t.id)
                 }
               >
                 {t.label}

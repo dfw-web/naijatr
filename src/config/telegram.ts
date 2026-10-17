@@ -10,7 +10,7 @@ export const OFFICIAL_SITE = 'naijatr.com'
 export const TELEGRAM_PITCH = `Join the official NAIJA TR Telegram – daily movie picks, match links and daily news updates straight from ${OFFICIAL_SITE}.`
 
 /** Where the site's placements send people: /go/telegram records the visit, then opens the channel. */
-export type TelegramPlacement = 'header' | 'menu' | 'home-banner' | 'details' | 'match' | 'footer' | 'tv'
+export type TelegramPlacement = 'header' | 'menu' | 'home-banner' | 'details' | 'match' | 'footer' | 'tv' | 'gate'
 
 export const telegramGoPath = (from: TelegramPlacement) => `/go/telegram?from=${from}`
 
