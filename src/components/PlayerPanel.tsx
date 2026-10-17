@@ -25,7 +25,8 @@ import { QrCode } from '../tv/QrCode'
 import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
-import { readLastEpisode, saveLastEpisode, saveRecentTitle, type EpisodeRef } from '../utils/watchHistory'
+import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../utils/continueWatching'
+import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -86,6 +87,17 @@ const isInside = (win: MessageEventSource | null, frame: Window | null | undefin
     w = w.parent
   }
   return false
+}
+
+/** How often the position is saved for Continue watching. */
+const PROGRESS_SAVE_MS = 10_000
+/** Resume only past this point (earlier, starting over is no loss). */
+const RESUME_MIN_S = 10
+
+/** The episode a /api/play/tv/{id}/{season}/{episode} source plays. */
+const episodeOfSrc = (src: string) => {
+  const match = /\/tv\/\d+\/(\d+)\/(\d+)$/.exec(src)
+  return match ? { season: Number(match[1]), episode: Number(match[2]) } : {}
 }
 
 /** A stretch of an episode, in seconds; `end` is null when it runs to the end. */
@@ -287,6 +299,54 @@ export function PlayerPanel({
     }
   }, [watchingSrc, hasNext, creditsUrl])
 
+  // Continue watching: save the position every 10s, resume a tapped card's
+  // saved time once the player reports in, and move on when it's finished.
+  const resumeAtRef = useRef<{ src: string; at: number } | null>(null)
+  const itemId = item.id
+  useEffect(() => {
+    if (!watchingSrc) return
+    const src = watchingSrc
+    const ep = episodeOfSrc(src)
+    let player: Window | null = null
+    let position: number | null = null
+    let duration: number | null = null
+    let savedAt = 0
+    let finished = false
+    const save = () => {
+      if (position === null || finished) return
+      savedAt = Date.now()
+      recordProgress(itemId, ep, position, duration)
+    }
+    const onMessage = (ev: MessageEvent) => {
+      const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
+      if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
+      player = ev.source as Window
+      if (data.event === 'duration' && typeof data.info === 'number' && data.info > 0) duration = data.info
+      if (data.event === 'time' && typeof data.info === 'number') {
+        position = data.info
+        const resume = resumeAtRef.current
+        if (resume?.src === src) {
+          resumeAtRef.current = null
+          if (resume.at > RESUME_MIN_S && position < resume.at - 5) {
+            player.postMessage({ source: PLAYER_COMMANDS, command: 'seek', value: resume.at }, '*')
+            position = resume.at
+          }
+        }
+        if (Date.now() - savedAt >= PROGRESS_SAVE_MS) save()
+      }
+      if (data.event === 'ended' && !finished) {
+        finished = true
+        finishEntry(itemId, ep)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => {
+      window.removeEventListener('message', onMessage)
+      // The last few seconds since the previous save.
+      save()
+    }
+  }, [watchingSrc, itemId])
+
   // TV: the remote plays and pauses the video (OK on the video, or the media
   // keys), and pausing shows a "watch on your phone" QR code.
   const tv = isTvMode()
@@ -365,6 +425,34 @@ export function PlayerPanel({
   }
   const sectionClass = filling ? 'player player--fill' : 'player'
 
+  // A Continue watching card was tapped: start its movie or episode straight away.
+  // (`play` is defined below the early return; the ref is set once it exists.)
+  const playRef = useRef<((choice: Choice, ep?: EpisodeRef) => void) | null>(null)
+  const scrollToPlayerRef = useRef(false)
+  useEffect(() => {
+    const request = takeResumeRequest(itemId)
+    if (!request) return
+    const ep = request.season !== null && request.episode !== null ? { season: request.season, episode: request.episode } : undefined
+    if (ep) setSelected(ep)
+    const choice = request.source === 'free' ? 'free' : 'stream'
+    if (choice === 'stream' && request.at !== null) {
+      const src = ep ? `/api/play/tv/${item.tmdbId}/${ep.season}/${ep.episode}` : `/api/play/movie/${item.tmdbId}`
+      resumeAtRef.current = { src, at: request.at }
+    }
+    scrollToPlayerRef.current = true
+    playRef.current?.(choice, ep)
+    // Once per title opened from a card; item.tmdbId doesn't change for it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId])
+
+  // Bring the resumed player into view once it's on the page (the details above it may still be loading).
+  const playerShown = active?.state.status === 'loading' || active?.state.status === 'playing'
+  useEffect(() => {
+    if (!playerShown || !scrollToPlayerRef.current) return
+    scrollToPlayerRef.current = false
+    sectionRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  }, [playerShown])
+
   if (!streamSrc && !free && !trailer) {
     return (
       <p className="player__unavailable" role={isLoading ? 'status' : undefined}>
@@ -387,7 +475,7 @@ export function PlayerPanel({
     const attempt = (run?.attempt ?? 0) + 1
     pausedRef.current = false
     setPaused(false)
-    if (choice !== 'trailer') saveRecentTitle(item)
+    if (choice !== 'trailer') recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
     const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
@@ -430,6 +518,8 @@ export function PlayerPanel({
     if (choice === 'trailer') return go()
     playAfterGate(() => playAfterAdBreak(`title:${item.id}`, go, phoneLink(item)))
   }
+  playRef.current = play
+
   const closePlayer = () => {
     if (fullscreenElement()) exitFullscreen()
     setFilling(false)

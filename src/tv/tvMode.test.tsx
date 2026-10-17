@@ -5,7 +5,7 @@ import { openAd } from '../ads/directLink'
 import { analyticsBeforeSend } from '../analytics'
 import { PlayerPanel } from '../components/PlayerPanel'
 import type { MediaItem } from '../types/media'
-import { readRecentTitles } from '../utils/watchHistory'
+import { readContinueWatching } from '../utils/continueWatching'
 import { goBack } from './remote'
 import { TvAdBreakHost } from './TvAdBreak'
 import { playAfterAdBreak } from './tvAdBreakStore'
@@ -118,7 +118,7 @@ describe('TV mode', () => {
     countDown()
     await user.click(screen.getByRole('button', { name: /Continue/ }))
     expect(await screen.findByTitle('Fight Club player')).toBeInTheDocument()
-    expect(readRecentTitles().map((t) => t.title)).toEqual(['Fight Club'])
+    expect(readContinueWatching().map((t) => t.title)).toEqual(['Fight Club'])
     vi.useRealTimers()
   })
 })

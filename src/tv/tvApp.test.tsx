@@ -4,7 +4,7 @@ import App from '../App'
 import { createLocalProvider } from '../data/localProvider'
 import { CatalogProviderContext } from '../data/provider'
 import type { CatalogProvider, MediaItem } from '../types/media'
-import { saveRecentTitle } from '../utils/watchHistory'
+import { recordPlay } from '../utils/continueWatching'
 
 const local = createLocalProvider({ latencyMs: 0 })
 
@@ -40,21 +40,12 @@ describe('title links (?title=, used by the TV QR codes)', () => {
 })
 
 describe('TV home page', () => {
-  it('starts with a Continue watching row of recently played titles, on TV only', async () => {
+  it('starts with the Continue watching row of recently played titles', async () => {
     const [first] = await local.getByType('movie')
-    saveRecentTitle(first)
-    const { unmount } = render(
-      <CatalogProviderContext.Provider value={local}>
-        <App />
-      </CatalogProviderContext.Provider>,
-    )
-    await screen.findByRole('heading', { name: 'Popular Series' })
-    expect(screen.queryByRole('region', { name: 'Continue watching' })).not.toBeInTheDocument()
-    unmount()
-
+    recordPlay(first)
     document.documentElement.classList.add('tv-mode')
     renderApp()
     const row = await screen.findByRole('region', { name: 'Continue watching' })
-    expect(within(row).getByRole('button', { name: new RegExp(`^View details for ${first.title}`) })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: `Continue watching ${first.title}` })).toBeInTheDocument()
   })
 })

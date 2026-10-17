@@ -1,10 +1,11 @@
-import { Fragment, useState } from 'react'
+import { Fragment } from 'react'
 import { CloudOff } from 'lucide-react'
 import { ADS_ENABLED } from '../config/ads'
 import { MATCH_ALERTS_URL, TV_BANNER_ZONE } from '../config/tvAds'
 import { freeMovieItems } from '../data/freeMovies'
 import { useHomeCatalog } from '../hooks/useCatalog'
 import type { MediaItem } from '../types/media'
+import { ContinueWatchingRow } from './ContinueWatchingRow'
 import { Hero } from './Hero'
 import { MediaRow } from './MediaRow'
 import { StatusMessage } from './StatusMessage'
@@ -12,7 +13,6 @@ import { TelegramBanner } from './Telegram'
 import { AdSlot } from '../tv/AdSlot'
 import { QrCode } from '../tv/QrCode'
 import { isTvMode } from '../tv/tvMode'
-import { readRecentTitles } from '../utils/watchHistory'
 
 interface HomeViewProps {
   onSelect: (item: MediaItem) => void
@@ -30,8 +30,6 @@ const LOADING_SECTIONS = [
 export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
   const { state, retry } = useHomeCatalog()
   const tv = isTvMode()
-  // Read once per visit to the home page; playing a title updates it for next time.
-  const [recent] = useState(() => (tv ? readRecentTitles() : []))
 
   if (state.status === 'error') {
     return (
@@ -57,11 +55,9 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
         <Hero item={catalog?.featured ?? null} onViewDetails={onSelect} onBrowse={onBrowseTrending} />
       )}
       <div className={`app-rows ${catalog && !catalog.featured ? 'app-rows--no-hero' : ''}`}>
-        {/* First in the rows, which overlap the hero's fade, so it sits right under the hero. */}
+        {/* What this device was watching (hidden until something is played). First in the rows, which overlap the hero's fade. */}
+        <ContinueWatchingRow onSelect={onSelect} />
         <TelegramBanner />
-        {recent.length > 0 && (
-          <MediaRow id="continue-watching" title="Continue watching" items={recent} onSelect={onSelect} />
-        )}
         {sections.map((section, index) => {
           const isTrending = section.id === 'trending'
           return (

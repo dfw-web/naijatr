@@ -1,0 +1,155 @@
+/* Continue watching: landscape cards (episode still or backdrop) with a progress bar. */
+.continue-card {
+  position: relative;
+  flex-shrink: 0;
+  width: calc(var(--card-width) * 1.6);
+  scroll-snap-align: start;
+}
+
+.continue-card__button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--radius);
+}
+
+.continue-card__button:focus-visible {
+  outline: none;
+}
+
+.continue-card__frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 300ms ease;
+}
+
+.continue-card__image,
+.continue-card__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Darkens the bottom so the progress bar reads on bright images. */
+.continue-card__frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(5, 5, 8, 0.75));
+  pointer-events: none;
+}
+
+.continue-card__play {
+  position: absolute;
+  left: 0.6rem;
+  bottom: 0.85rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 4px 14px rgba(229, 9, 20, 0.45);
+  color: #fff;
+}
+
+.continue-card__play svg {
+  width: 1rem;
+  height: 1rem;
+  margin-left: 2px;
+  fill: currentColor;
+}
+
+.continue-card__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.continue-card__progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.continue-card__info {
+  padding: 0.6rem 2.25rem 0 0.15rem;
+}
+
+.continue-card__title,
+.continue-card__episode {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.continue-card__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.continue-card__episode {
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* The ✕ sits under the image, right of the title: always reachable on touch screens. */
+.continue-card__remove {
+  position: absolute;
+  right: 0;
+  top: calc(var(--card-width) * 1.6 * 9 / 16 + 0.2rem);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.continue-card__remove:hover,
+.continue-card__remove:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.continue-card__remove svg {
+  width: 18px;
+  height: 18px;
+}
+
+.continue-card__button:hover .continue-card__frame,
+.continue-card__button:focus-visible .continue-card__frame,
+.tv-mode .continue-card__button:focus .continue-card__frame {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.6),
+    0 0 0 2px var(--accent);
+}
+
+.continue-card__button:hover .continue-card__title,
+.continue-card__button:focus-visible .continue-card__title {
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .continue-card {
+    width: min(72vw, 18rem);
+  }
+
+  .continue-card__remove {
+    top: calc(min(72vw, 18rem) * 9 / 16 + 0.2rem);
+  }
+}

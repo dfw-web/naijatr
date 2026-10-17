@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react'
 import type { MediaItem } from '../types/media'
 import { PosterCard, PosterCardSkeleton } from './PosterCard'
@@ -14,6 +14,8 @@ interface MediaRowProps {
   /** "ranked" shows a numbered top-10 chart. */
   variant?: 'default' | 'ranked'
   onSelect: (item: MediaItem) => void
+  /** Cards of another kind (e.g. Continue watching), shown instead of posters for `items`. */
+  children?: ReactNode
 }
 
 const SKELETON_COUNT = 7
@@ -26,6 +28,7 @@ export function MediaRow({
   isLoading = false,
   variant = 'default',
   onSelect,
+  children,
 }: MediaRowProps) {
   const isRanked = variant === 'ranked'
   const trackRef = useRef<HTMLDivElement>(null)
@@ -46,7 +49,7 @@ export function MediaRow({
     const observer = new ResizeObserver(updateScrollState)
     observer.observe(track)
     return () => observer.disconnect()
-  }, [items, isLoading, updateScrollState])
+  }, [items, children, isLoading, updateScrollState])
 
   const scrollByPage = (direction: 1 | -1) => {
     const track = trackRef.current
@@ -87,7 +90,7 @@ export function MediaRow({
         </div>
       </div>
 
-      {!isLoading && items.length === 0 ? (
+      {!isLoading && items.length === 0 && !children ? (
         <StatusMessage icon={Inbox} title={`No titles in ${title} right now`} compact />
       ) : (
         <div
@@ -95,7 +98,8 @@ export function MediaRow({
           className={`media-row__track ${isRanked ? 'media-row__track--ranked' : ''}`}
           onScroll={updateScrollState}
         >
-          {isLoading
+          {children ??
+            (isLoading
             ? Array.from({ length: SKELETON_COUNT }, (_, i) => <PosterCardSkeleton key={i} />)
             : items.map((item, index) => (
                 <PosterCard
@@ -104,7 +108,7 @@ export function MediaRow({
                   onSelect={onSelect}
                   rank={isRanked ? index + 1 : undefined}
                 />
-              ))}
+              )))}
         </div>
       )}
     </section>
