@@ -10,6 +10,7 @@ import {
   splitFootballUrl,
   type FootballContext,
 } from './handlers'
+import { STREAM_ORIGIN } from './stream'
 
 const KEY = 'test-football-key'
 const NOW = Date.parse('2026-10-14T12:00:00Z')
@@ -389,16 +390,40 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     listed('other2', 'USL Championship', 'Tampa Bay', 'Louisville'),
   ]
 
-  function provider(links: Record<string, string> = { epl1: 'https://cdn.example.com/epl1.m3u8' }) {
+  function provider(links: Record<string, string> = { epl1: 'https://cdn.example.com/epl1.m3u8' }, deadFeeds: string[] = []) {
     return vi.fn().mockImplementation(async (url: string) => {
       if (url.startsWith(FOOTBALL_ORIGIN)) return apiBody([], { access: 'Your account is suspended' })
+      if (url.startsWith('https://cdn.example.com/')) {
+        return deadFeeds.includes(url) ? new Response('<html>403 Forbidden</html>', { status: 403 }) : new Response('#EXTM3U')
+      }
       if (url.endsWith('/all-match')) return new Response(JSON.stringify({ result: LISTING }))
       const id = decodeURIComponent(url.split('/link/')[1] ?? '')
       return new Response(JSON.stringify({ url: links[id] ?? '' }))
     })
   }
   const rapidCalls = (fetchImpl: ReturnType<typeof vi.fn>) =>
-    fetchImpl.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith(FOOTBALL_ORIGIN))
+    fetchImpl.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith(STREAM_ORIGIN))
+
+  it('asks again for a link within minutes when its feed is not playing, in case the provider replaces it', async () => {
+    const links = { epl1: 'https://cdn.example.com/dead.m3u8' }
+    const fetchImpl = provider(links, ['https://cdn.example.com/dead.m3u8'])
+    const { ctx, advance } = setup(fetchImpl)
+    ctx.rapidKey = 'rapid-key'
+    const [epl] = (json(await get(ctx, 'live')).data as { fixture: { id: number } }[]).map((f) => f.fixture.id)
+
+    const first = await get(ctx, 'stream', `id=${epl}`)
+    expect(json(first).data).toMatchObject({ streams: [{ url: 'https://cdn.example.com/dead.m3u8' }] })
+    expect(first.headers['cache-control']).toContain(`s-maxage=${FOOTBALL_TTL.brokenStreamLink}`)
+
+    // The provider swaps in a working feed; it is picked up after 2 minutes, not 2 hours.
+    links.epl1 = 'https://cdn.example.com/new.m3u8'
+    advance(FOOTBALL_TTL.brokenStreamLink + 1)
+    expect(json(await get(ctx, 'stream', `id=${epl}`)).data).toMatchObject({ streams: [{ url: 'https://cdn.example.com/new.m3u8' }] })
+    // ...and kept, now that it plays.
+    advance(FOOTBALL_TTL.brokenStreamLink + 1)
+    await get(ctx, 'stream', `id=${epl}`)
+    expect(rapidCalls(fetchImpl).filter((url) => url.endsWith('/link/epl1'))).toHaveLength(2)
+  })
 
   it('looks a stream up only when its match is opened, then waits before asking again', async () => {
     const fetchImpl = provider()

@@ -9,6 +9,8 @@ import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamD
 
 /** Live data is re-checked every few minutes, not every minute, to spare the providers' quotas. */
 const LIVE_REFRESH_MS = 5 * 60_000
+/** ...but every 2 minutes while the stream isn't playing, so a replacement link from the provider shows up soon. */
+const FAILED_STREAM_REFRESH_MS = 2 * 60_000
 
 const minuteOf = (event: FixtureEvent) => `${event.time.elapsed}${event.time.extra ? `+${event.time.extra}` : ''}`
 
@@ -70,12 +72,19 @@ function buildCommentary(match: Fixture): CommentaryLine[] {
  */
 export function MatchStream({ match }: { match: Fixture }) {
   const live = isLive(match.fixture.status)
-  const { data } = useFootball<MatchStreamData>(`stream?id=${match.fixture.id}`, live ? LIVE_REFRESH_MS : undefined)
+  // The link whose player gave up; a new link from the provider plays again.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const [selected, setSelected] = useState(0)
+  const { data } = useFootball<MatchStreamData>(
+    `stream?id=${match.fixture.id}`,
+    live ? (failedUrl ? FAILED_STREAM_REFRESH_MS : LIVE_REFRESH_MS) : undefined,
+  )
 
   const commentary = [...(data?.commentary ?? []), ...buildCommentary(match)]
   const streams = data?.streams ?? []
   const source = streams[Math.min(selected, streams.length - 1)]
+  // A different link has come in: back to the usual pace.
+  if (source && failedUrl && source.url !== failedUrl) setFailedUrl(null)
   const providerStatus = data?.status
   // Counts as watching (for the live viewer count) while the stream player is on the page.
   useLiveWatching(source ? `match:${match.fixture.id}` : null)
@@ -100,7 +109,12 @@ export function MatchStream({ match }: { match: Fixture }) {
               ))}
             </div>
           )}
-          <StreamPlayer key={source.url} source={source} title={`${match.teams.home.name} vs ${match.teams.away.name}`} />
+          <StreamPlayer
+            key={source.url}
+            source={source}
+            title={`${match.teams.home.name} vs ${match.teams.away.name}`}
+            onFailed={setFailedUrl}
+          />
           <p className="fb-stream__note">
             Streams come from a third-party provider and may not always load.{' '}
             <a href={source.url} target="_blank" rel="noopener noreferrer nofollow">
@@ -168,7 +182,7 @@ function directUrl(url: string) {
  * Plays an HLS (.m3u8) stream: natively where the browser can (Safari, iOS),
  * otherwise with hls.js, which is only downloaded when a stream is played.
  */
-function HlsPlayer({ url, title }: { url: string; title: string }) {
+function HlsPlayer({ url, title, onFailed }: { url: string; title: string; onFailed: (url: string) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [failed, setFailed] = useState(false)
 
@@ -179,17 +193,22 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
     const candidates = [directUrl(url), url].filter((u, i, all): u is string => Boolean(u) && all.indexOf(u) === i)
 
     let destroyed = false
+    // Shows the "isn't playing" message, and tells the page to look for a new link sooner.
+    const giveUp = () => {
+      setFailed(true)
+      onFailed(url)
+    }
     let removeNative: (() => void) | undefined
     let removeGate: ReturnType<typeof gatePlayback> | undefined
     // The browser's own HLS player, only where hls.js can't run (iPhone Safari).
     // Chrome now has one too, but it stalls on these feeds; hls.js copes better.
     const playNatively = () => {
-      if (!video.canPlayType('application/vnd.apple.mpegurl')) return setFailed(true)
+      if (!video.canPlayType('application/vnd.apple.mpegurl')) return giveUp()
       let index = 0
       const onError = () => {
         index += 1
         if (index < candidates.length) video.src = candidates[index]
-        else setFailed(true)
+        else giveUp()
       }
       video.addEventListener('error', onError)
       video.src = candidates[0]
@@ -261,7 +280,7 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
             networkRetries = 0
             return player.loadSource(candidates[index])
           }
-          setFailed(true)
+          giveUp()
         })
         player.loadSource(candidates[0])
         player.attachMedia(video)
@@ -278,7 +297,7 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
       prefetcher?.destroy()
       preconnect.remove()
     }
-  }, [url])
+  }, [url, onFailed])
 
   return (
     <div className="fb-stream__player">
@@ -288,7 +307,7 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
             icon={MonitorPlay}
             compact
             title="This stream isn't playing right now"
-            message="The provider's feed may be offline. Try another source or open it in a new tab."
+            message="The provider's feed may be offline. We'll keep checking for a new link, or try another source."
           />
         </div>
       ) : (
@@ -298,7 +317,7 @@ function HlsPlayer({ url, title }: { url: string; title: string }) {
   )
 }
 
-function StreamPlayer({ source, title }: { source: StreamSource; title: string }) {
+function StreamPlayer({ source, title, onFailed }: { source: StreamSource; title: string; onFailed: (url: string) => void }) {
   if (source.kind === 'embed') {
     return (
       <div className="fb-stream__player">
@@ -314,7 +333,7 @@ function StreamPlayer({ source, title }: { source: StreamSource; title: string }
       </div>
     )
   }
-  if (source.kind === 'hls') return <HlsPlayer url={source.url} title={title} />
+  if (source.kind === 'hls') return <HlsPlayer url={source.url} title={title} onFailed={onFailed} />
   return (
     <div className="fb-stream__player fb-stream__player--link">
       <a className="btn btn--primary" href={source.url} target="_blank" rel="noopener noreferrer nofollow">

@@ -20,6 +20,7 @@ import {
   fetchStreamLink,
   fetchStreamListing,
   findMatchStream,
+  hlsPlays,
   isProviderMatchId,
   NO_STREAM,
   providerFixtures,
@@ -64,6 +65,8 @@ export const FOOTBALL_TTL = {
   streamLinks: 2 * 60 * 60,
   /** A match without a stream yet is checked again later, as streams start near kick-off. */
   noStreamLink: 15 * 60,
+  /** A link whose feed isn't playing: asked for again soon, in case the provider replaces it. */
+  brokenStreamLink: 2 * 60,
   /** How long the shared cache keeps an answer, as a fallback for when a provider fails. */
   keep: 24 * 60 * 60,
 } as const
@@ -451,9 +454,14 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     const { home, away } = provider.fixture.teams
     const { providerId: _ignored, ...paired } = findMatchStream(provider.items, home.name, away.name)
     const result: MatchStream = paired
-    if (!result.streams.length) result.streams = await loadStreamLink(ctx, ctx.rapidKey, provider.providerId)
+    let maxAge: number = FOOTBALL_TTL.streams
+    if (!result.streams.length) {
+      const link = await loadStreamLink(ctx, ctx.rapidKey, provider.providerId)
+      result.streams = link.streams
+      maxAge = shorterAge(maxAge, link.maxAge)
+    }
     result.available = result.streams.length > 0 || result.commentary.length > 0
-    return send(res, { outcome: { ok: true, data: result }, maxAge: FOOTBALL_TTL.streams, stale: false })
+    return send(res, { outcome: { ok: true, data: result }, maxAge, stale: false })
   }
 
   const found = (await loadMatch(ctx, id)).outcome
@@ -469,12 +477,18 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
   if (!listing.outcome.ok) return send(res, listing)
   const { providerId, ...paired } = findMatchStream(listing.outcome.data as unknown[], home, away)
   const result: MatchStream = paired
+  let maxAge = listing.maxAge
   if (providerId && !result.streams.length) {
-    result.streams = await loadStreamLink(ctx, ctx.rapidKey, providerId)
+    const link = await loadStreamLink(ctx, ctx.rapidKey, providerId)
+    result.streams = link.streams
     result.available = result.streams.length > 0 || result.commentary.length > 0
+    maxAge = shorterAge(maxAge, link.maxAge)
   }
-  send(res, { ...listing, outcome: { ok: true, data: result } })
+  send(res, { ...listing, maxAge, outcome: { ok: true, data: result } })
 }
+
+/** The shorter of two cache ages, where 0 means "don't cache". */
+const shorterAge = (a: number, b: number) => (a > 0 && b > 0 ? Math.min(a, b) : 0)
 
 /** Around a featured match's kick-off: from 2 minutes before until it shows as started (at most 20 minutes after). */
 const KICKOFF_BEFORE_MS = 2 * 60 * 1000
@@ -506,16 +520,34 @@ function loadStreamListing(ctx: FootballContext, rapidKey: string) {
   )
 }
 
-/** One provider match's stream sources ([] when it has none). */
+/**
+ * One provider match's stream sources ([] when it has none), and how long
+ * they're kept. A link is kept for 2 hours only if its feed plays; a dead one
+ * (the provider sometimes hands out a feed that refuses everyone) is asked for
+ * again after 2 minutes, so a replacement shows up during the match.
+ */
 async function loadStreamLink(ctx: FootballContext, rapidKey: string, providerId: string) {
+  let broken = false
   const link = await cached(
     ctx,
     `stream-link:${providerId}`,
-    async () => ({ ok: true, data: await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl) }),
+    async () => {
+      const streams = await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl)
+      // Only HLS feeds can be checked; an embedded player is taken as given.
+      if (streams.length && streams.every((s) => s.kind === 'hls')) {
+        const plays = await Promise.all(streams.map((s) => hlsPlays(s.url, ctx.fetchImpl)))
+        broken = !plays.some(Boolean)
+      }
+      return { ok: true, data: streams }
+    },
     (outcome) =>
-      outcome.ok && (outcome.data as unknown[]).length ? FOOTBALL_TTL.streamLinks : FOOTBALL_TTL.noStreamLink,
+      !outcome.ok || !(outcome.data as unknown[]).length
+        ? FOOTBALL_TTL.noStreamLink
+        : broken
+          ? FOOTBALL_TTL.brokenStreamLink
+          : FOOTBALL_TTL.streamLinks,
   )
-  return link.outcome.ok ? (link.outcome.data as MatchStream['streams']) : []
+  return { streams: link.outcome.ok ? (link.outcome.data as MatchStream['streams']) : [], maxAge: link.maxAge }
 }
 
 interface LiveFixture {
@@ -558,7 +590,7 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
       })
       const checked = await Promise.all(
         candidates.map(async (c) =>
-          c.streams.length || (await loadStreamLink(ctx, rapidKey, c.providerId)).length ? c.id : null,
+          c.streams.length || (await loadStreamLink(ctx, rapidKey, c.providerId)).streams.length ? c.id : null,
         ),
       )
       return { ok: true, data: checked.filter((id) => id !== null) }

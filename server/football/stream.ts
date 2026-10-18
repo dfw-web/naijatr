@@ -98,6 +98,34 @@ export async function fetchStreamLink(key: string, providerId: string, fetchImpl
   return result.ok && isObject(result.body) ? collectStreams(result.body) : []
 }
 
+/**
+ * Whether an HLS link answers with a playlist. The provider's links wrap the
+ * source in its own relay (?url=<playlist>), so both are tried. A dead source
+ * answers 403, or the relay passes on its error page instead of a playlist.
+ * Unreachable or slow counts as not playing too: it only means asking the
+ * provider for its link again sooner.
+ */
+export async function hlsPlays(url: string, fetchImpl: typeof fetch = fetch) {
+  const candidates = [url]
+  try {
+    const inner = new URL(url).searchParams.get('url')
+    if (inner && new URL(inner).protocol === 'https:') candidates.push(inner)
+  } catch {
+    // Not a URL: nothing to try.
+  }
+  for (const candidate of candidates) {
+    try {
+      const response = await fetchImpl(candidate, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+      if (response.ok && (await response.text()).trimStart().startsWith('#EXTM3U')) return true
+    } catch {
+      // Try the next address.
+    }
+  }
+  return false
+}
+
+const PROBE_TIMEOUT_MS = 6000
+
 type Json = Record<string, unknown>
 
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
