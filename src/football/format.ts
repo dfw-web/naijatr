@@ -90,6 +90,15 @@ export function seasonLabel(season: Season) {
   return endYear > startYear ? `${startYear}/${String(endYear).slice(-2)}` : String(startYear)
 }
 
+/**
+ * The order of the "Watch live" list: Premier League, La Liga, Champions
+ * League, Europa League, Conference League (see server/football/priority.ts).
+ * API order is kept within a league rank.
+ */
+export function sortByImportance(fixtures: Fixture[]): Fixture[] {
+  return [...fixtures].sort((a, b) => leagueRank(a.league) - leagueRank(b.league))
+}
+
 /** The viewer's local date as YYYY-MM-DD. */
 export function localDate(now = new Date()) {
   const pad = (n: number) => String(n).padStart(2, '0')

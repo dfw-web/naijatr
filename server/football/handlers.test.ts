@@ -409,7 +409,6 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     expect(live.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga'])
     // Listing the live matches checks no streams.
     expect(rapidCalls(fetchImpl).map((url) => url.split('.com')[1])).toEqual(['/all-match'])
-    expect((await get(ctx, 'watchable')).statusCode).toBe(404)
 
     const [epl, liga] = live.map((f) => f.fixture.id)
     expect(json(await get(ctx, 'stream', `id=${epl}`)).data).toMatchObject({ available: true })
@@ -428,6 +427,27 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     const links = rapidCalls(fetchImpl).filter((url) => url.includes('/link/'))
     expect(links.filter((url) => url.endsWith('/link/liga1'))).toHaveLength(2)
     expect(links.filter((url) => url.endsWith('/link/epl1'))).toHaveLength(1)
+  })
+
+  it('Watch now checks only the featured leagues, then waits before checking again', async () => {
+    const fetchImpl = provider()
+    const { ctx, advance } = setup(fetchImpl)
+    ctx.rapidKey = 'rapid-key'
+
+    expect(json(await get(ctx, 'watchable')).data).toHaveLength(1)
+    // One listing, plus one link check per featured live match; nothing for the other leagues.
+    expect(rapidCalls(fetchImpl).map((url) => url.split('.com')[1])).toEqual(['/all-match', '/link/epl1', '/link/liga1'])
+
+    // Five minutes on: the listing is refreshed, but neither link is asked for again yet.
+    advance(FOOTBALL_TTL.watchable + 1)
+    await get(ctx, 'watchable')
+    expect(rapidCalls(fetchImpl)).toHaveLength(4)
+
+    // A match without a stream is checked again after 15 minutes; one with a stream after 2 hours.
+    advance(FOOTBALL_TTL.noStreamLink)
+    await get(ctx, 'watchable')
+    expect(rapidCalls(fetchImpl).filter((url) => url.includes('/link/'))).toHaveLength(3)
+    expect(rapidCalls(fetchImpl).filter((url) => url.endsWith('/link/epl1'))).toHaveLength(1)
   })
 
   it('does not open a match from another league', async () => {
