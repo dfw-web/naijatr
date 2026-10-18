@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#050508" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Live viewers</title>
+    <!-- Private live stats (src/live/admin.ts). Needs ADMIN_PASSWORD; no ads, no analytics. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050508;
+        --surface: #101015;
+        --border: #26262e;
+        --text: #f5f5f7;
+        --muted: #b3b3bd;
+        --accent: #e50914;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px 16px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+      }
+      main {
+        width: min(100%, 40rem);
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.5rem;
+      }
+      .muted {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      form {
+        display: grid;
+        gap: 10px;
+      }
+      input,
+      button {
+        min-height: 44px;
+        padding: 0 14px;
+        border-radius: 10px;
+        font: inherit;
+      }
+      input {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+      }
+      button {
+        border: 0;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost {
+        justify-self: start;
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .error {
+        margin: 0;
+        color: #ff6b6b;
+      }
+      #stats:not([hidden]) {
+        display: grid;
+        gap: 12px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      .stat {
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+      .stat strong {
+        display: block;
+        font-size: 2.5rem;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+      }
+      .stat span {
+        color: var(--muted);
+      }
+      h2 {
+        margin: 8px 0 0;
+        font-size: 1.1rem;
+      }
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+      li {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+      }
+      li span:first-child {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      li span:last-child {
+        flex-shrink: 0;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Live viewers</h1>
+
+      <form id="login" hidden>
+        <label class="muted" for="password">Admin password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="submit">Show stats</button>
+        <p class="error" id="login-error" role="alert" hidden></p>
+      </form>
+
+      <section id="stats" hidden aria-live="polite">
+        <div class="stats">
+          <p class="stat"><strong id="watching">–</strong><span>watching now</span></p>
+          <p class="stat"><strong id="browsing">–</strong><span>browsing now</span></p>
+        </div>
+        <h2>Top being watched</h2>
+        <ol id="top"></ol>
+        <p class="muted" id="empty" hidden>Nobody is watching anything right now.</p>
+        <p class="error" id="stats-error" role="alert" hidden></p>
+        <p class="muted" id="updated"></p>
+        <button type="button" class="ghost" id="sign-out">Sign out</button>
+      </section>
+    </main>
+    <script type="module" src="/src/live/admin.ts"></script>
+  </body>
+</html>

@@ -1,9 +1,10 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AD_LINK, adLinkClicks } from '../test/ads'
 import App from '../App'
 import FootballApp from './FootballApp'
+import { startLiveHeartbeat } from '../live/heartbeat'
 import type { Fixture } from './types'
 
 const fixture = (id: number, overrides: Partial<Fixture> = {}): Fixture => ({
@@ -302,6 +303,29 @@ describe('Football page', () => {
     await user.click(screen.getByRole('tab', { name: 'Lineups' }))
     expect(adLinkClicks()).toHaveLength(3)
     selected('Events')
+  })
+
+  it('shows "watching now" on a live match from 3 viewers up', async () => {
+    window.history.replaceState(null, '', '/football/match/1')
+    const football = mockApi({ match: { body: { data: LIVE } } })
+    let watching = 2
+    const beats: unknown[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) !== '/api/live/heartbeat') return football(input)
+      beats.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({ watching }))
+    })
+    startLiveHeartbeat()
+    const { unmount } = render(<FootballApp />)
+    await screen.findByRole('heading', { name: 'Arsenal vs Chelsea' })
+    // The page asks for the match's count with its next heartbeat.
+    await waitFor(() => expect(beats).toContainEqual(expect.objectContaining({ state: 'browse', item: 'match:1' })), { timeout: 4000 })
+    expect(screen.queryByText(/watching now/)).not.toBeInTheDocument()
+    unmount()
+
+    watching = 4
+    render(<FootballApp />)
+    expect(await screen.findByText('4 watching now', {}, { timeout: 4000 })).toBeInTheDocument()
   })
 
   it('opens a match page directly from its URL', async () => {

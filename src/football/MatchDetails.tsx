@@ -6,6 +6,7 @@ import { TelegramCard } from '../components/Telegram'
 import { useAdTwice } from '../hooks/useAdTwice'
 import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
+import { useMatchWatchers } from '../live/heartbeat'
 import { describeFootballError, useFootball } from './api'
 import { FOOTBALL_PATH, hasStarted, isFinished, isLive, statusLabel } from './format'
 import { TeamLogo } from './MatchList'
@@ -33,6 +34,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const [refreshMs, setRefreshMs] = useState<number | undefined>(LIVE_REFRESH_MS)
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
   const [tab, setTab] = useState<Tab>('events')
+  const watchers = useMatchWatchers(match && isLive(match.fixture.status) ? `match:${match.fixture.id}` : null)
   const onTabClickCapture = useAdTwice(`match:${id}`)
 
   // Keep refreshing only while the match can still change.
@@ -66,7 +68,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
         />
       ) : match ? (
         <>
-          <MatchHeader match={match} />
+          <MatchHeader match={match} watchers={watchers} />
           <div className="fb-tabs" role="tablist" aria-label="Match details" onClickCapture={onTabClickCapture}>
             {TABS.map((t) => (
               <button
@@ -102,7 +104,10 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   )
 }
 
-function MatchHeader({ match }: { match: Fixture }) {
+/** "X watching now" shows from this many viewers up. */
+const SHOW_WATCHERS_FROM = 3
+
+function MatchHeader({ match, watchers }: { match: Fixture; watchers: number | null }) {
   const { fixture, league, teams, goals, score } = match
   const started = hasStarted(fixture.status)
   const live = isLive(fixture.status)
@@ -143,6 +148,12 @@ function MatchHeader({ match }: { match: Fixture }) {
           )}
           {started && halftime?.home != null && halftime.away != null && (
             <p className="fb-scoreboard__extra">HT {halftime.home} - {halftime.away}</p>
+          )}
+          {live && watchers !== null && watchers >= SHOW_WATCHERS_FROM && (
+            <p className="fb-scoreboard__watchers">
+              <span aria-hidden="true">🔴 </span>
+              {watchers} watching now
+            </p>
           )}
         </div>
         <div className="fb-scoreboard__team">

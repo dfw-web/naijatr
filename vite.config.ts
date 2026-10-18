@@ -15,10 +15,12 @@ import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 /**
  * /go/telegram (go/telegram/index.html, its own page): fills in the channel
  * link, and serves the page at /go/telegram in dev and preview like Vercel does.
+ * Same for the private /admin/live page (admin/live/index.html).
  */
 function telegramPage(): Plugin {
   const rewrite = (req: IncomingMessage, _res: ServerResponse, next: () => void) => {
     if (req.url && /^\/go\/telegram\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/go\/telegram\/?/, '/go/telegram/index.html')
+    if (req.url && /^\/admin\/live\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/live\/?/, '/admin/live/index.html')
     next()
   }
   return {
@@ -102,8 +104,8 @@ export default defineConfig(({ mode }) => {
     build: {
       target: ['es2019', 'chrome64', 'safari12', 'firefox68', 'edge79'],
       cssTarget: ['chrome64', 'safari12', 'firefox68', 'edge79'],
-      // The app, plus the /go/telegram redirect page.
-      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html' } },
+      // The app, plus the /go/telegram redirect page and the private /admin/live stats page.
+      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html', admin: 'admin/live/index.html' } },
     },
     server: { proxy: tmdbProxy },
     preview: { proxy: tmdbProxy },

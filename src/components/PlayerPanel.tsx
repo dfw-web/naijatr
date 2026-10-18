@@ -26,6 +26,7 @@ import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
 import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../utils/continueWatching'
+import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
 
@@ -447,6 +448,10 @@ export function PlayerPanel({
 
   // Bring the resumed player into view once it's on the page (the details above it may still be loading).
   const playerShown = active?.state.status === 'loading' || active?.state.status === 'playing'
+  // Counts as watching (for the live viewer count) while the film or episode's player is open.
+  useLiveWatching(
+    playerShown && active.choice !== 'trailer' && item.tmdbId !== undefined ? (isSeries ? `tv:${item.tmdbId}` : `movie:${item.tmdbId}`) : null,
+  )
   useEffect(() => {
     if (!playerShown || !scrollToPlayerRef.current) return
     scrollToPlayerRef.current = false

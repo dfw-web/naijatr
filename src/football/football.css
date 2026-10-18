@@ -801,3 +801,11 @@
   height: 18px;
   color: var(--text-muted);
 }
+
+/* "X watching now" on a live match (MatchDetails.tsx). */
+.fb-scoreboard__watchers {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-soft);
+}

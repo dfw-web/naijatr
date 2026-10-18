@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, MessageSquareText, MonitorPlay } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
+import { useLiveWatching } from '../live/heartbeat'
 import { useFootball } from './api'
 import { hasStarted, isFinished, isLive } from './format'
 import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamData, StreamSource } from './types'
@@ -75,6 +76,8 @@ export function MatchStream({ match }: { match: Fixture }) {
   const streams = data?.streams ?? []
   const source = streams[Math.min(selected, streams.length - 1)]
   const providerStatus = data?.status
+  // Counts as watching (for the live viewer count) while the stream player is on the page.
+  useLiveWatching(source ? `match:${match.fixture.id}` : null)
   const started = hasStarted(match.fixture.status)
 
   return (

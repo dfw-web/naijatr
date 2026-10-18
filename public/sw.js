@@ -64,6 +64,8 @@ self.addEventListener('fetch', (event) => {
   const sameOrigin = url.origin === self.location.origin
 
   if (sameOrigin && url.pathname.startsWith('/api/')) return
+  // Private pages (/admin/live) must never become the offline app shell.
+  if (sameOrigin && url.pathname.startsWith('/admin/')) return
   if (request.mode === 'navigate' && sameOrigin) return event.respondWith(page(request))
   if (sameOrigin && url.pathname.startsWith('/assets/')) return event.respondWith(cacheFirst(request))
   if ((sameOrigin && SHELL.includes(url.pathname)) || FONT_HOSTS.includes(url.hostname)) {
