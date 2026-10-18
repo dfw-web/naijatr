@@ -58,6 +58,8 @@ export const FOOTBALL_TTL = {
   watchable: 5 * 60,
   /** The stream provider's listing (one request, shared by every match). */
   streams: 5 * 60,
+  /** ...and around kick-off, so a match shows as live (and its stream) within a minute or so. */
+  kickoff: 60,
   /** A match's stream link rarely changes, and each check is one provider request. */
   streamLinks: 2 * 60 * 60,
   /** A match without a stream yet is checked again later, as streams start near kick-off. */
@@ -474,7 +476,23 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
   send(res, { ...listing, outcome: { ok: true, data: result } })
 }
 
-/** The Football Live Stream API's match listing, shared by every match. */
+/** Around a featured match's kick-off: from 2 minutes before until it shows as started (at most 20 minutes after). */
+const KICKOFF_BEFORE_MS = 2 * 60 * 1000
+const KICKOFF_AFTER_MS = 20 * 60 * 1000
+
+/** Whether a featured match in the listing is about to kick off, or has but isn't listed as started yet. */
+export function kickoffDue(items: unknown[], now: number): boolean {
+  return featuredProviderFixtures(items).some(({ fixture: { fixture } }) => {
+    const kickoff = Date.parse(fixture.date)
+    return fixture.status.short === 'NS' && kickoff - KICKOFF_BEFORE_MS <= now && now <= kickoff + KICKOFF_AFTER_MS
+  })
+}
+
+/**
+ * The Football Live Stream API's match listing, shared by every match. Kept
+ * for 5 minutes, but only 1 around kick-offs, so a match moves to "Live now"
+ * soon after it starts.
+ */
 function loadStreamListing(ctx: FootballContext, rapidKey: string) {
   return cached(
     ctx,
@@ -483,7 +501,8 @@ function loadStreamListing(ctx: FootballContext, rapidKey: string) {
       const result = await fetchStreamListing(rapidKey, ctx.fetchImpl)
       return result.ok ? { ok: true, data: result.items } : { ok: false, reason: result.reason }
     },
-    fixed(FOOTBALL_TTL.streams),
+    (outcome) =>
+      outcome.ok && kickoffDue(outcome.data as unknown[], ctx.cache.now()) ? FOOTBALL_TTL.kickoff : FOOTBALL_TTL.streams,
   )
 }
 
@@ -516,11 +535,13 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
   const empty = { outcome: { ok: true, data: [] }, maxAge: FOOTBALL_TTL.watchable, stale: false } as const
   const rapidKey = ctx.rapidKey
   if (!rapidKey) return send(res, empty)
+  let listingAge: number = FOOTBALL_TTL.watchable
   const result = await cached(
     ctx,
     'watchable',
     async () => {
       const [liveNow, listing] = await Promise.all([liveOrFallback(ctx), loadStreamListing(ctx, rapidKey)])
+      listingAge = listing.maxAge > 0 ? listing.maxAge : FOOTBALL_TTL.watchable
       if (!liveNow.outcome.ok || !listing.outcome.ok) return { ok: true, data: [] }
       const items = listing.outcome.data as unknown[]
       // Matches from the provider itself already carry its id.
@@ -542,7 +563,8 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
       )
       return { ok: true, data: checked.filter((id) => id !== null) }
     },
-    fixed(FOOTBALL_TTL.watchable),
+    // Follows the listing: every minute around kick-offs.
+    () => Math.min(FOOTBALL_TTL.watchable, listingAge),
   )
   send(res, result)
 }

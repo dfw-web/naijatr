@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CalendarDays, Radio, SearchX } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { describeFootballError, useFootball } from './api'
-import { groupByLeague, localDate, matchesQuery, sortByImportance, type OpenMatch } from './format'
+import { groupByLeague, kickoffDue, localDate, matchesQuery, sortByImportance, type OpenMatch } from './format'
 import { LeagueBlock, MatchListSkeleton, WatchBlock } from './MatchList'
 import { Standings } from './Standings'
 import type { Fixture } from './types'
@@ -10,6 +10,18 @@ import type { Fixture } from './types'
 /** Scores and streams change slowly enough that every few minutes is plenty (see useFootball). */
 const LIVE_REFRESH_MS = 5 * 60_000
 const TODAY_REFRESH_MS = 10 * 60_000
+/** Around a kick-off, every minute, so the match moves to "Live now" soon after it starts. */
+const KICKOFF_REFRESH_MS = 60_000
+
+/** The time, updated once a minute (to notice a kick-off coming up). */
+function useMinuteClock() {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
+  return now
+}
 
 interface FootballHomeProps {
   query: string
@@ -18,8 +30,16 @@ interface FootballHomeProps {
 
 export function FootballHome({ query, onOpenMatch }: FootballHomeProps) {
   const filtering = query.trim().length > 0
+  // Fixed for the page's lifetime so the cached day stays consistent.
+  const [date] = useState(() => localDate())
+  const now = useMinuteClock()
+  const [todayRefresh, setTodayRefresh] = useState(TODAY_REFRESH_MS)
+  const today = useFootball<Fixture[]>(`fixtures?date=${date}`, todayRefresh)
+  const due = kickoffDue(today.data ?? [], now)
+  if ((due ? KICKOFF_REFRESH_MS : TODAY_REFRESH_MS) !== todayRefresh) setTodayRefresh(due ? KICKOFF_REFRESH_MS : TODAY_REFRESH_MS)
+  const liveRefresh = due ? KICKOFF_REFRESH_MS : LIVE_REFRESH_MS
   // Which live matches have a stream. Optional: if it fails, nothing is marked.
-  const { data: watchable } = useFootball<number[]>('watchable', LIVE_REFRESH_MS)
+  const { data: watchable } = useFootball<number[]>('watchable', liveRefresh)
   const watchIds = useMemo(() => new Set(watchable ?? []), [watchable])
   return (
     <div className="fb-page">
@@ -33,14 +53,14 @@ export function FootballHome({ query, onOpenMatch }: FootballHomeProps) {
         <h2 id="fb-live-title" className="fb-section__title">
           <span className="fb-pulse" aria-hidden="true" /> Live now
         </h2>
-        <LiveMatches query={query} onOpenMatch={onOpenMatch} watchIds={watchIds} />
+        <LiveMatches query={query} onOpenMatch={onOpenMatch} watchIds={watchIds} refreshMs={liveRefresh} />
       </section>
 
       <section className="fb-section" aria-labelledby="fb-today-title">
         <h2 id="fb-today-title" className="fb-section__title">
           <CalendarDays aria-hidden="true" /> Today&apos;s fixtures &amp; results
         </h2>
-        <TodayMatches query={query} onOpenMatch={onOpenMatch} watchIds={watchIds} />
+        <TodayMatches query={query} onOpenMatch={onOpenMatch} watchIds={watchIds} today={today} />
       </section>
 
       <section className="fb-section" aria-labelledby="fb-standings-title">
@@ -68,8 +88,8 @@ interface ListProps extends FootballHomeProps {
   watchIds: ReadonlySet<number>
 }
 
-function LiveMatches({ query, onOpenMatch, watchIds }: ListProps) {
-  const { data, stale, error, loading, retry } = useFootball<Fixture[]>('live', LIVE_REFRESH_MS)
+function LiveMatches({ query, onOpenMatch, watchIds, refreshMs }: ListProps & { refreshMs: number }) {
+  const { data, stale, error, loading, retry } = useFootball<Fixture[]>('live', refreshMs)
   const streaming = useMemo(
     () => sortByImportance((data ?? []).filter((f) => watchIds.has(f.fixture.id) && matchesQuery(f, query))),
     [data, watchIds, query],
@@ -101,10 +121,8 @@ function LiveMatches({ query, onOpenMatch, watchIds }: ListProps) {
   )
 }
 
-function TodayMatches({ query, onOpenMatch, watchIds }: ListProps) {
-  // Fixed for the page's lifetime so the cached day stays consistent.
-  const [date] = useState(() => localDate())
-  const { data, stale, error, loading, retry } = useFootball<Fixture[]>(`fixtures?date=${date}`, TODAY_REFRESH_MS)
+function TodayMatches({ query, onOpenMatch, watchIds, today }: ListProps & { today: ReturnType<typeof useFootball<Fixture[]>> }) {
+  const { data, stale, error, loading, retry } = today
   const groups = useFiltered(data, query)
 
   if (loading) return <MatchListSkeleton rows={5} />

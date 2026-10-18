@@ -450,6 +450,30 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     expect(rapidCalls(fetchImpl).filter((url) => url.endsWith('/link/epl1'))).toHaveLength(1)
   })
 
+  it('checks every minute around a kick-off, so the match shows as live soon after it starts', async () => {
+    let status = 'Upcoming'
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+      if (url.startsWith(FOOTBALL_ORIGIN)) return apiBody([], { access: 'Your account is suspended' })
+      if (url.endsWith('/all-match')) {
+        // Kicks off at NOW (12:00 UTC).
+        return new Response(JSON.stringify({ result: [{ ...listed('epl1', 'English Premier League', 'Leeds United', 'Manchester United'), status, kickoff: '2026-10-14T12:00:00+00:00' }] }))
+      }
+      return new Response(JSON.stringify({ url: '' }))
+    })
+    const { ctx, advance } = setup(fetchImpl)
+    ctx.rapidKey = 'rapid-key'
+    expect(json(await get(ctx, 'live')).data).toEqual([])
+
+    status = 'Live'
+    advance(FOOTBALL_TTL.kickoff + 1)
+    const live = json(await get(ctx, 'live')).data as { teams: { home: { name: string } } }[]
+    expect(live.map((f) => f.teams.home.name)).toEqual(['Leeds United'])
+    // Once it has started, back to every 5 minutes.
+    advance(FOOTBALL_TTL.kickoff + 1)
+    await get(ctx, 'live')
+    expect(rapidCalls(fetchImpl)).toHaveLength(2)
+  })
+
   it('does not open a match from another league', async () => {
     const fetchImpl = provider()
     const { ctx } = setup(fetchImpl)

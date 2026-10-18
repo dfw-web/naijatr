@@ -99,6 +99,14 @@ export function sortByImportance(fixtures: Fixture[]): Fixture[] {
   return [...fixtures].sort((a, b) => leagueRank(a.league) - leagueRank(b.league))
 }
 
+/** A match is about to kick off, or has but isn't listed as started yet (as on the server, server/football/handlers.ts). */
+export function kickoffDue(fixtures: Fixture[], now: number): boolean {
+  return fixtures.some(({ fixture }) => {
+    const kickoff = Date.parse(fixture.date)
+    return fixture.status.short === 'NS' && kickoff - 2 * 60_000 <= now && now <= kickoff + 20 * 60_000
+  })
+}
+
 /** The viewer's local date as YYYY-MM-DD. */
 export function localDate(now = new Date()) {
   const pad = (n: number) => String(n).padStart(2, '0')

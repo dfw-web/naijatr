@@ -336,6 +336,19 @@ describe('Football page', () => {
   })
 })
 
+describe('kick-off', () => {
+  it('is due from 2 minutes before kick-off until the match is listed as started', async () => {
+    const { kickoffDue } = await import('./format')
+    const at = Date.parse('2026-10-14T19:00:00+00:00')
+    const notStarted = fixture(1)
+    expect(kickoffDue([notStarted], at - 3 * 60_000)).toBe(false)
+    expect(kickoffDue([notStarted], at - 60_000)).toBe(true)
+    expect(kickoffDue([notStarted], at + 10 * 60_000)).toBe(true)
+    expect(kickoffDue([notStarted], at + 30 * 60_000)).toBe(false)
+    expect(kickoffDue([LIVE], Date.parse(LIVE.fixture.date))).toBe(false)
+  })
+})
+
 describe('Football navigation link', () => {
   it('appears in the movie app’s main navigation', () => {
     window.history.replaceState(null, '', '/')
