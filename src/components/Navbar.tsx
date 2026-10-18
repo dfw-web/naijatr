@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Menu, Search, X } from 'lucide-react'
+import { Menu, Search, X } from 'lucide-react'
 import type { NavLink } from '../navigation'
-import { promptInstall, useCanInstall } from '../pwa'
 import { isTvMode } from '../tv/tvMode'
+import { InstallAppButton } from './InstallApp'
 import { TelegramHeaderLink, TelegramMenuLink } from './Telegram'
 import './Navbar.css'
 
@@ -18,7 +18,6 @@ interface NavbarProps {
 export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: NavbarProps) {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const canInstall = useCanInstall()
   // TV: moving onto the search box mustn't pop up the on-screen keyboard, so
   // it stays read-only until OK is pressed on it.
   const tv = isTvMode()
@@ -119,15 +118,7 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
 
         <TelegramHeaderLink />
 
-        {canInstall && (
-          <button
-            type="button"
-            className="navbar__install"
-            onClick={() => void promptInstall()}
-          >
-            <Download aria-hidden="true" /> Install app
-          </button>
-        )}
+        <InstallAppButton className="navbar__install navbar__install--download" />
       </div>
     </header>
   )

@@ -6,6 +6,7 @@ import { adTiming } from '../ads/directLink'
 import { resetGate } from '../gate/gateStore'
 import { resetContinueWatching } from '../utils/continueWatching'
 import { resetLiveHeartbeat } from '../live/heartbeat'
+import { resetInstallApp } from '../installAppStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 
 afterEach(() => {
@@ -18,6 +19,7 @@ afterEach(() => {
   resetGate()
   resetContinueWatching()
   resetLiveHeartbeat()
+  resetInstallApp()
   document.cookie = 'naijatr_gate_joined=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity

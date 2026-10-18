@@ -61,3 +61,34 @@ export function registerServiceWorker() {
     })
   })
 }
+
+/** Running as the installed app (from the home screen), not in a browser tab. */
+export function isInstalledApp(): boolean {
+  try {
+    if (window.matchMedia?.('(display-mode: standalone)').matches) return true
+  } catch {
+    // Old browsers: fall through.
+  }
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true
+}
+
+/** iPhone and iPad (iPadOS asks for the desktop site: a Mac with a touch screen). Safari can't prompt; the app is added from the Share menu. */
+export function isIos(userAgent = navigator.userAgent, touchPoints = navigator.maxTouchPoints || 0): boolean {
+  return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && touchPoints > 1)
+}
+
+export type InstallOffer = 'prompt' | 'ios' | 'android'
+
+/**
+ * How this visitor can get the app: "prompt" (the browser's install dialog,
+ * Chrome/Edge), "ios" (Share › Add to Home Screen), "android" (the browser
+ * menu's Install app, e.g. inside Telegram's browser, which has no dialog),
+ * or null (already installed, or a desktop browser that can't).
+ */
+export function useInstallOffer(): InstallOffer | null {
+  const canInstall = useCanInstall()
+  if (isInstalledApp()) return null
+  if (canInstall) return 'prompt'
+  if (isIos()) return 'ios'
+  return /Android/i.test(navigator.userAgent) ? 'android' : null
+}
