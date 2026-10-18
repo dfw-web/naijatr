@@ -530,7 +530,8 @@ async function loadStreamLink(ctx: FootballContext, rapidKey: string, providerId
   let broken = false
   const link = await cached(
     ctx,
-    `stream-link:${providerId}`,
+    // v2: links saved before feeds were checked are checked afresh.
+    `stream-link:v2:${providerId}`,
     async () => {
       const streams = await fetchStreamLink(rapidKey, providerId, ctx.fetchImpl)
       // Only HLS feeds can be checked; an embedded player is taken as given.
