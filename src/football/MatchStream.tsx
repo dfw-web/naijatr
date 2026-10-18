@@ -3,6 +3,7 @@ import { ExternalLink, MessageSquareText, MonitorPlay } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { useLiveWatching } from '../live/heartbeat'
 import { useFootball } from './api'
+import { gatePlayback } from './playbackGate'
 import { hasStarted, isFinished, isLive } from './format'
 import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamData, StreamSource } from './types'
 
@@ -160,81 +161,6 @@ function directUrl(url: string) {
     return inner && new URL(inner).protocol === 'https:' ? inner : null
   } catch {
     return null
-  }
-}
-
-const START_AHEAD_S = 15
-const RESUME_AHEAD_S = 10
-const MAX_GAP_S = 6
-/** Play anyway after this long if some video is ready but the target isn't reached. */
-const MAX_HOLD_MS = 8000
-
-/**
- * Starts playback only with a few seconds of video ready, and after a stall
- * waits for some again, so a slow feed pauses briefly now and then instead of
- * stuttering constantly. Small holes in the stream are skipped. A pause by
- * the viewer is left alone.
- */
-function gatePlayback(video: HTMLVideoElement) {
-  let started = false
-  let holding = true
-  let holdSince = performance.now()
-  let pausedByUs = false
-  video.autoplay = false
-
-  /** Seconds buffered from the current position; jumps a small hole first. */
-  const ahead = () => {
-    const t = video.currentTime
-    const { buffered } = video
-    for (let i = 0; i < buffered.length; i += 1) {
-      if (buffered.start(i) <= t + 0.25 && buffered.end(i) > t) return buffered.end(i) - t
-      if (buffered.start(i) > t && buffered.start(i) - t <= MAX_GAP_S) {
-        video.currentTime = buffered.start(i) + 0.05
-        return buffered.end(i) - video.currentTime
-      }
-    }
-    return 0
-  }
-
-  const check = () => {
-    if (!holding) return
-    const ready = ahead()
-    const waitedLong = ready > 0.5 && performance.now() - holdSince > MAX_HOLD_MS
-    if (ready < (started ? RESUME_AHEAD_S : START_AHEAD_S) && !waitedLong) return
-    holding = false
-    started = true
-    pausedByUs = false
-    void video.play().catch(() => undefined)
-  }
-
-  const onWaiting = () => {
-    if (video.paused || holding) return
-    holding = true
-    holdSince = performance.now()
-    pausedByUs = true
-    video.pause()
-    check()
-  }
-  // The viewer paused (not us): stop managing until they press play.
-  const onPause = () => {
-    if (!pausedByUs) holding = false
-  }
-  const onPlay = () => {
-    if (!pausedByUs) holding = false
-  }
-
-  video.addEventListener('waiting', onWaiting)
-  video.addEventListener('pause', onPause)
-  video.addEventListener('play', onPlay)
-  const timer = window.setInterval(check, 1000)
-  return {
-    check,
-    remove() {
-      window.clearInterval(timer)
-      video.removeEventListener('waiting', onWaiting)
-      video.removeEventListener('pause', onPause)
-      video.removeEventListener('play', onPlay)
-    },
   }
 }
 
