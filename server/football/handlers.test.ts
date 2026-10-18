@@ -1,6 +1,6 @@
 import type { ServerResponse } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
-import liveFunction from '../../api/football/live'
+import footballFunction from '../../api/football/[route]'
 import {
   classifyApiErrors,
   createFootballCache,
@@ -53,7 +53,11 @@ async function get(ctx: FootballContext, route: string, query = '') {
   return res
 }
 
-const LIVE_MATCH = { fixture: { id: 1, status: { short: '2H', elapsed: 63 } }, goals: { home: 1, away: 0 } }
+const LIVE_MATCH = {
+  fixture: { id: 1, status: { short: '2H', elapsed: 63 } },
+  league: { id: 39, name: 'Premier League' },
+  goals: { home: 1, away: 0 },
+}
 
 describe('football API: configuration and auth', () => {
   it('answers 503 without calling upstream when the key is missing', async () => {
@@ -152,13 +156,13 @@ describe('football API: upstream errors and rate limits', () => {
 })
 
 describe('football API: caching', () => {
-  it('caches live scores for 60 seconds, in memory and on the CDN', async () => {
+  it('caches live scores for 5 minutes, in memory and on the CDN', async () => {
     const fetchImpl = vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH]))
     const { ctx, advance } = setup(fetchImpl)
 
     const first = await get(ctx, 'live')
-    expect(first.headers['cache-control']).toBe('public, max-age=0, s-maxage=60, stale-while-revalidate=60')
-    advance(45)
+    expect(first.headers['cache-control']).toBe('public, max-age=0, s-maxage=300, stale-while-revalidate=300')
+    advance(285)
     const second = await get(ctx, 'live')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(second.headers['cache-control']).toContain('s-maxage=15')
@@ -167,11 +171,11 @@ describe('football API: caching', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
-  it("caches a day's fixtures for 5 minutes", async () => {
+  it("caches a day's fixtures for 10 minutes", async () => {
     const fetchImpl = vi.fn().mockImplementation(async () => apiBody([]))
     const { ctx, advance } = setup(fetchImpl)
     await get(ctx, 'fixtures', 'date=2026-10-14')
-    advance(299)
+    advance(599)
     await get(ctx, 'fixtures', 'date=2026-10-14')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     advance(2)
@@ -187,7 +191,7 @@ describe('football API: caching', () => {
       .mockResolvedValueOnce(apiBody([], { requests: 'daily limit reached' }))
     const { ctx, advance } = setup(fetchImpl)
     await get(ctx, 'live')
-    advance(61)
+    advance(301)
     const res = await get(ctx, 'live')
     expect(res.statusCode).toBe(200)
     expect(json(res)).toEqual({ data: [LIVE_MATCH], stale: true })
@@ -279,9 +283,9 @@ describe('football API: match details', () => {
     expect(res.headers['cache-control']).toContain('s-maxage=3600')
   })
 
-  it('caches a live match for 60 seconds', async () => {
+  it('caches a live match for 5 minutes', async () => {
     const { ctx } = setup(vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH])))
-    expect((await get(ctx, 'match', 'id=1')).headers['cache-control']).toContain('s-maxage=60,')
+    expect((await get(ctx, 'match', 'id=1')).headers['cache-control']).toContain('s-maxage=300,')
   })
 
   it('answers 404 for an unknown match and 400 for a bad id', async () => {
@@ -305,10 +309,135 @@ describe('football API: hosts', () => {
     delete process.env.API_FOOTBALL_KEY
     try {
       const res = fakeResponse()
-      await liveFunction({ url: '/api/football/live', method: 'GET' } as never, res)
+      await footballFunction({ url: '/api/football/live', method: 'GET' } as never, res)
       expect(res.statusCode).toBe(503)
     } finally {
       if (saved !== undefined) process.env.API_FOOTBALL_KEY = saved
     }
+  })
+})
+
+describe('football API: only the featured leagues', () => {
+  it('drops matches from other leagues', async () => {
+    const other = { ...LIVE_MATCH, fixture: { ...LIVE_MATCH.fixture, id: 2 }, league: { id: 71, name: 'Serie A' } }
+    const europa = { ...LIVE_MATCH, fixture: { ...LIVE_MATCH.fixture, id: 3 }, league: { id: 3, name: 'UEFA Europa League' } }
+    const { ctx } = setup(vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH, other, europa])))
+    expect(json(await get(ctx, 'live')).data).toEqual([LIVE_MATCH, europa])
+  })
+})
+
+describe('football API: sparing the quota', () => {
+  it('makes one upstream call for requests that arrive together', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH]))
+    const { ctx } = setup(fetchImpl)
+    const answers = await Promise.all([get(ctx, 'live'), get(ctx, 'live'), get(ctx, 'live')])
+    expect(answers.map((res) => res.statusCode)).toEqual([200, 200, 200])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares answers with other server instances through the shared cache', async () => {
+    const store = new Map<string, unknown>()
+    const shared = { get: async (key: string) => store.get(key) ?? null, set: async (key: string, value: unknown) => void store.set(key, value) }
+    const fetchImpl = vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH]))
+    const first: FootballContext = { key: KEY, cache: createFootballCache(() => NOW, shared), fetchImpl: fetchImpl as never }
+    const second: FootballContext = { key: KEY, cache: createFootballCache(() => NOW + 10_000, shared), fetchImpl: fetchImpl as never }
+    await get(first, 'live')
+    expect(json(await get(second, 'live')).data).toEqual([LIVE_MATCH])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps working when the shared cache fails', async () => {
+    const broken = { get: async () => Promise.reject(new Error('down')), set: async () => Promise.reject(new Error('down')) }
+    const ctx: FootballContext = { key: KEY, cache: createFootballCache(() => NOW, broken), fetchImpl: vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH])) as never }
+    expect((await get(ctx, 'live')).statusCode).toBe(200)
+  })
+
+  it('after a failed refresh, serves the last good answer for a while without asking again', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(apiBody([LIVE_MATCH]))
+      .mockResolvedValue(apiBody([], { access: 'Your account is suspended' }))
+    const { ctx, advance } = setup(fetchImpl)
+    await get(ctx, 'live')
+    advance(FOOTBALL_TTL.live + 1)
+    expect(json(await get(ctx, 'live'))).toEqual({ data: [LIVE_MATCH], stale: true })
+    advance(FOOTBALL_TTL.rejected - 1)
+    expect(json(await get(ctx, 'live'))).toEqual({ data: [LIVE_MATCH], stale: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    advance(2)
+    await get(ctx, 'live')
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('football API: stream checks (API-Football suspended, stream provider only)', () => {
+  const listed = (id: string, league: string, home: string, away: string) => ({
+    id,
+    league,
+    home_name: home,
+    away_name: away,
+    status: 'Live',
+    score: '1 - 0',
+    date: '2026-10-14',
+    time: '12:00:00',
+    kickoff: '2026-10-14T12:00:00+00:00',
+  })
+  const LISTING = [
+    listed('epl1', 'English Premier League', 'Arsenal', 'Chelsea'),
+    listed('liga1', 'Spanish La Liga', 'Real Madrid', 'Sevilla'),
+    listed('other1', 'Brazilian Serie A', 'Santos', 'Gremio'),
+    listed('other2', 'USL Championship', 'Tampa Bay', 'Louisville'),
+  ]
+
+  function provider(links: Record<string, string> = { epl1: 'https://cdn.example.com/epl1.m3u8' }) {
+    return vi.fn().mockImplementation(async (url: string) => {
+      if (url.startsWith(FOOTBALL_ORIGIN)) return apiBody([], { access: 'Your account is suspended' })
+      if (url.endsWith('/all-match')) return new Response(JSON.stringify({ result: LISTING }))
+      const id = decodeURIComponent(url.split('/link/')[1] ?? '')
+      return new Response(JSON.stringify({ url: links[id] ?? '' }))
+    })
+  }
+  const rapidCalls = (fetchImpl: ReturnType<typeof vi.fn>) =>
+    fetchImpl.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith(FOOTBALL_ORIGIN))
+
+  it('looks a stream up only when its match is opened, then waits before asking again', async () => {
+    const fetchImpl = provider()
+    const { ctx, advance } = setup(fetchImpl)
+    ctx.rapidKey = 'rapid-key'
+
+    const live = json(await get(ctx, 'live')).data as { fixture: { id: number }; league: { name: string } }[]
+    expect(live.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga'])
+    // Listing the live matches checks no streams.
+    expect(rapidCalls(fetchImpl).map((url) => url.split('.com')[1])).toEqual(['/all-match'])
+    expect((await get(ctx, 'watchable')).statusCode).toBe(404)
+
+    const [epl, liga] = live.map((f) => f.fixture.id)
+    expect(json(await get(ctx, 'stream', `id=${epl}`)).data).toMatchObject({ available: true })
+    expect(json(await get(ctx, 'stream', `id=${liga}`)).data).toMatchObject({ available: false })
+    expect(rapidCalls(fetchImpl).map((url) => url.split('.com')[1])).toEqual(['/all-match', '/link/epl1', '/link/liga1'])
+
+    // Opened again by others: answered from the cache.
+    await get(ctx, 'stream', `id=${epl}`)
+    await get(ctx, 'stream', `id=${liga}`)
+    expect(rapidCalls(fetchImpl)).toHaveLength(3)
+
+    // A match without a stream is asked about again after 15 minutes; one with a stream after 2 hours.
+    advance(FOOTBALL_TTL.noStreamLink + 1)
+    await get(ctx, 'stream', `id=${epl}`)
+    await get(ctx, 'stream', `id=${liga}`)
+    const links = rapidCalls(fetchImpl).filter((url) => url.includes('/link/'))
+    expect(links.filter((url) => url.endsWith('/link/liga1'))).toHaveLength(2)
+    expect(links.filter((url) => url.endsWith('/link/epl1'))).toHaveLength(1)
+  })
+
+  it('does not open a match from another league', async () => {
+    const fetchImpl = provider()
+    const { ctx } = setup(fetchImpl)
+    ctx.rapidKey = 'rapid-key'
+    const all = json(await get(ctx, 'fixtures', 'date=2026-10-14')).data as { fixture: { id: number }; league: { name: string } }[]
+    expect(all.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga'])
+    const { providerMatchId } = await import('./stream')
+    expect((await get(ctx, 'match', `id=${providerMatchId('other1')}`)).statusCode).toBe(404)
+    expect((await get(ctx, 'match', `id=${all[0].fixture.id}`)).statusCode).toBe(200)
   })
 })

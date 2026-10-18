@@ -87,10 +87,23 @@ export function useFootball<T>(path: string | null, refreshMs?: number) {
 
   useEffect(() => {
     if (!refreshMs) return
+    let last = Date.now()
+    const refresh = () => {
+      last = Date.now()
+      setTick((n) => n + 1)
+    }
     const id = window.setInterval(() => {
-      if (document.visibilityState !== 'hidden') setTick((n) => n + 1)
+      if (document.visibilityState !== 'hidden') refresh()
     }, refreshMs)
-    return () => window.clearInterval(id)
+    // Coming back to the tab after a while: refresh straight away rather than at the next interval.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - last >= refreshMs) refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [refreshMs])
 
   const retry = useCallback(() => {

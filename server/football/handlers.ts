@@ -4,9 +4,14 @@
  * in api/football/. The key (API_FOOTBALL_KEY) is only ever read here, on the
  * server, and is sent upstream in the x-apisports-key header.
  *
- * The free plan allows 100 requests a day (10 a minute), so every answer is
- * cached in memory and, through s-maxage, on Vercel's CDN. When the upstream
- * call fails, the last good answer is served instead, marked `stale`.
+ * Both providers' plans have tight request quotas, so every answer is cached:
+ * in memory, in a cache shared by every server instance (Vercel's Runtime
+ * Cache, see api/football/[route].ts) and, through s-maxage, on Vercel's CDN.
+ * Only one upstream call per answer is made at a time. When the upstream call
+ * fails, the last good answer is served instead, marked `stale`, and the call
+ * isn't tried again for a while.
+ *
+ * Only the featured leagues are served (server/football/priority.ts).
  *
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
@@ -21,6 +26,7 @@ import {
   type MatchStream,
   type ProviderFixture,
 } from './stream.js'
+import { isFeaturedLeague } from './priority.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -29,28 +35,33 @@ const UPSTREAM_TIMEOUT_MS = 10000
 export const FOOTBALL_LEAGUES = [
   { id: 39, name: 'Premier League' },
   { id: 140, name: 'La Liga' },
-  { id: 135, name: 'Serie A' },
-  { id: 78, name: 'Bundesliga' },
-  { id: 61, name: 'Ligue 1' },
   { id: 2, name: 'Champions League' },
-  { id: 399, name: 'NPFL' },
+  { id: 3, name: 'Europa League' },
+  { id: 848, name: 'Conference League' },
 ] as const
 
 /** Cache lifetimes, in seconds. */
 export const FOOTBALL_TTL = {
-  live: 60,
-  fixtures: 5 * 60,
+  live: 5 * 60,
+  fixtures: 10 * 60,
   standings: 60 * 60,
   season: 12 * 60 * 60,
-  matchLive: 60,
+  matchLive: 5 * 60,
   matchFinished: 60 * 60,
-  rateLimited: 60,
+  /** Out of requests: wait before asking again. */
+  rateLimited: 5 * 60,
+  /** Key rejected or account suspended: it won't fix itself in a minute. */
+  rejected: 30 * 60,
+  /** Any other failure, while the last good answer is served. */
+  failed: 60,
   /** The stream provider's listing (one request, shared by every match). */
-  streams: 2 * 60,
-  /** A match's stream link rarely changes, and each check is one provider request. */
-  streamLinks: 30 * 60,
-  /** A match without a stream yet is checked again sooner, as streams start near kick-off. */
-  noStreamLink: 5 * 60,
+  streams: 5 * 60,
+  /** A match's stream link rarely changes, and each check is one provider request (made only when someone opens the match). */
+  streamLinks: 2 * 60 * 60,
+  /** A match without a stream yet is checked again later, as streams start near kick-off. */
+  noStreamLink: 15 * 60,
+  /** How long the shared cache keeps an answer, as a fallback for when a provider fails. */
+  keep: 24 * 60 * 60,
 } as const
 
 export type FootballErrorReason =
@@ -85,16 +96,53 @@ type Outcome =
 interface CacheEntry {
   outcome: Outcome
   expires: number
+  /** The last good answer, kept on after a failed refresh. */
+  stale?: boolean
 }
 
-/** In-memory cache. Entries are kept after they expire, as a stale fallback. */
-export function createFootballCache(now: () => number = Date.now) {
+/** A cache shared by every server instance (Vercel's Runtime Cache has this shape). */
+export interface SharedStore {
+  get: (key: string) => Promise<unknown>
+  set: (key: string, value: unknown, options?: { ttl?: number }) => Promise<void>
+}
+
+const isCacheEntry = (value: unknown): value is CacheEntry =>
+  typeof value === 'object' && value !== null && typeof (value as CacheEntry).expires === 'number' &&
+  typeof (value as CacheEntry).outcome === 'object' && (value as CacheEntry).outcome !== null
+
+/**
+ * In memory, plus `shared` when given. Entries are kept after they expire, as
+ * a stale fallback. A shared store that fails is simply skipped.
+ */
+export function createFootballCache(now: () => number = Date.now, shared?: SharedStore) {
   const entries = new Map<string, CacheEntry>()
+  /** Upstream calls in progress, so concurrent requests share one. */
+  const pending = new Map<string, Promise<Loaded>>()
   return {
     now,
-    get: (key: string) => entries.get(key),
-    set: (key: string, outcome: Outcome, ttl: number) =>
-      entries.set(key, { outcome, expires: now() + ttl * 1000 }),
+    pending,
+    async get(key: string): Promise<CacheEntry | undefined> {
+      const local = entries.get(key)
+      if ((local && local.expires > now()) || !shared) return local
+      try {
+        const found = await shared.get(key)
+        if (isCacheEntry(found) && (!local || found.expires > local.expires)) {
+          entries.set(key, found)
+          return found
+        }
+      } catch {
+        // Shared cache unavailable: memory only.
+      }
+      return local
+    },
+    async set(key: string, entry: CacheEntry) {
+      entries.set(key, entry)
+      try {
+        await shared?.set(key, entry, { ttl: FOOTBALL_TTL.keep })
+      } catch {
+        // Shared cache unavailable: memory only.
+      }
+    },
   }
 }
 
@@ -158,30 +206,54 @@ const ttlFor = (outcome: Outcome, successTtl: number) =>
       ? successTtl
       : outcome.reason === 'rate-limited'
         ? FOOTBALL_TTL.rateLimited
-        : 0
+        : outcome.reason === 'auth'
+          ? FOOTBALL_TTL.rejected
+          : 0
+
+interface Loaded {
+  outcome: Outcome
+  maxAge: number
+  stale: boolean
+}
 
 /**
- * Returns the cached outcome while it is fresh, otherwise calls `load`. A
- * failed refresh falls back to the last good answer, marked stale.
+ * Returns the cached outcome while it is fresh, otherwise calls `load` (once,
+ * however many requests are waiting for it). A failed refresh falls back to
+ * the last good answer, marked stale, which is then kept for a while before
+ * the provider is asked again.
  */
 async function cached(
   ctx: FootballContext,
   cacheKey: string,
   load: () => Promise<Outcome>,
   successTtl: (outcome: Outcome) => number,
-): Promise<{ outcome: Outcome; maxAge: number; stale: boolean }> {
+): Promise<Loaded> {
+  const entry = await ctx.cache.get(cacheKey)
   const now = ctx.cache.now()
-  const entry = ctx.cache.get(cacheKey)
   if (entry && entry.expires > now) {
-    return { outcome: entry.outcome, maxAge: Math.ceil((entry.expires - now) / 1000), stale: false }
+    const maxAge = entry.stale ? 0 : Math.ceil((entry.expires - now) / 1000)
+    return { outcome: entry.outcome, maxAge, stale: !!entry.stale }
   }
-  const outcome = await load()
-  if (!outcome.ok && entry?.outcome.ok) {
-    return { outcome: entry.outcome, maxAge: 0, stale: true }
+  const inFlight = ctx.cache.pending.get(cacheKey)
+  if (inFlight) return inFlight
+  const refresh = (async (): Promise<Loaded> => {
+    const outcome = await load()
+    const at = ctx.cache.now()
+    if (!outcome.ok && entry?.outcome.ok) {
+      const wait = ttlFor(outcome, FOOTBALL_TTL.failed) || FOOTBALL_TTL.failed
+      await ctx.cache.set(cacheKey, { outcome: entry.outcome, expires: at + wait * 1000, stale: true })
+      return { outcome: entry.outcome, maxAge: 0, stale: true }
+    }
+    const ttl = ttlFor(outcome, successTtl(outcome))
+    if (ttl > 0) await ctx.cache.set(cacheKey, { outcome, expires: at + ttl * 1000 })
+    return { outcome, maxAge: ttl, stale: false }
+  })()
+  ctx.cache.pending.set(cacheKey, refresh)
+  try {
+    return await refresh
+  } finally {
+    ctx.cache.pending.delete(cacheKey)
   }
-  const ttl = ttlFor(outcome, successTtl(outcome))
-  if (ttl > 0) ctx.cache.set(cacheKey, outcome, ttl)
-  return { outcome, maxAge: ttl, stale: false }
 }
 
 function send(res: ServerResponse, result: { outcome: Outcome; maxAge: number; stale: boolean }) {
@@ -211,8 +283,6 @@ const fixed = (ttl: number) => () => ttl
 const loadLive = (ctx: FootballContext) =>
   cached(ctx, 'live', () => callApi(ctx, 'fixtures', { live: 'all' }), fixed(FOOTBALL_TTL.live))
 
-type Loaded = Awaited<ReturnType<typeof cached>>
-
 /**
  * When API-Football fails, answers from the stream provider's listing instead
  * (see providerFixture in stream.ts), so matches and scores keep showing.
@@ -225,15 +295,27 @@ async function withProviderFallback(
   if (result.outcome.ok || !ctx.rapidKey) return result
   const listing = await loadStreamListing(ctx, ctx.rapidKey)
   if (!listing.outcome.ok) return result
-  const data = providerFixtures(listing.outcome.data as unknown[])
+  const data = featuredProviderFixtures(listing.outcome.data as unknown[])
     .map((p) => p.fixture)
     .filter(pick)
-  return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: FOOTBALL_TTL.streams, stale: false }
+  return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: listing.maxAge, stale: listing.stale }
+}
+
+/** The stream provider's matches in the featured leagues. */
+const featuredProviderFixtures = (items: unknown[]) => providerFixtures(items).filter((p) => isFeaturedLeague(p.fixture.league))
+
+/** Drops the matches outside the featured leagues from a list of fixtures. */
+function featuredOnly(result: Loaded): Loaded {
+  const { outcome } = result
+  if (!outcome.ok || !Array.isArray(outcome.data)) return result
+  const data = (outcome.data as { league?: { id?: number; name?: string } }[]).filter((f) => isFeaturedLeague(f.league))
+  return { ...result, outcome: { ...outcome, data } }
 }
 
 const isProviderLive = (f: ProviderFixture) => f.fixture.status.short === 'LIVE'
 
-const liveOrFallback = async (ctx: FootballContext) => withProviderFallback(ctx, await loadLive(ctx), isProviderLive)
+const liveOrFallback = async (ctx: FootballContext) =>
+  featuredOnly(await withProviderFallback(ctx, await loadLive(ctx), isProviderLive))
 
 async function live(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
   send(res, await liveOrFallback(ctx))
@@ -255,7 +337,7 @@ async function fixtures(ctx: FootballContext, params: URLSearchParams, res: Serv
     return fail(res, 'bad-request')
   }
   const result = await cached(ctx, `fixtures:${date}`, () => callApi(ctx, 'fixtures', { date }), fixed(FOOTBALL_TTL.fixtures))
-  send(res, await withProviderFallback(ctx, result, (f) => f.fixture.date.slice(0, 10) === date))
+  send(res, featuredOnly(await withProviderFallback(ctx, result, (f) => f.fixture.date.slice(0, 10) === date)))
 }
 
 interface LeagueSeason {
@@ -341,7 +423,7 @@ async function findProviderMatch(ctx: FootballContext, id: number) {
   const listing = await loadStreamListing(ctx, ctx.rapidKey)
   if (!listing.outcome.ok) return null
   const items = listing.outcome.data as unknown[]
-  const found = providerFixtures(items).find((p) => p.fixture.fixture.id === id)
+  const found = featuredProviderFixtures(items).find((p) => p.fixture.fixture.id === id)
   if (!found) return null
   const result: Loaded = { outcome: { ok: true, data: found.fixture }, maxAge: FOOTBALL_TTL.streams, stale: false }
   return { ...found, items, result }
@@ -415,56 +497,11 @@ async function loadStreamLink(ctx: FootballContext, rapidKey: string, providerId
   return link.outcome.ok ? (link.outcome.data as MatchStream['streams']) : []
 }
 
-interface LiveFixture {
-  fixture?: { id?: number }
-  teams?: { home?: { name?: string }; away?: { name?: string } }
-}
-
-/**
- * GET /api/football/watchable: ids of the live matches that have a stream,
- * so the list can put them first. Without RAPIDAPI_KEY, or when the stream
- * provider fails, it is simply an empty list and the page is unaffected.
- */
-async function watchable(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
-  const empty = { outcome: { ok: true, data: [] }, maxAge: FOOTBALL_TTL.streams, stale: false } as const
-  const rapidKey = ctx.rapidKey
-  if (!rapidKey) return send(res, empty)
-  const result = await cached(
-    ctx,
-    'watchable',
-    async () => {
-      const [liveNow, listing] = await Promise.all([liveOrFallback(ctx), loadStreamListing(ctx, rapidKey)])
-      if (!liveNow.outcome.ok || !listing.outcome.ok) return { ok: true, data: [] }
-      const items = listing.outcome.data as unknown[]
-      // Matches from the provider itself already carry its id.
-      const providerIds = new Map(providerFixtures(items).map((p) => [p.fixture.fixture.id, p.providerId]))
-      const candidates = (liveNow.outcome.data as LiveFixture[]).flatMap((f) => {
-        const id = f.fixture?.id
-        const home = f.teams?.home?.name
-        const away = f.teams?.away?.name
-        if (!id || !home || !away) return []
-        const own = providerIds.get(id)
-        if (own) return [{ id, providerId: own, streams: [] }]
-        const { providerId, streams } = findMatchStream(items, home, away)
-        return providerId ? [{ id, providerId, streams }] : []
-      })
-      const checked = await Promise.all(
-        candidates.map(async (c) =>
-          c.streams.length || (await loadStreamLink(ctx, rapidKey, c.providerId)).length ? c.id : null,
-        ),
-      )
-      return { ok: true, data: checked.filter((id) => id !== null) }
-    },
-    fixed(FOOTBALL_TTL.streams),
-  )
-  send(res, result)
-}
-
-const ROUTES = { live, fixtures, standings, match, stream, watchable }
+const ROUTES = { live, fixtures, standings, match, stream }
 
 export type FootballRoute = keyof typeof ROUTES
 
-/** Serves /api/football/{live,fixtures,standings,match,stream,watchable}. */
+/** Serves /api/football/{live,fixtures,standings,match,stream}. */
 export async function handleFootball(
   ctx: FootballContext,
   method: string | undefined,

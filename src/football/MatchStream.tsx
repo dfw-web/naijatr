@@ -5,7 +5,8 @@ import { useFootball } from './api'
 import { hasStarted, isFinished, isLive } from './format'
 import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamData, StreamSource } from './types'
 
-const LIVE_REFRESH_MS = 60_000
+/** Live data is re-checked every few minutes, not every minute, to spare the providers' quotas. */
+const LIVE_REFRESH_MS = 5 * 60_000
 
 const minuteOf = (event: FixtureEvent) => `${event.time.elapsed}${event.time.extra ? `+${event.time.extra}` : ''}`
 

@@ -12,7 +12,8 @@ import { TeamLogo } from './MatchList'
 import { MatchStream } from './MatchStream'
 import type { Fixture, FixtureEvent, Lineup, TeamStatistics } from './types'
 
-const LIVE_REFRESH_MS = 60_000
+/** Live data is re-checked every few minutes, not every minute, to spare the providers' quotas. */
+const LIVE_REFRESH_MS = 5 * 60_000
 
 type Tab = 'events' | 'watch' | 'lineups' | 'stats'
 

@@ -1,4 +1,5 @@
 import type { MouseEvent } from 'react'
+import { isFeaturedLeague, leagueRank } from '../../server/football/priority'
 import type { Fixture, FixtureStatus, Season } from './types'
 
 /** The Football section's pages, all under /football. */
@@ -41,43 +42,10 @@ export function matchLinkProps(id: number, onOpen: OpenMatch, tab?: MatchTab) {
 export const FEATURED_LEAGUES = [
   { id: 39, name: 'Premier League' },
   { id: 140, name: 'La Liga' },
-  { id: 135, name: 'Serie A' },
-  { id: 78, name: 'Bundesliga' },
-  { id: 61, name: 'Ligue 1' },
   { id: 2, name: 'Champions League' },
-  { id: 399, name: 'NPFL' },
+  { id: 3, name: 'Europa League' },
+  { id: 848, name: 'Conference League' },
 ] as const
-
-/**
- * The order of the "Watch live" list: Premier League, La Liga, Champions
- * League, Europa League, then the other featured leagues, then everything else.
- * API-Football ids, plus the names the stream provider's feed uses (its league
- * ids are its own, and it's what the site shows when API-Football is down).
- */
-const WATCH_PRIORITY: { id: number; name: RegExp }[] = [
-  { id: 39, name: /^(English )?Premier League$/i },
-  { id: 140, name: /^(Spanish )?La ?Liga( EA Sports)?$/i },
-  { id: 2, name: /^(UEFA )?Champions League$/i },
-  { id: 3, name: /^(UEFA )?Europa League$/i },
-  { id: 135, name: /^(Italian )?Serie A$/i },
-  { id: 78, name: /^(German )?Bundesliga$/i },
-  { id: 61, name: /^(French )?Ligue 1$/i },
-  { id: 399, name: /^(NPFL|Nigeria(n)? (Premier|Professional Football) League)$/i },
-]
-
-/** Provider league ids are 10 digits; API-Football's are small. */
-const isApiFootballLeague = (id: number) => id < 1_000_000
-
-/** Streaming matches, most important league first (API order kept within a league rank). */
-export function sortByImportance(fixtures: Fixture[]): Fixture[] {
-  const rank = (fixture: Fixture) => {
-    const { id, name } = fixture.league
-    // By id when it's API-Football's (its plain "Serie A" is also Brazil's), by name for the provider's.
-    const index = WATCH_PRIORITY.findIndex((league) => (isApiFootballLeague(id) ? league.id === id : league.name.test(name.trim())))
-    return index === -1 ? WATCH_PRIORITY.length : index
-  }
-  return [...fixtures].sort((a, b) => rank(a) - rank(b))
-}
 
 const LIVE = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE'])
 const FINISHED = new Set(['FT', 'AET', 'PEN'])
@@ -137,7 +105,7 @@ export interface LeagueGroup {
   fixtures: Fixture[]
 }
 
-/** Groups fixtures by league: featured leagues first, in tab order, then the rest by country. */
+/** Groups fixtures by league: featured leagues first, in tab order, then any others by country. */
 export function groupByLeague(fixtures: Fixture[]): LeagueGroup[] {
   const groups = new Map<number, LeagueGroup>()
   for (const item of fixtures) {
@@ -149,18 +117,17 @@ export function groupByLeague(fixtures: Fixture[]): LeagueGroup[] {
         name: league.name,
         country: league.country,
         logo: league.logo,
-        featured: FEATURED_LEAGUES.some((l) => l.id === league.id),
+        featured: isFeaturedLeague(league),
         fixtures: [],
       }
       groups.set(league.id, group)
     }
     group.fixtures.push(item)
   }
-  const order = (id: number) => FEATURED_LEAGUES.findIndex((l) => l.id === id)
   for (const group of groups.values()) group.fixtures.sort((a, b) => a.fixture.timestamp - b.fixture.timestamp)
   return [...groups.values()].sort((a, b) =>
     a.featured && b.featured
-      ? order(a.id) - order(b.id)
+      ? leagueRank(a) - leagueRank(b)
       : a.featured !== b.featured
         ? (a.featured ? -1 : 1)
         : a.country.localeCompare(b.country) || a.name.localeCompare(b.name),
