@@ -192,13 +192,22 @@ const SOURCES_FETCH = 'fetch(apiUrl)'
 const RETRYING_FETCH =
   '(async (u) => { for (let i = 0; ; i++) { try { return await fetch(u, { signal: AbortSignal.timeout(6000) }) } catch (e) { if (i >= 2) throw e } } })(apiUrl)'
 
-/** Hands the player its sources: the ones already looked up here, or else its own lookup, retried. */
+/** The player gives a source 8 s to load before calling it failed; the stream host often takes longer. */
+const SOURCE_SWITCH_TIMEOUT = /(sourceTimeout = setTimeout\(\(\) => \{[\s\S]{0,600}?\}, )8000(\);)/
+const SOURCE_SWITCH_MS = 20000
+
+/**
+ * Hands the player its sources: the ones already looked up here, or else its
+ * own lookup, retried. Also gives each source longer to load before the
+ * player shows "All servers failed to load".
+ */
 export function injectSources(html: string, sources: string | null) {
-  if (!html.includes(SOURCES_FETCH)) return html
+  const patient = html.replace(SOURCE_SWITCH_TIMEOUT, (_, start: string, end: string) => start + SOURCE_SWITCH_MS + end)
+  if (!patient.includes(SOURCES_FETCH)) return patient
   const call = sources
     ? `Promise.resolve(new Response(${JSON.stringify(sources).replace(/</g, '\\u003c')}))`
     : RETRYING_FETCH
-  return html.replace(SOURCES_FETCH, () => call)
+  return patient.replace(SOURCES_FETCH, () => call)
 }
 
 /**

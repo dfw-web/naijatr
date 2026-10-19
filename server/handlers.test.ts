@@ -223,6 +223,13 @@ describe('Playback and download handlers', () => {
       expect(res.body).toContain('})(apiUrl)')
     })
 
+    it('gives a source 20 seconds to load before the player calls it failed', () => {
+      const page = `sourceTimeout = setTimeout(() => {\n  showError('All servers failed to load.');\n}, 8000);\nsetTimeout(hideLoading, 8000);`
+      const html = injectSources(page, null)
+      expect(html).toContain('}, 20000);')
+      expect(html).toContain('setTimeout(hideLoading, 8000)')
+    })
+
     it('keeps the sources script-safe', () => {
       const html = injectSources('x = fetch(apiUrl)', JSON.stringify({ title: '</script><script>alert(1)' }))
       expect(html).not.toContain('</script>')
