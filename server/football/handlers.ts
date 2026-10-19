@@ -28,6 +28,17 @@ import {
   type ProviderFixture,
 } from './stream.js'
 import { isFeaturedLeague } from './priority.js'
+import { isAdmin, WINDOW_MS } from '../live/handlers.js'
+import { redis, type RedisEnv } from '../redis.js'
+import {
+  findStreamingMatch,
+  loadStreaming,
+  refreshStreamingMatch,
+  STREAMING_TTL_MS,
+  streamingAdmin,
+  streamsForMatch,
+  type StreamingDeps,
+} from './streamingStore.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -161,6 +172,10 @@ export interface FootballContext {
   rapidKey?: string
   cache: FootballCache
   fetchImpl?: typeof fetch
+  /** The Football Live Streaming API's shared live list (the main stream source). */
+  streaming?: StreamingDeps
+  /** For the /admin/live routes: ADMIN_PASSWORD, the request's Authorization header, and Redis for viewer counts. */
+  admin?: { password: string; authorization?: string; redis?: RedisEnv }
 }
 
 const isEmptyErrors = (errors: unknown) =>
@@ -436,55 +451,97 @@ async function findProviderMatch(ctx: FootballContext, id: number) {
   return { ...found, items, result }
 }
 
+interface FixtureLike {
+  fixture?: { date?: string; status?: { short?: string } }
+  teams?: { home?: { name?: string }; away?: { name?: string } }
+}
+
+const NOT_LIVE = new Set(['TBD', 'NS', 'FT', 'AET', 'PEN', 'PST', 'CANC', 'ABD', 'AWD', 'WO'])
+
+/** Teams, kick-off and whether it's in play, for pairing with the streaming list. */
+function describeFixture(data: unknown) {
+  const f = data as FixtureLike
+  const kickoff = Date.parse(f.fixture?.date ?? '')
+  const status = f.fixture?.status?.short
+  return {
+    home: f.teams?.home?.name,
+    away: f.teams?.away?.name,
+    kickoff: Number.isNaN(kickoff) ? 0 : kickoff,
+    live: Boolean(status && !NOT_LIVE.has(status)),
+  }
+}
+
 /**
  * GET /api/football/stream?id=123: stream links and live commentary for one
- * of our matches, from the Football Live Stream API (RapidAPI). The match is
- * looked up here (it is usually cached already) and paired with the provider's
- * listing by team names. No pairing is not an error: it answers
- * { available: false }, so the match page simply shows "no stream".
+ * of our matches. The streams come from the Football Live Streaming API
+ * (streamingStore.ts) when it lists the match, else from the older Football
+ * Live Stream API. The match is looked up here (it is usually cached already)
+ * and paired with each listing by team names. No pairing is not an error: it
+ * answers { available: false }, so the match page shows "Stream not available yet".
  */
 async function stream(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
   const id = params.get('id') ?? ''
   if (!MATCH_ID.test(id)) return fail(res, 'bad-request')
   if (!ctx.rapidKey) return fail(res, 'not-configured')
 
+  let fixture: unknown
+  let paired: MatchStream = NO_STREAM
+  let providerId: string | undefined
+  let maxAge: number = FOOTBALL_TTL.streams
+  let listingFailed: Loaded | null = null
+
   if (isProviderMatchId(Number(id))) {
     const provider = await findProviderMatch(ctx, Number(id))
     if (!provider) return fail(res, 'not-found')
+    fixture = provider.fixture
     const { home, away } = provider.fixture.teams
-    const { providerId: _ignored, ...paired } = findMatchStream(provider.items, home.name, away.name)
-    const result: MatchStream = paired
-    let maxAge: number = FOOTBALL_TTL.streams
-    if (!result.streams.length) {
-      const link = await loadStreamLink(ctx, ctx.rapidKey, provider.providerId)
-      result.streams = link.streams
-      maxAge = shorterAge(maxAge, link.maxAge)
+    paired = withoutProviderId(findMatchStream(provider.items, home.name, away.name))
+    providerId = provider.providerId
+  } else {
+    const found = (await loadMatch(ctx, id)).outcome
+    if (!found.ok) return fail(res, found.reason)
+    fixture = found.data
+    const { home, away } = describeFixture(fixture)
+    if (!home || !away) {
+      return send(res, { outcome: { ok: true, data: NO_STREAM }, maxAge: FOOTBALL_TTL.streams, stale: false })
     }
-    result.available = result.streams.length > 0 || result.commentary.length > 0
-    return send(res, { outcome: { ok: true, data: result }, maxAge, stale: false })
+    const listing = await loadStreamListing(ctx, ctx.rapidKey)
+    if (listing.outcome.ok) {
+      const found = findMatchStream(listing.outcome.data as unknown[], home, away)
+      paired = withoutProviderId(found)
+      providerId = found.providerId
+      maxAge = listing.maxAge
+    } else {
+      listingFailed = listing
+    }
   }
 
-  const found = (await loadMatch(ctx, id)).outcome
-  if (!found.ok) return fail(res, found.reason)
-  const teams = (found.data as { teams?: { home?: { name?: string }; away?: { name?: string } } }).teams
-  const home = teams?.home?.name
-  const away = teams?.away?.name
-  if (!home || !away) {
-    return send(res, { outcome: { ok: true, data: NO_STREAM }, maxAge: FOOTBALL_TTL.streams, stale: false })
-  }
-
-  const listing = await loadStreamListing(ctx, ctx.rapidKey)
-  if (!listing.outcome.ok) return send(res, listing)
-  const { providerId, ...paired } = findMatchStream(listing.outcome.data as unknown[], home, away)
-  const result: MatchStream = paired
-  let maxAge = listing.maxAge
-  if (providerId && !result.streams.length) {
+  const result: MatchStream = { ...paired }
+  const described = describeFixture(fixture)
+  const streaming =
+    ctx.streaming && described.home && described.away
+      ? (await streamsForMatch(ctx.streaming, described.home, described.away, described.kickoff, described.live)).match
+      : null
+  if (streaming?.streams.length) {
+    result.streams = streaming.streams
+    result.status ??= { status: 'Live', score: streaming.score, minute: null }
+    // Within a minute of a new list.
+    maxAge = shorterAge(maxAge, 60)
+  } else if (listingFailed) {
+    return send(res, listingFailed)
+  } else if (providerId && !result.streams.length) {
     const link = await loadStreamLink(ctx, ctx.rapidKey, providerId)
     result.streams = link.streams
-    result.available = result.streams.length > 0 || result.commentary.length > 0
     maxAge = shorterAge(maxAge, link.maxAge)
   }
-  send(res, { ...listing, maxAge, outcome: { ok: true, data: result } })
+  result.available = result.streams.length > 0 || result.commentary.length > 0
+  send(res, { outcome: { ok: true, data: result }, maxAge, stale: false })
+}
+
+/** The provider's own id isn't sent to the browser. */
+function withoutProviderId(stream: MatchStream): MatchStream {
+  const { providerId: _providerId, ...rest } = stream
+  return rest
 }
 
 /** The shorter of two cache ages, where 0 means "don't cache". */
@@ -551,8 +608,8 @@ async function loadStreamLink(ctx: FootballContext, rapidKey: string, providerId
   return { streams: link.outcome.ok ? (link.outcome.data as MatchStream['streams']) : [], maxAge: link.maxAge }
 }
 
-interface LiveFixture {
-  fixture?: { id?: number }
+interface LiveFixture extends FixtureLike {
+  fixture?: { id?: number; date?: string; status?: { short?: string } }
   teams?: { home?: { name?: string }; away?: { name?: string } }
 }
 
@@ -573,17 +630,26 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
     ctx,
     'watchable',
     async () => {
-      const [liveNow, listing] = await Promise.all([liveOrFallback(ctx), loadStreamListing(ctx, rapidKey)])
+      const [liveNow, listing, streaming] = await Promise.all([
+        liveOrFallback(ctx),
+        loadStreamListing(ctx, rapidKey),
+        ctx.streaming ? loadStreaming(ctx.streaming) : null,
+      ])
       listingAge = listing.maxAge > 0 ? listing.maxAge : FOOTBALL_TTL.watchable
-      if (!liveNow.outcome.ok || !listing.outcome.ok) return { ok: true, data: [] }
-      const items = listing.outcome.data as unknown[]
+      if (!liveNow.outcome.ok) return { ok: true, data: [] }
+      const items = listing.outcome.ok ? (listing.outcome.data as unknown[]) : []
       // Matches from the provider itself already carry its id.
       const providerIds = new Map(providerFixtures(items).map((p) => [p.fixture.fixture.id, p.providerId]))
+      const viaStreaming: number[] = []
       const candidates = (liveNow.outcome.data as LiveFixture[]).flatMap((f) => {
         const id = f.fixture?.id
-        const home = f.teams?.home?.name
-        const away = f.teams?.away?.name
+        const { home, away, kickoff } = describeFixture(f)
         if (!id || !home || !away) return []
+        // The streaming list already has the links: no request needed.
+        if (findStreamingMatch(streaming?.snapshot ?? null, home, away, kickoff)?.streams.length) {
+          viaStreaming.push(id)
+          return []
+        }
         const own = providerIds.get(id)
         if (own) return [{ id, providerId: own, streams: [] }]
         const { providerId, streams } = findMatchStream(items, home, away)
@@ -594,7 +660,7 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
           c.streams.length || (await loadStreamLink(ctx, rapidKey, c.providerId)).streams.length ? c.id : null,
         ),
       )
-      return { ok: true, data: checked.filter((id) => id !== null) }
+      return { ok: true, data: [...viaStreaming, ...checked.filter((id) => id !== null)] }
     },
     // Follows the listing: every minute around kick-offs.
     () => Math.min(FOOTBALL_TTL.watchable, listingAge),
@@ -602,11 +668,80 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
   send(res, result)
 }
 
-const ROUTES = { live, fixtures, standings, match, stream, watchable }
+const sendPrivate = (res: ServerResponse, status: number, body: unknown) => {
+  res.statusCode = status
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('Cache-Control', 'no-store')
+  res.end(JSON.stringify(body))
+}
+
+/** Admin routes need ADMIN_PASSWORD as a Bearer token. Answers the request itself when they don't have it. */
+function adminAllowed(ctx: FootballContext, res: ServerResponse) {
+  const admin = ctx.admin
+  if (!admin?.password) return sendPrivate(res, 503, { error: 'not-configured' }), false
+  const env = { adminPassword: admin.password, redisUrl: '', redisToken: '' }
+  if (!isAdmin(env, admin.authorization)) return sendPrivate(res, 401, { error: 'unauthorized' }), false
+  if (!ctx.streaming) return sendPrivate(res, 503, { error: 'no-streaming' }), false
+  return true
+}
+
+/**
+ * GET /api/football/admin-streams (admin): the Live Streaming API's usage,
+ * the cached live list with our match ids and viewers, and the last calls.
+ */
+async function adminStreams(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
+  if (!adminAllowed(ctx, res) || !ctx.streaming) return
+  const now = ctx.streaming.now()
+  const [info, listing] = await Promise.all([
+    streamingAdmin(ctx.streaming),
+    ctx.rapidKey ? loadStreamListing(ctx, ctx.rapidKey) : null,
+  ])
+  const ours = listing?.outcome.ok ? featuredProviderFixtures(listing.outcome.data as unknown[]) : []
+  const rows = (info.snapshot?.matches ?? []).map((m) => {
+    const our = ours.find(({ fixture }) =>
+      findStreamingMatch({ fetchedAt: 0, matches: [m] }, fixture.teams.home.name, fixture.teams.away.name, Date.parse(fixture.fixture.date)),
+    )
+    return { key: m.key, matchId: our?.fixture.fixture.id ?? null, home: m.home, away: m.away, league: m.league, score: m.score, servers: m.streams.length }
+  })
+  // Viewers of the matches shown on the site (the live counter's per-match sets).
+  const ids = rows.flatMap((r) => (r.matchId ? [r.matchId] : []))
+  const counts = ids.length && ctx.admin?.redis
+    ? await redis(ctx.admin.redis, ids.map((id) => ['ZCOUNT', `live:m:${id}`, now - WINDOW_MS, '+inf']), ctx.fetchImpl)
+    : null
+  const streams = rows
+    .map((r) => ({ ...r, viewers: r.matchId && counts ? Number(counts[ids.indexOf(r.matchId)]) || 0 : null }))
+    .sort((a, b) => Number(b.matchId !== null) - Number(a.matchId !== null) || b.servers - a.servers)
+  const fetchedAt = info.snapshot?.fetchedAt ?? null
+  sendPrivate(res, 200, {
+    usage: info.quota && { limit: info.quota.limit, used: info.quota.limit - info.quota.remaining, at: info.quota.at },
+    stopped: info.stopped,
+    fetchedAt,
+    expiresAt: fetchedAt && fetchedAt + STREAMING_TTL_MS,
+    streams,
+    calls: info.calls,
+  })
+}
+
+const STREAM_KEY = /^[^\n]{1,300}$/
+
+/** POST /api/football/admin-refresh?match=<key> (admin): asks the API again now, at most once per match every 10 minutes. */
+async function adminRefresh(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
+  if (!adminAllowed(ctx, res) || !ctx.streaming) return
+  const match = params.get('match') ?? ''
+  if (!STREAM_KEY.test(match)) return sendPrivate(res, 400, { error: 'bad-request' })
+  const result = await refreshStreamingMatch(ctx.streaming, match)
+  if (!result.ok) return sendPrivate(res, 429, { error: 'too-soon', retryInMs: result.retryInMs })
+  sendPrivate(res, 200, { ok: true, limited: result.load.limited, fetchedAt: result.load.snapshot?.fetchedAt ?? null })
+}
+
+const ROUTES = { live, fixtures, standings, match, stream, watchable, 'admin-streams': adminStreams, 'admin-refresh': adminRefresh }
+
+/** Routes that change something, and so take POST. */
+const POST_ROUTES = new Set(['admin-refresh'])
 
 export type FootballRoute = keyof typeof ROUTES
 
-/** Serves /api/football/{live,fixtures,standings,match,stream,watchable}. */
+/** Serves /api/football/{live,fixtures,standings,match,stream,watchable} and the admin-streams/admin-refresh routes. */
 export async function handleFootball(
   ctx: FootballContext,
   method: string | undefined,
@@ -614,9 +749,10 @@ export async function handleFootball(
   params: URLSearchParams,
   res: ServerResponse,
 ) {
-  if (method && method !== 'GET' && method !== 'HEAD') {
+  const allowed = POST_ROUTES.has(route) ? ['POST'] : ['GET', 'HEAD']
+  if (method && !allowed.includes(method)) {
     res.statusCode = 405
-    res.setHeader('Allow', 'GET, HEAD')
+    res.setHeader('Allow', allowed.join(', '))
     res.setHeader('Content-Type', 'application/json')
     return res.end(JSON.stringify({ error: 'bad-request' }))
   }

@@ -82,9 +82,12 @@ export function MatchStream({ match }: { match: Fixture }) {
 
   const commentary = [...(data?.commentary ?? []), ...buildCommentary(match)]
   const streams = data?.streams ?? []
-  const source = streams[Math.min(selected, streams.length - 1)]
-  // A different link has come in: back to the usual pace.
-  if (source && failedUrl && source.url !== failedUrl) setFailedUrl(null)
+  const current = Math.min(selected, streams.length - 1)
+  const source = streams[current]
+  // This server isn't playing: move on to the next one, if there is one.
+  if (source && failedUrl === source.url && current + 1 < streams.length) setSelected(current + 1)
+  // A different link is playing: back to the usual pace.
+  else if (source && failedUrl && source.url !== failedUrl) setFailedUrl(null)
   const providerStatus = data?.status
   // Counts as watching (for the live viewer count) while the stream player is on the page.
   useLiveWatching(source ? `match:${match.fixture.id}` : null)
@@ -92,6 +95,16 @@ export function MatchStream({ match }: { match: Fixture }) {
 
   return (
     <div className="fb-stream">
+      {live && data && !source && (
+        <div className="fb-stream__player fb-stream__player--link">
+          <StatusMessage
+            icon={MonitorPlay}
+            compact
+            title="Stream not available yet"
+            message="It will show here as soon as the provider has one."
+          />
+        </div>
+      )}
       {source && (
         <>
           {streams.length > 1 && (

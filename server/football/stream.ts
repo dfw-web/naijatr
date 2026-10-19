@@ -202,7 +202,7 @@ export function sameTeam(a: string, b: string) {
 }
 
 /** Same team, or at least the same distinctive first word ("Mahasarakham United" ~ "Mahasarakham SBT"). */
-function nearTeam(a: string, b: string) {
+export function nearTeam(a: string, b: string) {
   if (sameTeam(a, b)) return true
   const [x] = words(a)
   const [y] = words(b)

@@ -8,7 +8,7 @@
  * "movie:550", "match:123"). Heartbeats go into Upstash Redis (free tier,
  * Vercel Marketplace) and anyone silent for WINDOW_MS no longer counts.
  *
- * Redis, over its REST API (no client library):
+ * Redis (server/redis.ts):
  * - live:now      sorted set of "state|item|sid", scored by the last heartbeat (ms).
  * - live:m:<id>   sorted set of the sids watching football match <id>, for
  *                 "X watching now" on its page; expires when nobody is.
@@ -18,6 +18,7 @@
  */
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { redis, readRedisEnv, type Command, type RedisEnv } from '../redis.js'
 
 /** Anyone without a heartbeat for this long has left. */
 export const WINDOW_MS = 2 * 60 * 1000
@@ -26,7 +27,6 @@ const MATCH_KEY_TTL_S = 5 * 60
 /** Old heartbeats are cleared on about one heartbeat in this many (and on every count). */
 const CLEANUP_EVERY = 20
 const TOP_COUNT = 5
-const REDIS_TIMEOUT_MS = 5000
 
 const NOW_KEY = 'live:now'
 const matchKey = (id: string) => `live:m:${id}`
@@ -36,39 +36,12 @@ const ITEM = /^(movie|tv|match):[1-9]\d{0,11}$/
 
 export type LiveState = 'watch' | 'browse'
 
-export interface LiveEnv {
-  redisUrl: string
-  redisToken: string
+export interface LiveEnv extends RedisEnv {
   adminPassword: string
 }
 
-/** The Vercel Marketplace's Upstash integration sets KV_REST_API_*; a direct Upstash setup, UPSTASH_REDIS_REST_*. */
 export function readLiveEnv(env: Record<string, string | undefined>): LiveEnv {
-  return {
-    redisUrl: (env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL ?? '').trim().replace(/\/+$/, ''),
-    redisToken: (env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN ?? '').trim(),
-    adminPassword: env.ADMIN_PASSWORD ?? '',
-  }
-}
-
-type Command = (string | number)[]
-
-/** Several Redis commands in one request. Never throws; null when Redis can't be reached. */
-async function redis(env: LiveEnv, commands: Command[], fetchImpl: typeof fetch): Promise<unknown[] | null> {
-  if (!env.redisUrl || !env.redisToken) return null
-  try {
-    const response = await fetchImpl(`${env.redisUrl}/pipeline`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.redisToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(commands.map((command) => command.map(String))),
-      signal: AbortSignal.timeout(REDIS_TIMEOUT_MS),
-    })
-    if (!response.ok) return null
-    const body = (await response.json()) as { result?: unknown; error?: string }[]
-    return Array.isArray(body) ? body.map((entry) => (entry && !entry.error ? entry.result : null)) : null
-  } catch {
-    return null
-  }
+  return { ...readRedisEnv(env), adminPassword: env.ADMIN_PASSWORD ?? '' }
 }
 
 export interface Heartbeat {

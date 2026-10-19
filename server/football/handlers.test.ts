@@ -11,6 +11,8 @@ import {
   type FootballContext,
 } from './handlers'
 import { STREAM_ORIGIN } from './stream'
+import { STREAMING_ORIGIN } from './streaming'
+import { createMemoryStore } from './streamingStore'
 
 const KEY = 'test-football-key'
 const NOW = Date.parse('2026-10-14T12:00:00Z')
@@ -508,5 +510,113 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     const { providerMatchId } = await import('./stream')
     expect((await get(ctx, 'match', `id=${providerMatchId('other1')}`)).statusCode).toBe(404)
     expect((await get(ctx, 'match', `id=${all[0].fixture.id}`)).statusCode).toBe(200)
+  })
+})
+
+describe('football API: streams from the Football Live Streaming API', () => {
+  const KICKOFF = '2026-10-14T12:00:00+00:00'
+  const OLD_LISTING = [
+    { id: 'epl1', league: 'English Premier League', home_name: 'Tottenham Hotspur', away_name: 'Coventry City', status: 'Live', score: '1 - 0', kickoff: KICKOFF },
+    { id: 'liga1', league: 'Spanish La Liga', home_name: 'Getafe', away_name: 'Rayo Vallecano', status: 'Live', score: '0 - 1', kickoff: KICKOFF },
+  ]
+  const STREAMING = [
+    {
+      match_time: String(Date.parse(KICKOFF) / 1000),
+      match_status: 'live',
+      home_team_name: 'Tottenham Hotspur',
+      away_team_name: 'Coventry City',
+      homeTeamScore: '1',
+      awayTeamScore: '0',
+      league_name: 'English Premier League',
+      servers: [
+        { name: 'Server 1', type: 'direct', url: 'https://hls.example/tot-cov/index.m3u8' },
+        { name: 'Server 2', type: 'referer', url: 'https://ref.example/x.m3u8' },
+        { name: 'Server 3', type: 'direct', url: 'https://pull.example/stream-1_lhd.m3u8' },
+      ],
+    },
+  ]
+
+  function providers() {
+    return vi.fn().mockImplementation(async (url: string) => {
+      if (url.startsWith(FOOTBALL_ORIGIN)) return apiBody([], { access: 'Your account is suspended' })
+      if (url.startsWith(STREAMING_ORIGIN)) {
+        return new Response(JSON.stringify({ matches: STREAMING, pagination: { hasNext: false } }), {
+          headers: { 'x-ratelimit-requests-limit': '20000', 'x-ratelimit-requests-remaining': '19990' },
+        })
+      }
+      if (url.endsWith('/all-match')) return new Response(JSON.stringify({ result: OLD_LISTING }))
+      return new Response(JSON.stringify({ url: '' }))
+    })
+  }
+
+  function withStreaming(fetchImpl = providers()) {
+    const { ctx, advance } = setup(fetchImpl)
+    ctx.rapidKey = 'rapid-key'
+    ctx.streaming = { key: 'rapid-key', store: createMemoryStore(() => NOW), now: () => NOW, fetchImpl: fetchImpl as unknown as typeof fetch }
+    ctx.admin = { password: 'open sesame' }
+    return { ctx, advance, fetchImpl }
+  }
+  const calls = (fetchImpl: ReturnType<typeof vi.fn>, origin: string) =>
+    fetchImpl.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith(origin))
+
+  async function liveIds(ctx: FootballContext) {
+    const live = json(await get(ctx, 'live')).data as { fixture: { id: number }; teams: { home: { name: string } } }[]
+    return Object.fromEntries(live.map((f) => [f.teams.home.name, f.fixture.id]))
+  }
+
+  it("plays the match's direct servers, without asking the old provider for a link", async () => {
+    const { ctx, fetchImpl } = withStreaming()
+    const ids = await liveIds(ctx)
+    const res = await get(ctx, 'stream', `id=${ids['Tottenham Hotspur']}`)
+    expect(json(res).data).toMatchObject({
+      available: true,
+      streams: [
+        { label: 'Server 1', url: 'https://hls.example/tot-cov/index.m3u8', kind: 'hls' },
+        { label: 'Server 2', url: 'https://pull.example/stream-1_lhd.m3u8', kind: 'hls' },
+      ],
+    })
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/link/'))).toBe(false)
+    // A match it doesn't list falls back to the old provider.
+    await get(ctx, 'stream', `id=${ids.Getafe}`)
+    expect(calls(fetchImpl, STREAM_ORIGIN).filter((url) => url.includes('/link/'))).toHaveLength(1)
+  })
+
+  it('shows Watch now for the matches it lists, from the same single request', async () => {
+    const { ctx, fetchImpl } = withStreaming()
+    const ids = await liveIds(ctx)
+    expect(json(await get(ctx, 'watchable')).data).toContain(ids['Tottenham Hotspur'])
+    await get(ctx, 'stream', `id=${ids['Tottenham Hotspur']}`)
+    expect(calls(fetchImpl, STREAMING_ORIGIN)).toHaveLength(1)
+  })
+
+  it('shows usage, the cached streams and the last calls to the admin only', async () => {
+    const { ctx } = withStreaming()
+    const ids = await liveIds(ctx)
+    await get(ctx, 'watchable')
+    expect((await get(ctx, 'admin-streams')).statusCode).toBe(401)
+    ctx.admin = { password: 'open sesame', authorization: 'Bearer open sesame' }
+    const body = json(await get(ctx, 'admin-streams'))
+    expect(body).toMatchObject({
+      usage: { limit: 20000, used: 10 },
+      stopped: false,
+      fetchedAt: NOW,
+      expiresAt: NOW + 5 * 60_000,
+      streams: [{ matchId: ids['Tottenham Hotspur'], home: 'Tottenham Hotspur', servers: 2, viewers: null }],
+    })
+    expect(body.calls).toHaveLength(1)
+  })
+
+  it('refreshes a match on request, at most every 10 minutes, and only by POST', async () => {
+    const { ctx, fetchImpl } = withStreaming()
+    ctx.admin = { password: 'open sesame', authorization: 'Bearer open sesame' }
+    const post = async () => {
+      const res = fakeResponse()
+      await handleFootball(ctx, 'POST', 'admin-refresh', new URLSearchParams('match=tot-cov'), res)
+      return res
+    }
+    expect((await get(ctx, 'admin-refresh', 'match=tot-cov')).statusCode).toBe(405)
+    expect((await post()).statusCode).toBe(200)
+    expect((await post()).statusCode).toBe(429)
+    expect(calls(fetchImpl, STREAMING_ORIGIN)).toHaveLength(1)
   })
 })

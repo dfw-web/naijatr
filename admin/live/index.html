@@ -131,6 +131,27 @@
         color: var(--muted);
         font-variant-numeric: tabular-nums;
       }
+      li.stream {
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      li.stream .meta {
+        flex-basis: 100%;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      li.stream button {
+        min-height: 36px;
+        padding: 0 12px;
+        font-size: 0.85rem;
+      }
+      li.stream button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #sl-calls li {
+        font-size: 0.85rem;
+      }
       [hidden] {
         display: none !important;
       }
@@ -156,6 +177,17 @@
         <ol id="top"></ol>
         <p class="muted" id="empty" hidden>Nobody is watching anything right now.</p>
         <p class="error" id="stats-error" role="alert" hidden></p>
+
+        <h2>Live Stream API</h2>
+        <p class="stat"><strong id="sl-usage">–</strong><span id="sl-usage-note">requests used today</span></p>
+        <p class="muted" id="sl-list-note"></p>
+        <ol id="sl-streams"></ol>
+        <p class="muted" id="sl-empty" hidden>No live matches in the cached list.</p>
+        <h2>Last calls</h2>
+        <ol id="sl-calls"></ol>
+        <p class="muted" id="sl-calls-empty" hidden>No calls yet.</p>
+        <p class="error" id="sl-error" role="alert" hidden></p>
+
         <p class="muted" id="updated"></p>
         <button type="button" class="ghost" id="sign-out">Sign out</button>
       </section>
