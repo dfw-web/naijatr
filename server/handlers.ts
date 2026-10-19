@@ -14,6 +14,10 @@ import {
 } from './nextstream.js'
 
 const PLAYBACK_CHECK_TIMEOUT_MS = 8000
+/** NextStream often hangs instead of answering; a saved copy of its page is used instead. */
+const PLAYER_PAGE_TIMEOUT_MS = 4000
+const SOURCES_TIMEOUT_MS = 4000
+const SOURCES_ATTEMPTS = 2
 const TMDB_TIMEOUT_MS = 15000
 const TMDB_ORIGIN = 'https://api.themoviedb.org'
 
@@ -102,13 +106,110 @@ export function stripPlayerAds(html: string, upstreamUrl: string): string | null
     .replace(STREAM_FRAME_ALLOW, (_, start: string, allow: string, end: string) => start + widenAllow(allow) + end)
 }
 
+/** A store shared by every server instance (Vercel's Runtime Cache has this shape). */
+export interface PlayStore {
+  get: (key: string) => Promise<unknown>
+  set: (key: string, value: unknown, options?: { ttl?: number }) => Promise<void>
+}
+
+/** Memory, plus `shared` when given. A shared store that fails is simply skipped. */
+export function createPlayCache(shared?: PlayStore) {
+  const memory = new Map<string, { value: unknown; expires: number }>()
+  return {
+    async get<T>(key: string): Promise<T | undefined> {
+      const local = memory.get(key)
+      if (local && local.expires > Date.now()) return local.value as T
+      try {
+        const found = await shared?.get(key)
+        if (found !== undefined && found !== null) return found as T
+      } catch {
+        // Shared cache unavailable: memory only.
+      }
+      return undefined
+    },
+    async set(key: string, value: unknown, ttlSeconds: number) {
+      memory.set(key, { value, expires: Date.now() + ttlSeconds * 1000 })
+      try {
+        await shared?.set(key, value, { ttl: ttlSeconds })
+      } catch {
+        // Shared cache unavailable: memory only.
+      }
+    },
+  }
+}
+
+export type PlayCache = ReturnType<typeof createPlayCache>
+
+/** NextStream's player page is the same for every title; the last good copy is kept for when it doesn't answer. */
+const PLAYER_PAGE_KEY = 'player-page'
+const PLAYER_PAGE_TTL = 7 * 24 * 60 * 60
+/** A title's stream sources rarely change. */
+const SOURCES_TTL = 6 * 60 * 60
+
+async function fetchText(url: string, timeoutMs: number, fetchImpl: typeof fetch) {
+  try {
+    const upstream = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) })
+    return upstream.ok ? await upstream.text() : null
+  } catch {
+    return null
+  }
+}
+
+/** The player's own source lookup (/embed/movie/1?apikey=… → /api/movie/1?apikey=…), or null. */
+export function sourcesUrl(upstreamUrl: string) {
+  const url = new URL(upstreamUrl)
+  if (!url.pathname.startsWith('/embed/')) return null
+  const apiKey = url.searchParams.get('apikey') || url.searchParams.get('api_key')
+  if (!apiKey) return null
+  return `${url.origin}/api/${url.pathname.slice('/embed/'.length)}?apikey=${encodeURIComponent(apiKey)}`
+}
+
+/** The title's stream sources (as NextStream's JSON), looked up here so the browser needn't wait on NextStream. */
+async function loadSources(upstreamUrl: string, cache: PlayCache, fetchImpl: typeof fetch) {
+  const url = sourcesUrl(upstreamUrl)
+  if (!url) return null
+  const key = `sources:${new URL(upstreamUrl).pathname}`
+  const saved = await cache.get<string>(key)
+  if (saved) return saved
+  for (let attempt = 0; attempt < SOURCES_ATTEMPTS; attempt += 1) {
+    const text = await fetchText(url, SOURCES_TIMEOUT_MS, fetchImpl)
+    if (text === null) continue
+    try {
+      const data = JSON.parse(text) as { success?: unknown; sources?: unknown }
+      if (data.success !== true || !Array.isArray(data.sources) || !data.sources.length) return null
+      await cache.set(key, text, SOURCES_TTL)
+      return text
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+const SOURCES_FETCH = 'fetch(apiUrl)'
+
+/** The player's own lookup, retried: NextStream sometimes never answers, leaving "Resolving sources…". */
+const RETRYING_FETCH =
+  '(async (u) => { for (let i = 0; ; i++) { try { return await fetch(u, { signal: AbortSignal.timeout(6000) }) } catch (e) { if (i >= 2) throw e } } })(apiUrl)'
+
+/** Hands the player its sources: the ones already looked up here, or else its own lookup, retried. */
+export function injectSources(html: string, sources: string | null) {
+  if (!html.includes(SOURCES_FETCH)) return html
+  const call = sources
+    ? `Promise.resolve(new Response(${JSON.stringify(sources).replace(/</g, '\\u003c')}))`
+    : RETRYING_FETCH
+  return html.replace(SOURCES_FETCH, () => call)
+}
+
 /**
  * Serves /api/play/movie/{id} and /api/play/tv/{id}/{season}/{episode}.
  * Plain requests serve the NextStream player with its ads stripped (used as
- * the iframe src), falling back to a redirect to the original player if the
- * page can't be fetched or cleaned; `?check=1` asks the server to probe the
- * player URL and answer with JSON, so the UI can report unavailable titles
- * instead of showing a broken frame.
+ * the iframe src). NextStream often hangs, so the last good copy of its page
+ * (the same for every title) is used when it doesn't answer in time, and the
+ * title's sources are looked up here. Only with no usable page at all does it
+ * redirect to the original player, ads and all. `?check=1` asks the server to
+ * probe the player URL and answer with JSON, so the UI can report unavailable
+ * titles instead of showing a broken frame.
  */
 export async function handlePlay(
   config: NextStreamConfig,
@@ -116,6 +217,7 @@ export async function handlePlay(
   params: URLSearchParams,
   res: ServerResponse,
   fetchImpl: typeof fetch = fetch,
+  cache: PlayCache = createPlayCache(),
 ) {
   const request = parsePlaybackPath(path)
   if (!request) return sendJson(res, 400, { available: false, reason: 'bad-request' })
@@ -123,17 +225,21 @@ export async function handlePlay(
   if (!url) return sendJson(res, 503, { available: false, reason: 'not-configured' })
 
   if (!params.has('check')) {
-    try {
-      const upstream = await fetchImpl(url, { signal: AbortSignal.timeout(PLAYBACK_CHECK_TIMEOUT_MS) })
-      const clean = upstream.ok ? stripPlayerAds(await upstream.text(), url) : null
-      if (!clean) return redirect(res, url)
-      res.statusCode = 200
-      res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      res.setHeader('Cache-Control', 'no-store')
-      return res.end(clean)
-    } catch {
-      return redirect(res, url)
+    const [fresh, sources] = await Promise.all([
+      fetchText(url, PLAYER_PAGE_TIMEOUT_MS, fetchImpl),
+      loadSources(url, cache, fetchImpl),
+    ])
+    let clean = fresh === null ? null : stripPlayerAds(fresh, url)
+    if (clean) await cache.set(PLAYER_PAGE_KEY, fresh, PLAYER_PAGE_TTL)
+    else {
+      const saved = await cache.get<string>(PLAYER_PAGE_KEY)
+      clean = saved ? stripPlayerAds(saved, url) : null
     }
+    if (!clean) return redirect(res, url)
+    res.statusCode = 200
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-store')
+    return res.end(injectSources(clean, sources))
   }
 
   try {

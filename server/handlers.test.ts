@@ -5,8 +5,10 @@ import downloadFunction from '../api/download'
 import playFunction from '../api/play'
 import tmdbFunction from '../api/tmdb'
 import {
+  createPlayCache,
   handleDownload,
   handlePlay,
+  injectSources,
   handleTmdb,
   readTmdbCredentials,
   splitApiUrl,
@@ -48,7 +50,7 @@ const PLAYER_PAGE = `<!DOCTYPE html><html><head><title>NexStream</title></head><
   const isDemo = _apiKey.startsWith('DEMO_');
   if (!isDemo) { /* click-shield: window.open(adUrl) */ }
   const parts = window.location.pathname.split('/').filter(Boolean);
-  loadSource(0);
+  fetch(apiUrl).then(r => r.json()).then(data => { sources = data.sources; loadSource(0); });
 </script>
 <!-- Dynamic Ad Loader: Suppressed for demo keys, active for real API keys -->
 <script type="text/javascript">
@@ -167,6 +169,64 @@ describe('Playback and download handlers', () => {
     expect(html).toContain(
       '<iframe id="stream-frame" allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"',
     )
+  })
+
+  describe('when NextStream is slow or flaky', () => {
+    const embed = readNextStreamConfig({
+      NEXTSTREAM_API_KEY: 'nx_test',
+      NEXTSTREAM_MOVIE_URL: 'https://player.example/embed/movie/{tmdbId}?apikey={apiKey}',
+    })
+    const SOURCES = JSON.stringify({ success: true, sources: [{ name: 'A', url: 'https://src.example/movie/550' }] })
+
+    /** NextStream: the page and the sources lookup each answer, fail or hang. */
+    function nextStream(page: 'ok' | 'hang', sources: 'ok' | 'hang' | 'none') {
+      return vi.fn<typeof fetch>(async (input) => {
+        const url = String(input)
+        const outcome = url.includes('/api/') ? sources : page
+        // A hang ends at our timeout.
+        if (outcome === 'hang') throw new DOMException('timed out', 'TimeoutError')
+        if (url.includes('/api/')) return new Response(outcome === 'ok' ? SOURCES : JSON.stringify({ success: false }))
+        return new Response(PLAYER_PAGE)
+      })
+    }
+
+    const play = async (fetchImpl: typeof fetch, cache: ReturnType<typeof createPlayCache>) => {
+      const res = fakeResponse()
+      await handlePlay(embed, '/movie/550', new URLSearchParams(), res, fetchImpl, cache)
+      return res
+    }
+
+    it('looks the sources up on the server and hands them to the player', async () => {
+      const fetchImpl = nextStream('ok', 'ok')
+      const res = await play(fetchImpl, createPlayCache())
+      expect(fetchImpl.mock.calls.map(([url]) => String(url))).toContain(
+        'https://player.example/api/movie/550?apikey=nx_test',
+      )
+      expect(res.body).toContain('Promise.resolve(new Response(')
+      expect(res.body).toContain('https://src.example/movie/550')
+      expect(res.body).not.toContain('fetch(apiUrl)')
+    })
+
+    it("serves the saved, ad-free page instead of the original when NextStream doesn't answer", async () => {
+      const cache = createPlayCache()
+      await play(nextStream('ok', 'ok'), cache)
+      const res = await play(nextStream('hang', 'hang'), cache)
+      expect(res.statusCode).toBe(200)
+      expect(res.body).not.toContain('profitablecpm')
+      // Sources found earlier are reused.
+      expect(res.body).toContain('https://src.example/movie/550')
+    })
+
+    it("lets the player retry its own lookup when the server couldn't get the sources", async () => {
+      const res = await play(nextStream('ok', 'none'), createPlayCache())
+      expect(res.body).toContain('AbortSignal.timeout(6000)')
+      expect(res.body).toContain('})(apiUrl)')
+    })
+
+    it('keeps the sources script-safe', () => {
+      const html = injectSources('x = fetch(apiUrl)', JSON.stringify({ title: '</script><script>alert(1)' }))
+      expect(html).not.toContain('</script>')
+    })
   })
 
   it('falls back to redirecting to the original player when the page cannot be cleaned', async () => {
