@@ -12,6 +12,7 @@ import { MediaRow } from './MediaRow'
 import { PlayerPanel } from './PlayerPanel'
 import { TelegramCard } from './Telegram'
 import { WatchProviders } from './WatchProviders'
+import { RateThis } from '../feedback/Feedback'
 import './DetailsModal.css'
 
 interface DetailsModalProps {
@@ -199,6 +200,7 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
           <PlayerPanel item={item} isLoading={isLoadingMore} />
           {item.watchProviders && <WatchProviders providers={item.watchProviders} />}
           <TelegramCard from="details" />
+          {item.title && <RateThis titleKey={`${item.type}:${item.tmdbId ?? item.id}`} title={item.title} />}
           {isTvMode() && item.tmdbId !== undefined && (
             <div className="tv-phone-card">
               <QrCode url={phoneLink(item)} label={`QR code: watch ${item.title} on your phone`} size="7em" />

@@ -14,6 +14,7 @@ import { useFilterParams } from './hooks/useFilterParams'
 import { TvAdBreakHost } from './tv/TvAdBreak'
 import { TelegramGateHost } from './gate/TelegramGate'
 import { InstallAppHost } from './components/InstallApp'
+import { FeedbackHost } from './feedback/Feedback'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import './App.css'
@@ -169,6 +170,7 @@ function App() {
       <TvAdBreakHost />
       <TelegramGateHost />
       <InstallAppHost />
+      <FeedbackHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

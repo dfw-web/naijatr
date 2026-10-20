@@ -5,6 +5,7 @@ import { analyticsBeforeSend } from '../analytics'
 import { TvAdBreakHost } from '../tv/TvAdBreak'
 import { TelegramGateHost } from '../gate/TelegramGate'
 import { InstallAppHost } from '../components/InstallApp'
+import { FeedbackHost } from '../feedback/Feedback'
 
 // Loaded on demand, so the movie pages never download the Football section.
 const FootballApp = lazy(() => import('./FootballApp'))
@@ -21,6 +22,7 @@ export function FootballRoot() {
       <TvAdBreakHost />
       <TelegramGateHost />
       <InstallAppHost />
+      <FeedbackHost />
       <Analytics beforeSend={analyticsBeforeSend} />
     </>
   )

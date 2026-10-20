@@ -9,6 +9,7 @@
     { "source": "/api/download/:path*", "destination": "/api/download?__path=:path*" },
     { "source": "/go/telegram", "destination": "/go/telegram/index.html" },
     { "source": "/admin/live", "destination": "/admin/live/index.html" },
+    { "source": "/admin/feedback", "destination": "/admin/feedback/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

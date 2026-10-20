@@ -91,13 +91,18 @@ describe('details panel', () => {
     expect(dialog).toHaveTextContent('8.7 / 10')
     expect(dialog).toHaveTextContent('21 November 2025')
 
-    // Close and the Telegram card's Join Channel: Tab and Shift+Tab cycle between them.
+    // Close, the Telegram card's Join Channel and the "Rate this" stars: Tab and Shift+Tab cycle through them.
     const join = within(dialog).getByRole('link', { name: /Join Channel/ })
+    const rate = within(dialog).getByRole('radiogroup', { name: 'Rate The Last Light of Orion' })
     await user.tab()
     expect(join).toHaveFocus()
     await user.tab()
+    expect(within(rate).getByRole('radio', { name: '1 star' })).toHaveFocus()
+    for (let i = 0; i < 5; i += 1) await user.tab()
     expect(close).toHaveFocus()
     await user.tab({ shift: true })
+    expect(within(rate).getByRole('radio', { name: '5 stars' })).toHaveFocus()
+    for (let i = 0; i < 5; i += 1) await user.tab({ shift: true })
     expect(join).toHaveFocus()
     await user.tab({ shift: true })
     expect(close).toHaveFocus()

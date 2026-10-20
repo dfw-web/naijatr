@@ -39,7 +39,8 @@ const emit = () => listeners.forEach((listener) => listener())
 
 const latest = (map: Map<number, LiveItem>) => [...map.values()].at(-1) ?? null
 
-function sessionId(): string {
+/** This device's anonymous id (random, kept in localStorage); also used to limit feedback per device. */
+export function sessionId(): string {
   try {
     const saved = window.localStorage.getItem(SID_KEY)
     if (saved && /^[A-Za-z0-9_-]{16,64}$/.test(saved)) return saved

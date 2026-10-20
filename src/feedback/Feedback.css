@@ -1,0 +1,237 @@
+/* "💬 Feedback" button, its form and "Rate this" (Feedback.tsx). */
+
+/* Under the install bar (90) and the details modal (100): it never covers a playing film. */
+.feedback-fab {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 40px;
+  padding: 0 0.9rem;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
+  border-radius: 999px;
+  background: var(--surface, #101015);
+  color: var(--text, #f5f5f7);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.feedback-fab:hover,
+.feedback-fab:focus-visible {
+  border-color: var(--accent, #e50914);
+}
+
+/* Above the "Download app" bar while it shows. */
+.has-install-bar .feedback-fab {
+  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 5rem);
+}
+
+.feedback {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  padding: 1rem;
+  background: rgba(5, 5, 8, 0.8);
+  font-family: var(--font-body, 'Inter', system-ui, sans-serif);
+}
+
+@media (min-width: 640px) {
+  .feedback {
+    align-items: center;
+  }
+}
+
+.feedback__panel {
+  position: relative;
+  width: min(100%, 28rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  margin-bottom: env(safe-area-inset-bottom);
+  padding: 1.25rem;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
+  border-radius: 16px;
+  background: var(--surface, #101015);
+  color: var(--text, #f5f5f7);
+}
+
+.feedback__close {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted, #b3b3bd);
+  cursor: pointer;
+}
+
+.feedback__form,
+.feedback__thanks {
+  display: grid;
+  gap: 1rem;
+}
+
+.feedback__title {
+  margin: 0;
+  padding-right: 2.5rem;
+  font-size: 1.15rem;
+}
+
+.feedback__field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.feedback__label {
+  color: var(--text-muted, #b3b3bd);
+  font-size: 0.85rem;
+}
+
+.feedback__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.feedback__type {
+  min-height: 40px;
+  padding: 0 0.8rem;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
+  border-radius: 999px;
+  background: none;
+  color: var(--text, #f5f5f7);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.feedback__type[aria-checked='true'] {
+  border-color: var(--accent, #e50914);
+  background: var(--accent, #e50914);
+  color: #fff;
+}
+
+.feedback__field textarea,
+.feedback__field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
+  border-radius: 10px;
+  background: var(--bg, #050508);
+  color: var(--text, #f5f5f7);
+  font: inherit;
+  font-size: 1rem;
+  resize: vertical;
+}
+
+.feedback__count {
+  justify-self: end;
+  color: var(--text-muted, #b3b3bd);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.feedback__trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.feedback__error,
+.rate-this__error {
+  margin: 0;
+  color: #ff6b6b;
+  font-size: 0.9rem;
+}
+
+.feedback__send {
+  min-height: 48px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent, #e50914);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.feedback__send:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.stars {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.stars__star {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted, #b3b3bd);
+  cursor: pointer;
+}
+
+.stars--lg .stars__star {
+  width: 44px;
+  height: 44px;
+}
+
+.stars__star svg {
+  width: 26px;
+  height: 26px;
+}
+
+.stars__star--on {
+  color: #f5c518;
+}
+
+.stars__star--on svg {
+  fill: currentColor;
+}
+
+.stars__star:focus-visible {
+  outline: 2px solid var(--accent, #e50914);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.rate-this {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+
+.rate-this__label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.rate-this__error {
+  flex-basis: 100%;
+}
