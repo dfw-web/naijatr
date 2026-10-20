@@ -47,9 +47,16 @@ type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
 const str = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null)
 
+/**
+ * Lighter feeds first: "_lsd" ones run at about 0.8 Mbps and "_lhd" at about
+ * 1.6, while others can be 1080p60 at 4 Mbps, too much for many phones. The
+ * player starts with Server 1 and moves on if it can't keep up.
+ */
+const weight = (url: string) => (/_lsd\b/i.test(url) ? 0 : /_lhd\b/i.test(url) ? 1 : 2)
+
 function directHls(servers: unknown): StreamSource[] {
   if (!Array.isArray(servers)) return []
-  const found: StreamSource[] = []
+  const found: { url: string }[] = []
   for (const server of servers) {
     if (!isObject(server) || server.type !== 'direct') continue
     const raw = str(server.url)
@@ -62,10 +69,13 @@ function directHls(servers: unknown): StreamSource[] {
     }
     if (url.protocol !== 'https:' || !/\.m3u8$/i.test(url.pathname)) continue
     if (found.some((s) => s.url === url.href)) continue
-    found.push({ label: `Server ${found.length + 1}`, url: url.href, kind: 'hls' })
-    if (found.length >= MAX_SERVERS) break
+    found.push({ url: url.href })
   }
   return found
+    .map((s, index) => ({ ...s, index }))
+    .sort((a, b) => weight(a.url) - weight(b.url) || a.index - b.index)
+    .slice(0, MAX_SERVERS)
+    .map(({ url }, i) => ({ label: `Server ${i + 1}`, url, kind: 'hls' as const }))
 }
 
 /** One listing entry, or null without both teams. */

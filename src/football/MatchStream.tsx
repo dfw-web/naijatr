@@ -3,7 +3,7 @@ import { ExternalLink, MessageSquareText, MonitorPlay } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { useLiveWatching } from '../live/heartbeat'
 import { useFootball } from './api'
-import { gatePlayback } from './playbackGate'
+import { gatePlayback, watchProgress } from './playbackGate'
 import { hasStarted, isFinished, isLive } from './format'
 import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamData, StreamSource } from './types'
 
@@ -213,6 +213,7 @@ function HlsPlayer({ url, title, onFailed }: { url: string; title: string; onFai
     }
     let removeNative: (() => void) | undefined
     let removeGate: ReturnType<typeof gatePlayback> | undefined
+    let stopWatching: (() => void) | undefined
     // The browser's own HLS player, only where hls.js can't run (iPhone Safari).
     // Chrome now has one too, but it stalls on these feeds; hls.js copes better.
     const playNatively = () => {
@@ -225,7 +226,9 @@ function HlsPlayer({ url, title, onFailed }: { url: string; title: string; onFai
       }
       video.addEventListener('error', onError)
       video.src = candidates[0]
+      const stopWatching = watchProgress(video, () => !video.paused, giveUp)
       removeNative = () => {
+        stopWatching()
         video.removeEventListener('error', onError)
         video.removeAttribute('src')
       }
@@ -273,8 +276,15 @@ function HlsPlayer({ url, title, onFailed }: { url: string; title: string; onFai
         player.on(Hls.Events.FRAG_LOADED, () => {
           networkRetries = 0
         })
-        removeGate = gatePlayback(video)
-        player.on(Hls.Events.FRAG_BUFFERED, () => removeGate?.check())
+        const gate = gatePlayback(video)
+        removeGate = gate
+        player.on(Hls.Events.FRAG_BUFFERED, () => gate.check())
+        // Some feeds' playlists hold only 6 s: the gate's waits must fit in that.
+        player.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+          if (data.details.live) gate.setWindow(data.details.totalduration)
+        })
+        // A server that can't keep up (or never starts) gives way to the next one.
+        stopWatching = watchProgress(video, () => gate.holding || !video.paused, giveUp)
         player.on(Hls.Events.ERROR, (_event, data) => {
           if (!data.fatal) return
           if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 3) {
@@ -306,6 +316,7 @@ function HlsPlayer({ url, title, onFailed }: { url: string; title: string; onFai
       destroyed = true
       removeNative?.()
       removeGate?.remove()
+      stopWatching?.()
       hls?.destroy()
       prefetcher?.destroy()
       preconnect.remove()
