@@ -381,6 +381,41 @@ export function providerFixture(item: unknown) {
 
 export type ProviderFixture = NonNullable<ReturnType<typeof providerFixture>>
 
+/**
+ * A live match from the Football Live Streaming API (streaming.ts) as a
+ * fixture, for featured matches the listing above doesn't have. Its id comes
+ * from the entry's key, in the same range as the provider's ids.
+ */
+export function streamingFixture(match: {
+  key: string
+  home: string
+  away: string
+  league: string
+  kickoff: number
+  score: string | null
+}): ProviderFixture {
+  const date = new Date(match.kickoff || 0)
+  const [home, away] = (match.score ?? '').split('-').map((n) => Number.parseInt(n, 10))
+  const goals = Number.isFinite(home) && Number.isFinite(away) ? { home, away } : { home: 0, away: 0 }
+  return {
+    fixture: {
+      id: providerMatchId(`streaming:${match.key}`),
+      date: date.toISOString(),
+      timestamp: Math.floor(date.getTime() / 1000),
+      status: { short: 'LIVE', long: 'In Play', elapsed: null },
+    },
+    league: { id: PROVIDER_MATCH_BASE + (hash(match.league) % 999_999_999), name: match.league, country: '', logo: '' },
+    teams: {
+      home: { id: hash(match.home), name: match.home, logo: '', winner: null },
+      away: { id: hash(match.away), name: match.away, logo: '', winner: null },
+    },
+    goals,
+    events: [],
+    lineups: [],
+    statistics: [],
+  }
+}
+
 /** The listing as fixtures, with each one's provider id. */
 export function providerFixtures(items: unknown[]) {
   const out: { fixture: ProviderFixture; providerId: string }[] = []

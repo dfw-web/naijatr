@@ -23,7 +23,9 @@ import {
   hlsPlays,
   isProviderMatchId,
   NO_STREAM,
+  nearTeam,
   providerFixtures,
+  streamingFixture,
   type MatchStream,
   type ProviderFixture,
 } from './stream.js'
@@ -337,7 +339,47 @@ function featuredOnly(result: Loaded): Loaded {
 const isProviderLive = (f: ProviderFixture) => f.fixture.status.short === 'LIVE'
 
 const liveOrFallback = async (ctx: FootballContext) =>
-  featuredOnly(await withProviderFallback(ctx, await loadLive(ctx), isProviderLive))
+  withStreamingMatches(ctx, featuredOnly(await withProviderFallback(ctx, await loadLive(ctx), isProviderLive)))
+
+/** Three hours: the same teams within this of each other are the same match. */
+const SAME_FIXTURE_MS = 3 * 60 * 60 * 1000
+
+/** Whether two matches are the same one: one team in common, kicking off about the same time. */
+function sameFixture(a: unknown, b: unknown) {
+  const x = describeFixture(a)
+  const y = describeFixture(b)
+  if (!x.home || !x.away || !y.home || !y.away) return false
+  if (x.kickoff && y.kickoff && Math.abs(x.kickoff - y.kickoff) > SAME_FIXTURE_MS) return false
+  return nearTeam(x.home, y.home) || nearTeam(x.away, y.away) || nearTeam(x.home, y.away) || nearTeam(x.away, y.home)
+}
+
+/**
+ * The featured live matches with streams that only the Football Live
+ * Streaming API lists, as fixtures (streamingFixture). It often has a
+ * match the other listings miss, and lists some twice: the entry with the
+ * most streams is kept.
+ */
+async function streamingOnlyFixtures(ctx: FootballContext, known: unknown[]): Promise<ProviderFixture[]> {
+  if (!ctx.streaming) return []
+  const { snapshot } = await loadStreaming(ctx.streaming)
+  const out: ProviderFixture[] = []
+  const candidates = (snapshot?.matches ?? [])
+    .filter((m) => m.live && m.streams.length && isFeaturedLeague({ name: m.league }))
+    .sort((a, b) => b.streams.length - a.streams.length)
+  for (const match of candidates) {
+    const fixture = streamingFixture(match)
+    if (known.some((f) => sameFixture(f, fixture)) || out.some((f) => sameFixture(f, fixture))) continue
+    out.push(fixture)
+  }
+  return out
+}
+
+async function withStreamingMatches(ctx: FootballContext, result: Loaded): Promise<Loaded> {
+  if (!result.outcome.ok || !Array.isArray(result.outcome.data)) return result
+  const extra = await streamingOnlyFixtures(ctx, result.outcome.data)
+  if (!extra.length) return result
+  return { ...result, outcome: { ...result.outcome, data: [...result.outcome.data, ...extra] } }
+}
 
 async function live(ctx: FootballContext, _params: URLSearchParams, res: ServerResponse) {
   send(res, await liveOrFallback(ctx))
@@ -443,9 +485,17 @@ async function match(ctx: FootballContext, params: URLSearchParams, res: ServerR
 async function findProviderMatch(ctx: FootballContext, id: number) {
   if (!ctx.rapidKey) return null
   const listing = await loadStreamListing(ctx, ctx.rapidKey)
-  if (!listing.outcome.ok) return null
-  const items = listing.outcome.data as unknown[]
-  const found = featuredProviderFixtures(items).find((p) => p.fixture.fixture.id === id)
+  const items = listing.outcome.ok ? (listing.outcome.data as unknown[]) : []
+  let found: { fixture: ProviderFixture; providerId?: string } | undefined = featuredProviderFixtures(items).find(
+    (p) => p.fixture.fixture.id === id,
+  )
+  // Or a match only the streaming list has.
+  found ??= ctx.streaming
+    ? await loadStreaming(ctx.streaming).then(({ snapshot }) => {
+        const match = snapshot?.matches.find((m) => streamingFixture(m).fixture.id === id)
+        return match ? { fixture: streamingFixture(match) } : undefined
+      })
+    : undefined
   if (!found) return null
   const result: Loaded = { outcome: { ok: true, data: found.fixture }, maxAge: FOOTBALL_TTL.streams, stale: false }
   return { ...found, items, result }

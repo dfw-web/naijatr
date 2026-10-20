@@ -571,8 +571,9 @@ describe('football API: streams from the Football Live Streaming API', () => {
     expect(json(res).data).toMatchObject({
       available: true,
       streams: [
-        { label: 'Server 1', url: 'https://hls.example/tot-cov/index.m3u8', kind: 'hls' },
-        { label: 'Server 2', url: 'https://pull.example/stream-1_lhd.m3u8', kind: 'hls' },
+        // Lighter (_lhd) feeds first.
+        { label: 'Server 1', url: 'https://pull.example/stream-1_lhd.m3u8', kind: 'hls' },
+        { label: 'Server 2', url: 'https://hls.example/tot-cov/index.m3u8', kind: 'hls' },
       ],
     })
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/link/'))).toBe(false)
