@@ -27,9 +27,11 @@ export function TeamLogo({ src, size = 24 }: { src: string; size?: number }) {
   )
 }
 
-export function MatchRow({ fixture, onOpen, watchable = false }: MatchRowProps) {
+export function MatchRow({ fixture, onOpen, watchable: hasStream = false }: MatchRowProps) {
   const { home, away } = fixture.teams
   const live = isLive(fixture.fixture.status)
+  // Every live match gets Watch now; the Watch tab says when no stream is up yet.
+  const watchable = hasStream || live
   const started = hasStarted(fixture.fixture.status)
   const score = (value: number | null) => (started && value !== null ? value : '')
 
@@ -106,7 +108,7 @@ export function WatchBlock({ fixtures, onOpen }: { fixtures: Fixture[]; onOpen: 
         <MonitorPlay aria-hidden="true" className="fb-league__icon" />
         <span>Watch live</span>
         <span className="fb-league__country">
-          {fixtures.length} {fixtures.length === 1 ? 'match' : 'matches'} streaming now
+          {fixtures.length} {fixtures.length === 1 ? 'match' : 'matches'} live now
         </span>
       </h3>
       <ul className="fb-league__list">

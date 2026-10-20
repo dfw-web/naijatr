@@ -90,18 +90,17 @@ interface ListProps extends FootballHomeProps {
 
 function LiveMatches({ query, onOpenMatch, watchIds, refreshMs }: ListProps & { refreshMs: number }) {
   const { data, stale, error, loading, retry } = useFootball<Fixture[]>('live', refreshMs)
-  const streaming = useMemo(
-    () => sortByImportance((data ?? []).filter((f) => watchIds.has(f.fixture.id) && matchesQuery(f, query))),
-    [data, watchIds, query],
-  )
-  const rest = useMemo(() => (data ?? []).filter((f) => !watchIds.has(f.fixture.id)), [data, watchIds])
-  const groups = useFiltered(rest, query)
+  // Every live match is listed under Watch live, those with a known stream first.
+  const streaming = useMemo(() => {
+    const shown = sortByImportance((data ?? []).filter((f) => matchesQuery(f, query)))
+    return [...shown.filter((f) => watchIds.has(f.fixture.id)), ...shown.filter((f) => !watchIds.has(f.fixture.id))]
+  }, [data, watchIds, query])
 
   if (loading) return <MatchListSkeleton rows={3} />
   if (error) {
     return <StatusMessage icon={Radio} compact tone="error" {...describeFootballError(error)} action={{ label: 'Try again', onClick: retry }} />
   }
-  if (!groups.length && !streaming.length) {
+  if (!streaming.length) {
     return query.trim() && data?.length ? (
       <StatusMessage icon={SearchX} compact title="No live matches for that search" />
     ) : (
@@ -112,10 +111,7 @@ function LiveMatches({ query, onOpenMatch, watchIds, refreshMs }: ListProps & { 
     <>
       {stale && <StaleNote />}
       <div className="fb-groups">
-        {streaming.length > 0 && <WatchBlock fixtures={streaming} onOpen={onOpenMatch} />}
-        {groups.map((group) => (
-          <LeagueBlock key={group.id} group={group} onOpen={onOpenMatch} />
-        ))}
+        <WatchBlock fixtures={streaming} onOpen={onOpenMatch} />
       </div>
     </>
   )
