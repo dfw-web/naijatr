@@ -10,6 +10,7 @@ export const FEATURED_LEAGUES: { id: number; name: RegExp }[] = [
   { id: 2, name: /^(UEFA )?Champions League$/i },
   { id: 3, name: /^(UEFA )?Europa League$/i },
   { id: 848, name: /^(UEFA )?(Europa )?Conference League$/i },
+  { id: 307, name: /^(Saudi )?(Professional|Pro) League$/i },
 ]
 
 /** Provider league ids are 10 digits; API-Football's are small. */

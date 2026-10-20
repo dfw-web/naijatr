@@ -45,6 +45,7 @@ export const FEATURED_LEAGUES = [
   { id: 2, name: 'Champions League' },
   { id: 3, name: 'Europa League' },
   { id: 848, name: 'Conference League' },
+  { id: 307, name: 'Saudi Pro League' },
 ] as const
 
 const LIVE = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE'])
