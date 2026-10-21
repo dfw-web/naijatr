@@ -17,7 +17,7 @@
  *   GET  admin, POST admin-confirm { place }, admin-dq { id }, admin-paid { id }
  *
  * A referral counts once: a device new to the site that arrived by a link and
- * then plays a movie, episode or match. Never your own device or Telegram id,
+ * then plays a movie or a series episode (trailers and football don't count). Never your own device or Telegram id,
  * each device once ever, and at most IP_DAILY_CAP a day from one network
  * (a salted hash; raw IPs are never stored). Bank details are encrypted
  * (CLAIM_ENCRYPTION_KEY), never logged or sent anywhere, shown only on

@@ -108,8 +108,9 @@ export const fetchClaim = (token: string) => call<{ place: string; amount: numbe
 export const sendClaim = (body: Record<string, string>) => call<{ ok: true }>('claim', { body })
 
 /**
- * Something started playing: if this device came by an invite link, report
- * it once so the friend gets their point. Called for every Play (gateStore).
+ * A movie or a series episode started playing (PlayerPanel; trailers and
+ * football don't count): if this device came by an invite link, report it
+ * once so the friend gets their point.
  */
 export function reportReferralPlay() {
   const ref = readRef()

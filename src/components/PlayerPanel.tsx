@@ -27,6 +27,7 @@ import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
 import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../utils/continueWatching'
 import { recordTaste, recordTasteById } from '../taste/profile'
+import { reportReferralPlay } from '../referral/api'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
@@ -418,6 +419,8 @@ export function PlayerPanel({
     if (choice !== 'trailer') {
       recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
       recordTaste(item, 'play')
+      // An invited friend counts once they play a movie or a series episode (not a trailer or a match).
+      reportReferralPlay()
     }
     const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {
