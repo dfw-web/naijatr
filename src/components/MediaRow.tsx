@@ -14,6 +14,8 @@ interface MediaRowProps {
   /** "ranked" shows a numbered top-10 chart. */
   variant?: 'default' | 'ranked'
   onSelect: (item: MediaItem) => void
+  /** Adds "Not interested" to each card's ⋯ menu. */
+  onNotInterested?: (item: MediaItem) => void
   /** Cards of another kind (e.g. Continue watching), shown instead of posters for `items`. */
   children?: ReactNode
 }
@@ -28,6 +30,7 @@ export function MediaRow({
   isLoading = false,
   variant = 'default',
   onSelect,
+  onNotInterested,
   children,
 }: MediaRowProps) {
   const isRanked = variant === 'ranked'
@@ -106,6 +109,7 @@ export function MediaRow({
                   key={item.id}
                   item={item}
                   onSelect={onSelect}
+                  onNotInterested={onNotInterested}
                   rank={isRanked ? index + 1 : undefined}
                 />
               )))}

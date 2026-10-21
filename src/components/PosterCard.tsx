@@ -1,4 +1,5 @@
-import { Star } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { EllipsisVertical, Star } from 'lucide-react'
 import { useAdOnce } from '../hooks/useAdOnce'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatVotes, formatYear, typeLabel } from '../utils/media'
@@ -10,9 +11,11 @@ interface PosterCardProps {
   onSelect: (item: MediaItem) => void
   /** Chart position; shows a large rank numeral beside the poster. */
   rank?: number
+  /** Shows a ⋯ menu with "Not interested". */
+  onNotInterested?: (item: MediaItem) => void
 }
 
-export function PosterCard({ item, onSelect, rank }: PosterCardProps) {
+export function PosterCard({ item, onSelect, rank, onNotInterested }: PosterCardProps) {
   const openAd = useAdOnce()
   const score = formatScore(item)
   const label = [
@@ -79,7 +82,57 @@ export function PosterCard({ item, onSelect, rank }: PosterCardProps) {
           </p>
         </div>
       </button>
+      {onNotInterested && <CardMenu title={item.title} onNotInterested={() => onNotInterested(item)} />}
     </article>
+  )
+}
+
+/** The card's ⋯ menu. Closes on a click elsewhere or Escape. */
+function CardMenu({ title, onNotInterested }: { title: string; onNotInterested: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div ref={ref} className="poster-card__menu">
+      <button
+        type="button"
+        className="poster-card__menu-button"
+        aria-label={`More options for ${title}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <EllipsisVertical aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="poster-card__menu-list" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onNotInterested()
+            }}
+          >
+            Not interested
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 

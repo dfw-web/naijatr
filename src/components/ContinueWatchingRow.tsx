@@ -10,6 +10,7 @@ import {
   type ContinueEntry,
 } from '../utils/continueWatching'
 import { MediaImage } from './MediaImage'
+import { recordTaste } from '../taste/profile'
 import { MediaRow } from './MediaRow'
 import './ContinueWatchingRow.css'
 
@@ -81,7 +82,10 @@ function ContinueCard({ entry, onPlay }: { entry: ContinueEntry; onPlay: (event:
         type="button"
         className="continue-card__remove"
         aria-label={`Remove ${entry.title} from Continue watching`}
-        onClick={() => removeEntry(entry.id)}
+        onClick={() => {
+          removeEntry(entry.id)
+          recordTaste(entry.item, 'removed')
+        }}
       >
         <X aria-hidden="true" />
       </button>

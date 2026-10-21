@@ -110,7 +110,7 @@ describe('details panel', () => {
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(viewDetails).toHaveFocus()
-  })
+  }, 15_000) // Tabs through the whole dialog: slow when the suite runs in parallel.
 
   it('opens from a poster card and closes via the close button and the backdrop', async () => {
     const { user } = renderApp()

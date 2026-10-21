@@ -45,6 +45,7 @@ export function createFallbackProvider(
     discover: (request, signal) => withFallback((p) => p.discover(request, signal), signal),
     // Details only enrich an item we already show; a failure is reported in the panel.
     getDetails: (item, signal) => primary.getDetails(item, signal),
+    ...(primary.listTmdb ? { listTmdb: primary.listTmdb.bind(primary) } : {}),
     fallback: {
       getStatus: () => status,
       subscribe: (listener) => {

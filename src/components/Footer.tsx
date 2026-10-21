@@ -2,6 +2,7 @@ import { ArrowUp } from 'lucide-react'
 import { isTmdbEnabled } from '../data/provider'
 import type { NavLink } from '../navigation'
 import { TelegramFooter } from './Telegram'
+import { ResetRecommendations } from '../taste/ResetRecommendations'
 import './Footer.css'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -24,6 +25,7 @@ export function Footer({ links, onNavigate, onBackToTop }: FooterProps) {
             Stories worth staying up for. Discover films and series in one place.
           </p>
           <TelegramFooter />
+          <ResetRecommendations />
         </div>
 
         <nav className="footer__nav" aria-label="Footer">

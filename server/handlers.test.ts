@@ -132,6 +132,14 @@ describe('TMDB proxy', () => {
     expect(init?.headers).toMatchObject({ Authorization: 'Bearer tok' })
   })
 
+  it('keeps the personal home lists (?cache=day) a day at the CDN, without passing the flag on', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({ results: [] }))
+    const res = fakeResponse()
+    await handleTmdb(token, 'GET', '/tv/1/similar', new URLSearchParams('language=en-US&cache=day'), res, fetchImpl)
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.themoviedb.org/3/tv/1/similar?language=en-US')
+    expect(res.headers['cache-control']).toMatch(/s-maxage=86400/)
+  })
+
   it('answers 503 without credentials, 405 for writes and 502 when TMDB is unreachable', async () => {
     const none = fakeResponse()
     await handleTmdb(readTmdbCredentials({}), 'GET', '/movie/1', new URLSearchParams(), none)

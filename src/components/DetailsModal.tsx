@@ -13,6 +13,7 @@ import { PlayerPanel } from './PlayerPanel'
 import { TelegramCard } from './Telegram'
 import { WatchProviders } from './WatchProviders'
 import { RateThis } from '../feedback/Feedback'
+import { recordTaste } from '../taste/profile'
 import './DetailsModal.css'
 
 interface DetailsModalProps {
@@ -35,6 +36,16 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
   // Show what we have immediately; swap in the enriched item when it arrives.
   const item = detailState.status === 'success' ? detailState.data : baseItem
   const isLoadingMore = detailState.status === 'loading' && baseItem.tmdbId !== undefined
+
+  // Taste: an opened details page, once its full detail (keywords, countries) is in.
+  const settled = detailState.status === 'success' || detailState.status === 'error'
+  const tasteItem = detailState.status === 'success' ? detailState.data : baseItem
+  const openedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!settled || openedRef.current === tasteItem.id) return
+    openedRef.current = tasteItem.id
+    recordTaste(tasteItem, 'open')
+  }, [settled, tasteItem])
 
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)

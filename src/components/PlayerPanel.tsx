@@ -26,6 +26,7 @@ import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
 import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../utils/continueWatching'
+import { recordTaste, recordTasteById } from '../taste/profile'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
@@ -64,6 +65,11 @@ interface Run {
   /** Moving on to the next episode: keep the player (and fullscreen) up while it's checked. */
   keepPlayer?: boolean
 }
+
+/** Watched this share of a movie or episode: a strong taste signal. */
+const HALF_WATCHED = 0.5
+/** Started, then closed within this: a negative taste signal. */
+const LEFT_EARLY_MS = 2 * 60 * 1000
 
 /** How long a player may take to load before we call it failed. */
 export const PLAYER_LOAD_TIMEOUT_MS = 20000
@@ -231,6 +237,14 @@ export function PlayerPanel({
     let duration: number | null = null
     let savedAt = 0
     let finished = false
+    // Taste: watched past half (or to the end), or left within 2 minutes.
+    const startedAt = Date.now()
+    let watched = false
+    const markWatched = () => {
+      if (watched) return
+      watched = true
+      recordTasteById(itemId, 'watched')
+    }
     const save = () => {
       if (position === null || finished) return
       savedAt = Date.now()
@@ -251,10 +265,12 @@ export function PlayerPanel({
             position = resume.at
           }
         }
+        if (duration && position >= duration * HALF_WATCHED) markWatched()
         if (Date.now() - savedAt >= PROGRESS_SAVE_MS) save()
       }
       if (data.event === 'ended' && !finished) {
         finished = true
+        markWatched()
         finishEntry(itemId, ep)
       }
     }
@@ -263,6 +279,7 @@ export function PlayerPanel({
       window.removeEventListener('message', onMessage)
       // The last few seconds since the previous save.
       save()
+      if (position !== null && !watched && Date.now() - startedAt < LEFT_EARLY_MS) recordTasteById(itemId, 'left')
     }
   }, [watchingSrc, itemId])
 
@@ -398,7 +415,10 @@ export function PlayerPanel({
     const attempt = (run?.attempt ?? 0) + 1
     pausedRef.current = false
     setPaused(false)
-    if (choice !== 'trailer') recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
+    if (choice !== 'trailer') {
+      recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
+      recordTaste(item, 'play')
+    }
     const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })

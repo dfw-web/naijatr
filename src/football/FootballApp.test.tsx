@@ -61,9 +61,10 @@ describe('Football page', () => {
     render(<FootballApp />)
 
     const live = screen.getByRole('region', { name: /Live now/ })
-    expect(await within(live).findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63'" })).toHaveAttribute(
+    // Every live match opens on its Watch tab.
+    expect(await within(live).findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63', watch live" })).toHaveAttribute(
       'href',
-      '/football/match/1',
+      '/football/match/1?tab=watch',
     )
     const today = screen.getByRole('region', { name: /Today/ })
     expect(await within(today).findByRole('link', { name: /Home 2 vs Away 2/ })).toBeInTheDocument()
@@ -154,7 +155,7 @@ describe('Football page', () => {
     const user = userEvent.setup()
     render(<FootballApp />)
 
-    await user.click(await screen.findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63'" }))
+    await user.click(await screen.findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63', watch live" }))
     expect(window.location.pathname).toBe('/football/match/1')
     expect(await screen.findByRole('heading', { level: 1, name: 'Arsenal vs Chelsea' })).toBeInTheDocument()
     expect(screen.getByText('B. Saka')).toBeInTheDocument()
@@ -279,7 +280,7 @@ describe('Football page', () => {
     const user = userEvent.setup()
     render(<FootballApp />)
     const openMatch = async () => {
-      await user.click(await screen.findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63'" }))
+      await user.click(await screen.findByRole('link', { name: "Arsenal 2 - 1 Chelsea, 63', watch live" }))
       await screen.findByRole('heading', { level: 1, name: 'Arsenal vs Chelsea' })
     }
     const selected = (name: string) => expect(screen.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')

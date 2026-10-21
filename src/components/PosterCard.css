@@ -1,4 +1,5 @@
 .poster-card {
+  position: relative;
   width: var(--card-width);
   flex-shrink: 0;
 }
@@ -238,4 +239,62 @@
 .poster-card--ranked:hover .poster-card__rank,
 .poster-card--ranked:focus-within .poster-card__rank {
   -webkit-text-stroke-color: var(--accent);
+}
+
+/* The ⋯ menu: under the score badge, over the poster. */
+.poster-card__menu {
+  position: absolute;
+  top: 2.1rem;
+  right: 0.45rem;
+  z-index: 3;
+}
+
+.poster-card__menu-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  opacity: 0.85;
+}
+
+.poster-card__menu-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.poster-card__menu-button:hover,
+.poster-card__menu-button:focus-visible,
+.poster-card__menu-button[aria-expanded='true'] {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.poster-card__menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 9.5rem;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.poster-card__menu-list button {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.poster-card__menu-list button:hover,
+.poster-card__menu-list button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
 }

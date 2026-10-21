@@ -276,6 +276,8 @@ export function handleDownload(config: NextStreamConfig, path: string, res: Serv
   redirect(res, url)
 }
 
+const DAILY_CACHE = 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400'
+
 /** TMDB v3 paths the app may request: plain segments only, no traversal. */
 const TMDB_PATH = /^(\/[\w.-]+)+$/
 
@@ -311,7 +313,11 @@ export async function handleTmdb(
     res.setHeader('Allow', 'GET, HEAD')
     return sendJson(res, 405, { status_message: 'Method not allowed.' })
   }
-  const url = tmdbUpstreamUrl(credentials, path, params)
+  // ?cache=day (the personalised home rows): kept a day at the CDN and an hour in the browser.
+  const daily = params.get('cache') === 'day'
+  const upstreamParams = new URLSearchParams(params)
+  upstreamParams.delete('cache')
+  const url = tmdbUpstreamUrl(credentials, path, upstreamParams)
   if (!url) return sendJson(res, 400, { status_message: 'Invalid TMDB path.' })
 
   try {
@@ -325,7 +331,7 @@ export async function handleTmdb(
     const body = await upstream.text()
     res.statusCode = upstream.status
     res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
-    const cacheControl = upstream.headers.get('cache-control')
+    const cacheControl = daily && upstream.ok ? DAILY_CACHE : upstream.headers.get('cache-control')
     if (cacheControl) res.setHeader('Cache-Control', cacheControl)
     res.end(method === 'HEAD' ? undefined : body)
   } catch {

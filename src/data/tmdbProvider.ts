@@ -89,6 +89,11 @@ export interface TmdbDetails {
   videos?: { results: TmdbVideo[] }
   'watch/providers'?: { results: Record<string, TmdbRegionProviders | undefined> }
   recommendations?: { results?: TmdbResult[] }
+  origin_country?: string[]
+  production_countries?: { iso_3166_1: string }[]
+  original_language?: string
+  /** Movies: `keywords`; series: `results`. */
+  keywords?: { keywords?: { id: number }[]; results?: { id: number }[] }
   // Basics, used when a title is opened from a link with nothing but its id.
   title?: string
   name?: string
@@ -194,6 +199,14 @@ const formatRuntime = (minutes: number) => {
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`
 }
 
+/** How many keywords a title adds to the taste profile. */
+const KEYWORD_LIMIT = 5
+
+const keywordIdsOf = (details: TmdbDetails) => {
+  const list = details.keywords?.keywords ?? details.keywords?.results
+  return list?.length ? list.slice(0, KEYWORD_LIMIT).map((k) => k.id) : undefined
+}
+
 /** Merges a TMDB details response into an existing list item. */
 export function mergeTmdbDetails(item: MediaItem, details: TmdbDetails): MediaItem {
   const certification =
@@ -243,6 +256,14 @@ export function mergeTmdbDetails(item: MediaItem, details: TmdbDetails): MediaIt
     ...item,
     seasons: seasons?.length ? seasons : item.seasons,
     genres: details.genres?.length ? details.genres.map((g) => g.name) : item.genres,
+    genreIds: details.genres?.length ? details.genres.map((g) => g.id) : item.genreIds,
+    originCountry: details.origin_country?.length
+      ? details.origin_country
+      : details.production_countries?.length
+        ? details.production_countries.map((c) => c.iso_3166_1)
+        : item.originCountry,
+    originalLanguage: details.original_language || item.originalLanguage,
+    keywordIds: keywordIdsOf(details) ?? item.keywordIds,
     certification: certification || item.certification,
     length: length ?? item.length,
     tagline: details.tagline?.trim() || item.tagline,
@@ -315,6 +336,8 @@ function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 
 const RESPONSE_CACHE_SIZE = 200
 const RESPONSE_CACHE_TTL_MS = 10 * 60 * 1000
+/** Personalised rows' lists change slowly: a day here, and a day at the CDN (server/handlers.ts). */
+const PERSONAL_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 /** Converts a TMDB list result into our MediaItem shape. Returns null for people and adult titles. */
 export function mapTmdbResult(
@@ -335,6 +358,9 @@ export function mapTmdbResult(
     year: releaseDate ? Number(releaseDate.slice(0, 4)) : null,
     releaseDate,
     genres: (result.genre_ids ?? []).flatMap((id) => genreNames.get(id) ?? []),
+    genreIds: result.genre_ids ?? [],
+    ...(result.origin_country?.length ? { originCountry: result.origin_country } : {}),
+    ...(result.original_language ? { originalLanguage: result.original_language } : {}),
     score: Math.round((result.vote_average ?? 0) * 10) / 10,
     voteCount: result.vote_count ?? 0,
     popularity: result.popularity ?? 0,
@@ -375,10 +401,10 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
   // Filter requests repeat a lot (Back, toggling a chip off and on, the mobile
   // sheet's count then Apply), so keep recent responses. Like the genre
   // cache, the shared fetch ignores any single caller's AbortSignal.
-  const cachedJson = <T,>(path: string, params: Record<string, string>, signal?: AbortSignal) => {
+  const cachedJson = <T,>(path: string, params: Record<string, string>, signal?: AbortSignal, ttl = RESPONSE_CACHE_TTL_MS) => {
     const key = `${path}?${new URLSearchParams(params)}`
     const hit = responses.get(key)
-    if (hit && Date.now() - hit.at < RESPONSE_CACHE_TTL_MS) {
+    if (hit && Date.now() - hit.at < ttl) {
       return abortable(hit.promise as Promise<T>, signal)
     }
     const promise = requestJson<T>(fetchImpl, path, params).catch((error: unknown) => {
@@ -478,6 +504,14 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
       return [...new Map(pages.flat().map((item) => [item.id, item])).values()]
     },
 
+    async listTmdb(path, params, type, signal) {
+      const [genres, page] = await Promise.all([
+        loadGenres(),
+        cachedJson<TmdbPage>(path, { ...params, cache: 'day' }, signal, PERSONAL_CACHE_TTL_MS),
+      ])
+      return page.results.flatMap((result) => mapTmdbResult(result, type, genres) ?? [])
+    },
+
     search(query, signal) {
       return list('/search/multi', 'movie', signal, { query, include_adult: 'false' })
     },
@@ -547,8 +581,8 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
       const extra = isTvMode() ? ',recommendations' : ''
       const append =
         item.type === 'movie'
-          ? `credits,release_dates,videos,watch/providers${extra}`
-          : `aggregate_credits,content_ratings,videos,watch/providers${extra}`
+          ? `credits,release_dates,videos,watch/providers,keywords${extra}`
+          : `aggregate_credits,content_ratings,videos,watch/providers,keywords${extra}`
       const details = await requestJson<TmdbDetails & { aggregate_credits?: TmdbCredits }>(
         fetchImpl,
         path,

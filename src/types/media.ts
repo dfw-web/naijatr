@@ -28,6 +28,12 @@ export interface MediaItem {
   backdrop: string | null
   /** Numeric TMDB id, for titles that came from TMDB. */
   tmdbId?: number
+  /** TMDB genre ids, origin countries and original language: the taste profile's attributes (src/taste). */
+  genreIds?: number[]
+  originCountry?: string[]
+  originalLanguage?: string
+  /** Up to 5 TMDB keyword ids, filled in by getDetails(). */
+  keywordIds?: number[]
 
   // Extra fields filled in by CatalogProvider.getDetails().
   tagline?: string
@@ -104,6 +110,11 @@ export interface CatalogProvider {
   discover(request: DiscoverRequest, signal?: AbortSignal): Promise<DiscoverPage>
   /** Returns the item enriched with extra detail (runtime, cast, ...), when available. */
   getDetails(item: MediaItem, signal?: AbortSignal): Promise<MediaItem>
+  /**
+   * One TMDB list (recommendations, similar, discover) for the personalised
+   * home rows, cached for a day. Only the TMDB provider has it.
+   */
+  listTmdb?(path: string, params: Record<string, string>, type: MediaType, signal?: AbortSignal): Promise<MediaItem[]>
   /** Present when the provider can fall back to another source (see fallbackProvider.ts). */
   readonly fallback?: FallbackStore
 }

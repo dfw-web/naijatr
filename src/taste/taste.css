@@ -1,0 +1,74 @@
+.taste-picker {
+  margin: 0 var(--gutter) 1.5rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.taste-picker__title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.taste-picker__note {
+  margin: 0.3rem 0 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.taste-picker__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.taste-picker__chip {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.taste-picker__chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.taste-picker__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.taste-football {
+  display: inline-block;
+  margin: 0 var(--gutter) 1.25rem;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.taste-football:hover,
+.taste-football:focus-visible {
+  background: var(--accent);
+}
+
+.footer__taste {
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.footer__taste button {
+  margin-top: 0.4rem;
+  padding: 0;
+  color: var(--text);
+  text-decoration: underline;
+}
