@@ -149,3 +149,10 @@ export function useCountdown(end: number | null) {
   }, [end])
   return end ? formatCountdown(end - now) : ''
 }
+
+/** The contest is announced (upcoming) or running: show the popup, banner, guide and prizes. */
+export const contestOn = (c: ContestInfo | null): c is ContestInfo & { start: number; end: number; prizes: number[] } =>
+  Boolean(c && (c.phase === 'live' || c.phase === 'upcoming') && c.prizes && c.start && c.end)
+
+/** What the countdown counts to: the start until it starts, then the end. */
+export const countdownTarget = (c: { phase: ContestPhase; start: number; end: number }) => (c.phase === 'upcoming' ? c.start : c.end)

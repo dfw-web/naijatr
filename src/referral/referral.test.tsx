@@ -91,7 +91,7 @@ describe('contest popup, banner and guide', () => {
     return render(<ContestHost />)
   }
 
-  it('shows the popup once per session, then the banner', async () => {
+  it('shows the popup on every visit, and the banner once closed', async () => {
     const user = userEvent.setup()
     const { unmount } = await host()
     expect(await screen.findByRole('dialog', { name: /Invite friends & win up to ₦30,000!/ })).toBeInTheDocument()
@@ -102,8 +102,15 @@ describe('contest popup, banner and guide', () => {
     expect(screen.getByRole('region', { name: 'Invite and win' })).toBeInTheDocument()
     unmount()
     await host()
-    await screen.findByRole('region', { name: 'Invite and win' })
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: /Invite friends & win/ })).toBeInTheDocument()
+  })
+
+  it('announces the contest before it starts, counting down to the start', async () => {
+    mockApi({ ...live, phase: 'upcoming', start: Date.now() + 2 * HOUR })
+    await host()
+    expect(await screen.findByRole('dialog', { name: /Invite friends & win up to ₦30,000!/ })).toBeInTheDocument()
+    expect(screen.getByText(/^⏳ Starts in 01h 59m/)).toBeInTheDocument()
+    expect(screen.getByText(/^Starts .* · ends /)).toBeInTheDocument()
   })
 
   it('greets invited visitors, and closes on Escape', async () => {
@@ -131,10 +138,10 @@ describe('contest popup, banner and guide', () => {
 
   it('skips straight to the link once joined', async () => {
     saveSession({ token: 't', user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' } })
-    window.sessionStorage.setItem('naijatr.contest.popup', '1')
     await host()
     const { openInviteGuide } = await import('./guide')
-    await screen.findByRole('region', { name: 'Invite and win' })
+    await screen.findByRole('dialog')
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
     act(() => openInviteGuide())
     expect(screen.getByRole('heading', { name: 'Get started 🚀' })).toBeInTheDocument()
     expect(screen.getByText('https://www.naijatr.com/r/BRUNO23')).toBeInTheDocument()
@@ -162,10 +169,10 @@ describe('contest popup, banner and guide', () => {
   it('opens the apps themselves on phones', async () => {
     const agent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14) Mobile')
     saveSession({ token: 't', user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' } })
-    window.sessionStorage.setItem('naijatr.contest.popup', '1')
     await host()
     const { openInviteGuide } = await import('./guide')
-    await screen.findByRole('region', { name: 'Invite and win' })
+    await screen.findByRole('dialog')
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
     act(() => openInviteGuide())
     const whatsapp = screen.getByRole('link', { name: 'WhatsApp' })
     expect(whatsapp.getAttribute('href')).toMatch(/^whatsapp:\/\/send\?text=I%20watch/)

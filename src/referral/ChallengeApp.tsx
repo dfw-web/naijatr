@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { endLabel, fetchClaim, fetchLeaderboard, naira, sendClaim, useContest, useCountdown, type Leaderboard } from './api'
+import { contestOn, countdownTarget, endLabel, fetchClaim, fetchLeaderboard, naira, sendClaim, useContest, useCountdown, type Leaderboard } from './api'
 import { TelegramLogin } from './Invite'
 import { OPEN_GUIDE_KEY } from './guide'
 import { useReferralSession } from './session'
@@ -39,7 +39,7 @@ function Board() {
   const contest = useContest()
   const signedIn = useReferralSession()
   const [board, setBoard] = useState<Leaderboard | null>(null)
-  const countdown = useCountdown(contest?.phase === 'live' ? contest.end : null)
+  const countdown = useCountdown(contestOn(contest) ? countdownTarget(contest) : null)
   useEffect(() => {
     let active = true
     const load = () =>
@@ -55,7 +55,7 @@ function Board() {
     }
   }, [signedIn])
   if (!contest) return <p className="challenge__muted">Loading…</p>
-  const live = contest.phase === 'live' && contest.prizes
+  const live = contestOn(contest)
   const inTop = board?.top.some((row) => row.me)
   return (
     <>
@@ -64,11 +64,11 @@ function Board() {
         <>
           <p className="challenge__prizes">{contest.prizes!.map((p, i) => `${MEDALS[i]} ${naira(p)}`).join(' · ')}</p>
           <p className="invite-countdown">
-            ⏳ {countdown} · ends {endLabel(contest.end!)}
+            ⏳ {contest.phase === 'upcoming' ? `Starts in ${countdown} · ${endLabel(contest.start!)}` : `${countdown} · ends ${endLabel(contest.end!)}`}
           </p>
         </>
       )}
-      {contest.phase === 'upcoming' && <p className="challenge__muted">The challenge hasn’t started yet.</p>}
+      {contest.phase === 'upcoming' && <p className="challenge__muted">The challenge hasn’t started yet: get your link now, points count from the start.</p>}
       {(contest.phase === 'ended' || contest.phase === 'off') && (
         <p className="challenge__muted">
           {contest.winners ? `🏆 Winners: 🥇${contest.winners[0]} · 🥈${contest.winners[1]} · 🥉${contest.winners[2]}. Thanks to everyone who joined! 🙏` : 'The challenge has ended. Thanks to everyone who joined! 🙏'}

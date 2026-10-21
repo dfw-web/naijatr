@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Copy, Gift, Share2, X } from 'lucide-react'
 import { isTvMode } from '../tv/tvMode'
 import { arrivedByInvite } from './capture'
-import { endLabel, fetchMe, login, nairaShort, naira, updateProfile, useContest, useCountdown, type ContestInfo, type Me } from './api'
+import { contestOn, countdownTarget, endLabel, fetchMe, login, nairaShort, naira, updateProfile, useContest, useCountdown, type ContestInfo, type Me } from './api'
 import { useReferralSession } from './session'
 import { closeInviteGuide, OPEN_GUIDE_KEY, openInviteGuide, SHARE_TEXT, useGuideOpen } from './guide'
 import './invite.css'
@@ -16,7 +16,6 @@ import './invite.css'
  * piece closes with X, a tap outside, Escape or Back.
  */
 
-const POPUP_SEEN = 'naijatr.contest.popup'
 const STEP_KEY = 'naijatr.invite.step'
 const BOT_USERNAME = 'naijatr_bot'
 
@@ -26,13 +25,6 @@ const session = {
       return window.sessionStorage.getItem(key)
     } catch {
       return null
-    }
-  },
-  set: (key: string) => {
-    try {
-      window.sessionStorage.setItem(key, '1')
-    } catch {
-      // This page only.
     }
   },
 }
@@ -77,7 +69,8 @@ const prizeLine = (prizes: number[]) => prizes.map((p, i) => `${['🥇', '🥈',
 export function ContestHost() {
   const contest = useContest()
   const open = useGuideOpen()
-  const [popup, setPopup] = useState(() => !session.get(POPUP_SEEN))
+  // Every visit, until the contest ends (not when /challenge sent them here for the guide).
+  const [popup, setPopup] = useState(() => !session.get(OPEN_GUIDE_KEY))
   // Came from /challenge's "Get my invite link".
   useEffect(() => {
     if (!session.get(OPEN_GUIDE_KEY)) return
@@ -86,15 +79,11 @@ export function ContestHost() {
     } catch {
       // Opens once anyway.
     }
-    session.set(POPUP_SEEN)
     openInviteGuide()
   }, [])
   if (isTvMode() || !contest) return null
-  const live = contest.phase === 'live' && contest.prizes && contest.end
-  const dismissPopup = () => {
-    session.set(POPUP_SEEN)
-    setPopup(false)
-  }
+  const live = contestOn(contest)
+  const dismissPopup = () => setPopup(false)
   return (
     <>
       {live && !popup && !open && <ContestBanner contest={contest} />}
@@ -105,8 +94,21 @@ export function ContestHost() {
   )
 }
 
+/** "Starts in 1d 02h…" before the start, "Ends in …" after. */
+function useContestCountdown(contest: ContestInfo) {
+  const on = contestOn(contest)
+  const countdown = useCountdown(on ? countdownTarget(contest) : null)
+  return `${contest.phase === 'upcoming' ? 'Starts in' : 'Ends in'} ${countdown}`
+}
+
+/** "Starts Friday 6:00 PM · ends Sunday 11:59 PM." or "Ends Sunday 11:59 PM." */
+const whenLine = (contest: ContestInfo) =>
+  contest.phase === 'upcoming' && contest.start
+    ? `Starts ${endLabel(contest.start)} · ends ${endLabel(contest.end!)}.`
+    : `Ends ${endLabel(contest.end!)}.`
+
 function ContestPopup({ contest, onClose }: { contest: ContestInfo; onClose: () => void }) {
-  const countdown = useCountdown(contest.end)
+  const countdown = useContestCountdown(contest)
   useDismiss(true, onClose)
   const prizes = contest.prizes!
   return createPortal(
@@ -121,10 +123,8 @@ function ContestPopup({ contest, onClose }: { contest: ContestInfo; onClose: () 
           🎉 Invite friends &amp; win up to {naira(Math.max(...prizes))}!
         </h2>
         <p className="invite-popup__prizes">{prizeLine(prizes)}</p>
-        <p className="invite-popup__ends">Ends {endLabel(contest.end!)}.</p>
-        <p className="invite-countdown" aria-label={`Time left: ${countdown}`}>
-          ⏳ {countdown}
-        </p>
+        <p className="invite-popup__ends">{whenLine(contest)}</p>
+        <p className="invite-countdown">⏳ {countdown}</p>
         <div className="invite-popup__actions">
           <button
             type="button"
@@ -147,7 +147,7 @@ function ContestPopup({ contest, onClose }: { contest: ContestInfo; onClose: () 
 }
 
 function ContestBanner({ contest }: { contest: ContestInfo }) {
-  const countdown = useCountdown(contest.end)
+  const countdown = useContestCountdown(contest)
   return (
     <div className="invite-banner" role="region" aria-label="Invite and win">
       <span>
@@ -199,7 +199,7 @@ const saveStep = (step: number) => {
 
 function InviteGuide({ contest, onClose }: { contest: ContestInfo; onClose: () => void }) {
   const signedIn = Boolean(useReferralSession())
-  const live = contest.phase === 'live' && contest.prizes !== null && contest.end !== null
+  const live = contestOn(contest)
   // Joined already, or no contest: straight to the link.
   const [step, setStep] = useState(() => (signedIn || !live ? 4 : readStep()))
   const touch = useRef<number | null>(null)
@@ -268,9 +268,14 @@ function InviteGuide({ contest, onClose }: { contest: ContestInfo; onClose: () =
   )
 }
 
-function Countdown({ end }: { end: number }) {
-  const countdown = useCountdown(end)
-  return <p className="invite-countdown">⏳ Ends in {countdown}</p>
+function Countdown({ contest }: { contest: ContestInfo }) {
+  const countdown = useContestCountdown(contest)
+  return (
+    <>
+      <p className="invite-countdown">⏳ {countdown}</p>
+      {contest.phase === 'upcoming' && <p className="invite-note">Get your link now: points count from the start.</p>}
+    </>
+  )
 }
 
 const PRIZE_PLACES = ['🥇 1st', '🥈 2nd', '🥉 3rd']
@@ -287,7 +292,7 @@ function PrizesStep({ contest }: { contest: ContestInfo }) {
           </li>
         ))}
       </ul>
-      <Countdown end={contest.end!} />
+      <Countdown contest={contest} />
     </>
   )
 }
@@ -328,7 +333,7 @@ function RulesStep({ contest }: { contest: ContestInfo }) {
       <ul className="invite-list invite-list--plain">
         <li>Free to enter</li>
         <li>One account per person</li>
-        <li>Ends {endLabel(contest.end!)}</li>
+        <li>{whenLine(contest).replace(/\.$/, '')}</li>
         <li>Fake/bot referrals are disqualified</li>
         <li>Winners claim within 48h</li>
         <li>Prizes paid by bank transfer within 3 working days</li>
