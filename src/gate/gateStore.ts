@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 import { isDevHost } from '../ads/directLink'
 import { TELEGRAM_GATE_ENABLED } from '../config/telegramGate'
 import { isTvMode } from '../tv/tvMode'
+import { reportReferralPlay } from '../referral/api'
 
 /**
  * The Telegram gate: the first Play (or match Watch) on a phone or tablet asks
@@ -79,6 +80,8 @@ export function gateApplies(): boolean {
  * from the Play/Watch button's click.
  */
 export function playAfterGate(action: () => void): void {
+  // Every Play (movie, episode or match) passes here: an invited device's first one counts for the friend.
+  reportReferralPlay()
   if (!gateApplies() || gateDone()) return action()
   pending = { action, tv: isTvMode() }
   emit()

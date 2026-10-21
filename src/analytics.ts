@@ -23,9 +23,17 @@ export const tagTvDevice: BeforeSend = (event) => {
   return { ...event, url: url.toString() }
 }
 
+/** A winner's private claim link (?t=…) never reaches analytics. */
+export const dropClaimToken: BeforeSend = (event) => {
+  const url = new URL(event.url)
+  if (!url.searchParams.has('t')) return event
+  url.searchParams.delete('t')
+  return { ...event, url: url.toString() }
+}
+
 /** Everything sent to Vercel Analytics: hash routes as paths, tagged ?ad=… when the ad was blocked and ?device=tv on TVs. */
 export const analyticsBeforeSend: BeforeSend = (event) => {
-  const routed = hashRouteAsPath(event)
+  const routed = hashRouteAsPath(dropClaimToken(event)!)
   const tagged = routed && tagAdStatus(routed)
   return tagged && tagTvDevice(tagged)
 }

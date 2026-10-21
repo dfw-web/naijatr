@@ -1,0 +1,155 @@
+.challenge {
+  min-height: 100vh;
+  background: var(--bg, #050508);
+  color: var(--text);
+}
+
+.challenge__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.9rem 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.challenge__home {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.challenge__home img {
+  width: 28px;
+  height: 28px;
+}
+
+.challenge__nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.challenge__nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.challenge__nav a[aria-current='page'] {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.challenge__main {
+  width: min(100%, 36rem);
+  margin: 0 auto;
+  padding: 1.5rem 16px 3rem;
+}
+
+.challenge__title {
+  margin: 0 0 0.6rem;
+  font-size: 1.6rem;
+}
+
+.challenge__prizes {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.challenge__muted {
+  color: var(--text-muted);
+}
+
+.challenge__board {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.challenge__row {
+  display: grid;
+  grid-template-columns: 3rem 1fr auto;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.challenge__row--me {
+  outline: 2px solid #f5c518;
+}
+
+.challenge__rank {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.challenge__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.challenge__points {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.challenge__prize {
+  grid-column: 2 / -1;
+  color: #f5c518;
+  font-size: 0.85rem;
+}
+
+.challenge__me {
+  margin-top: 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.challenge__cta {
+  width: 100%;
+  margin-top: 1.5rem;
+  text-decoration: none;
+}
+
+.challenge__rules ol {
+  display: grid;
+  gap: 0.8rem;
+  padding-left: 1.3rem;
+  line-height: 1.55;
+}
+
+.challenge__form {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.challenge__form label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.challenge__form input {
+  min-height: 46px;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.challenge__done {
+  font-size: 1.1rem;
+}

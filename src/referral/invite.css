@@ -1,0 +1,405 @@
+/* The referral program: header button, contest popup, banners, guide and share panel. */
+
+.invite-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f5c518, #ff8a00);
+  color: #1a1206;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.invite-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.invite-button__short {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .invite-button {
+    padding: 0.4rem 0.65rem;
+  }
+
+  .invite-button__long {
+    display: none;
+  }
+
+  .invite-button__short {
+    display: inline;
+  }
+}
+
+.invite-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.invite-close:hover,
+.invite-close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.invite-countdown {
+  margin: 0.5rem 0 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #f5c518;
+}
+
+/* ---- Popup ---- */
+
+.invite-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.invite-popup__panel {
+  position: relative;
+  width: min(100%, 26rem);
+  padding: 1.6rem 1.3rem 1.3rem;
+  border: 1px solid rgba(245, 197, 24, 0.35);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.invite-popup__invited {
+  margin: 0 0 0.4rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.invite-popup__title {
+  margin: 0;
+  padding: 0 1.5rem;
+  font-size: 1.3rem;
+  line-height: 1.3;
+}
+
+.invite-popup__prizes {
+  margin: 0.7rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.invite-popup__ends {
+  margin: 0.3rem 0 0;
+  color: var(--text-muted);
+}
+
+.invite-popup__actions {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+
+/* ---- Banners ---- */
+
+.invite-banner {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem 0.9rem;
+  padding: 0.45rem 16px;
+  background: linear-gradient(90deg, #2a1d00, #3a2400);
+  color: #fde7a0;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.invite-banner button {
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  background: #f5c518;
+  color: #1a1206;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.invite-banner__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.invite-banner--winners {
+  background: linear-gradient(90deg, #102a12, #183a1a);
+  color: #c8f5cb;
+}
+
+/* ---- Guide ---- */
+
+.invite-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 5, 8, 0.96);
+  overflow-y: auto;
+}
+
+.invite-guide__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 30rem);
+  min-height: min(100dvh, 40rem);
+  padding: 3.2rem 16px 1.25rem;
+}
+
+.invite-guide__dots {
+  position: absolute;
+  top: 1.35rem;
+  left: 16px;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.invite-guide__dot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.invite-guide__dot[aria-current='true'] {
+  width: 22px;
+  border-radius: 999px;
+  background: #f5c518;
+}
+
+.invite-guide__title {
+  margin: 0 0 1rem;
+  font-size: 1.5rem;
+}
+
+.invite-guide__body {
+  flex: 1;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.invite-guide__nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+}
+
+.invite-guide__nav .btn[disabled] {
+  visibility: hidden;
+}
+
+.invite-lead {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.invite-prizes {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invite-prizes li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 1.1rem;
+}
+
+.invite-prizes strong {
+  color: #f5c518;
+}
+
+.invite-list {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding-left: 1.3rem;
+}
+
+.invite-list--plain {
+  padding-left: 1.1rem;
+}
+
+.invite-counts__head {
+  margin: 0.4rem 0 0.2rem;
+  font-weight: 700;
+}
+
+.invite-counts ul {
+  margin: 0 0 0.8rem;
+  padding-left: 1.2rem;
+}
+
+.invite-link {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--text);
+}
+
+.invite-login {
+  min-height: 48px;
+}
+
+.invite-error {
+  color: #ff6b6b;
+}
+
+/* ---- Share panel ---- */
+
+.invite-share__label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.invite-share__link {
+  margin: 0.2rem 0 0.9rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.invite-share__buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+}
+
+.invite-share__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 48px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.invite-share__btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.invite-share__btn--wa {
+  background: #1fa855;
+  color: #fff;
+}
+
+.invite-share__btn--tg {
+  background: #229ed9;
+  color: #fff;
+}
+
+.invite-share__btn--x {
+  background: #000;
+  color: #fff;
+  border: 1px solid #333;
+}
+
+.invite-share__message {
+  margin: 0.9rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.invite-share__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.invite-share__stats p {
+  margin: 0;
+  padding: 0.7rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.invite-share__stats strong {
+  display: block;
+  color: var(--text);
+  font-size: 1.5rem;
+}
+
+.invite-share__total {
+  margin-top: 1rem;
+  color: var(--text-muted);
+}
+
+.invite-share__board {
+  width: 100%;
+  margin-top: 1rem;
+  text-decoration: none;
+}
+
+.invite-share__name {
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.invite-share__name form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.invite-share__name input[aria-label='Nickname'] {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.invite-share__hide {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}

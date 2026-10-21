@@ -15,13 +15,14 @@ import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 /**
  * /go/telegram (go/telegram/index.html, its own page): fills in the channel
  * link, and serves the page at /go/telegram in dev and preview like Vercel does.
- * Same for the private /admin/live and /admin/feedback pages.
+ * Same for the private /admin/live, /admin/feedback and /admin/challenge pages.
  */
 function telegramPage(): Plugin {
   const rewrite = (req: IncomingMessage, _res: ServerResponse, next: () => void) => {
     if (req.url && /^\/go\/telegram\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/go\/telegram\/?/, '/go/telegram/index.html')
     if (req.url && /^\/admin\/live\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/live\/?/, '/admin/live/index.html')
     if (req.url && /^\/admin\/feedback\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/feedback\/?/, '/admin/feedback/index.html')
+    if (req.url && /^\/admin\/challenge\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/challenge\/?/, '/admin/challenge/index.html')
     next()
   }
   return {
@@ -105,8 +106,8 @@ export default defineConfig(({ mode }) => {
     build: {
       target: ['es2019', 'chrome64', 'safari12', 'firefox68', 'edge79'],
       cssTarget: ['chrome64', 'safari12', 'firefox68', 'edge79'],
-      // The app, plus the /go/telegram redirect page and the private /admin/live and /admin/feedback pages.
-      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html', admin: 'admin/live/index.html', feedback: 'admin/feedback/index.html' } },
+      // The app, plus the /go/telegram redirect page and the private /admin/live, /admin/feedback and /admin/challenge pages.
+      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html', admin: 'admin/live/index.html', feedback: 'admin/feedback/index.html', challenge: 'admin/challenge/index.html' } },
     },
     server: { proxy: tmdbProxy },
     preview: { proxy: tmdbProxy },
@@ -115,6 +116,8 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/test/setup.ts'],
       // The ad tests need ads on; src/ads/adsOff.test.tsx checks the real default (off).
       env: { VITE_ADS_ENABLED: 'true' },
+      // The App tests click through whole pages: slow when every file runs in parallel.
+      testTimeout: 15_000,
     },
   }
 })

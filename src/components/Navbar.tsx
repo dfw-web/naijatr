@@ -4,6 +4,7 @@ import type { NavLink } from '../navigation'
 import { isTvMode } from '../tv/tvMode'
 import { InstallAppButton } from './InstallApp'
 import { TelegramHeaderLink, TelegramMenuLink } from './Telegram'
+import { InviteButton } from '../referral/Invite'
 import './Navbar.css'
 
 interface NavbarProps {
@@ -115,6 +116,8 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
             </button>
           )}
         </form>
+
+        <InviteButton />
 
         <TelegramHeaderLink />
 

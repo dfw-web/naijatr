@@ -15,6 +15,7 @@ import { TvAdBreakHost } from './tv/TvAdBreak'
 import { TelegramGateHost } from './gate/TelegramGate'
 import { InstallAppHost } from './components/InstallApp'
 import { FeedbackHost } from './feedback/Feedback'
+import { ContestHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import './App.css'
@@ -123,6 +124,8 @@ function App() {
 
   return (
     <>
+      {/* The Invite & Win contest's popup and banners, and the invite guide. */}
+      <ContestHost />
       <Navbar
         links={NAV_LINKS}
         activeId={activeId}

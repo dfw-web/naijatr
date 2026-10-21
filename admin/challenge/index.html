@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#050508" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Invite Challenge</title>
+    <!-- Private Invite Challenge admin (src/referral/admin.ts). Needs ADMIN_PASSWORD; no ads, no analytics. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050508;
+        --surface: #101015;
+        --border: #26262e;
+        --text: #f5f5f7;
+        --muted: #b3b3bd;
+        --accent: #e50914;
+        --star: #f5c518;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px 16px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+      }
+      main {
+        width: min(100%, 48rem);
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.5rem;
+      }
+      h2 {
+        margin: 8px 0 0;
+        font-size: 1.1rem;
+      }
+      a {
+        color: var(--text);
+      }
+      .muted {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      form {
+        display: grid;
+        gap: 10px;
+      }
+      input,
+      select,
+      button {
+        min-height: 44px;
+        padding: 0 14px;
+        border-radius: 10px;
+        font: inherit;
+      }
+      input,
+      select {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+      }
+      button {
+        border: 0;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .error {
+        margin: 0;
+        color: #ff6b6b;
+      }
+      #panel:not([hidden]) {
+        display: grid;
+        gap: 12px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+        gap: 12px;
+      }
+      .stat {
+        margin: 0;
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+      .stat strong {
+        display: block;
+        font-size: 2rem;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+      }
+      .stat span {
+        color: var(--muted);
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .filters label {
+        display: grid;
+        gap: 4px;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+      #requests li {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+      }
+      .item {
+        display: grid;
+        gap: 8px;
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+      .item.done {
+        opacity: 0.55;
+      }
+      .item .head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .item .stars {
+        color: var(--star);
+        letter-spacing: 1px;
+      }
+      .item .type {
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--border);
+        color: var(--text);
+      }
+      .item .message {
+        margin: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .item .actions {
+        display: flex;
+        gap: 8px;
+      }
+      .item .actions button {
+        min-height: 36px;
+        font-size: 0.85rem;
+      }
+      [hidden] {
+        display: none !important;
+      }
+          .row {
+        display: grid;
+        gap: 6px;
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+      .row .line {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .flag {
+        color: #ffb347;
+        font-size: 0.85rem;
+      }
+      .row .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .row .actions button {
+        min-height: 36px;
+        font-size: 0.85rem;
+      }
+      .claim {
+        margin: 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: #1a1a22;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Invite Challenge</h1>
+        <a href="/admin/live">Live viewers →</a>
+      </header>
+
+      <form id="login" hidden>
+        <label class="muted" for="password">Admin password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="submit">Show challenge</button>
+        <p class="error" id="login-error" role="alert" hidden></p>
+      </form>
+
+      <section id="panel" hidden>
+        <p class="muted" id="contest"></p>
+        <p class="muted" id="warnings"></p>
+        <h2>Winners</h2>
+        <p class="muted">Confirm 1st, then 2nd, then 3rd, once the challenge has ended. Each winner gets a private claim link from @naijatr_bot; you get a summary after 3rd.</p>
+        <ol id="confirmed"></ol>
+        <h2>Top 10</h2>
+        <ol id="top"></ol>
+        <p class="muted" id="top-empty" hidden>No points yet.</p>
+        <h2>Disqualified</h2>
+        <ol id="dq"></ol>
+        <p class="error" id="panel-error" role="alert" hidden></p>
+        <button type="button" class="ghost" id="sign-out">Sign out</button>
+      </section>
+    </main>
+    <script type="module" src="/src/referral/admin.ts"></script>
+  </body>
+</html>
