@@ -85,6 +85,15 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
+.invite-popup__preview {
+  margin: 0 2rem 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(245, 197, 24, 0.12);
+  color: #f5c518;
+  font-size: 0.8rem;
+}
+
 .invite-popup__invited {
   margin: 0 0 0.4rem;
   color: var(--text-muted);
@@ -402,4 +411,10 @@
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.6rem;
+}
+
+.invite-share--preview {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.15);
 }

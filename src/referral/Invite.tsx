@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeft, ChevronRight, Copy, Gift, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Gift, Share2, X } from 'lucide-react'
 import { isTvMode } from '../tv/tvMode'
 import { arrivedByInvite } from './capture'
 import { endLabel, fetchMe, login, nairaShort, naira, updateProfile, useContest, useCountdown, type ContestInfo, type Me } from './api'
@@ -115,6 +115,7 @@ function ContestPopup({ contest, onClose }: { contest: ContestInfo; onClose: () 
         <button type="button" className="invite-close" aria-label="Close" onClick={onClose}>
           <X aria-hidden="true" />
         </button>
+        {contest.preview && <p className="invite-popup__preview">Preview: only you see this. The challenge isn’t running yet.</p>}
         {arrivedByInvite() && <p className="invite-popup__invited">Your friend invited you 👋</p>}
         <h2 id="invite-popup-title" className="invite-popup__title">
           🎉 Invite friends &amp; win up to {naira(Math.max(...prizes))}!
@@ -214,7 +215,7 @@ function InviteGuide({ contest, onClose }: { contest: ContestInfo; onClose: () =
         { title: 'How it works 🔗', body: <HowStep /> },
         { title: 'What counts (and what doesn’t) ✅❌', body: <CountsStep /> },
         { title: 'The rules 📜', body: <RulesStep contest={contest} /> },
-        { title: 'Get started 🚀', body: <StartStep live /> },
+        { title: 'Get started 🚀', body: <StartStep live preview={contest.preview} /> },
       ]
     : [{ title: 'Invite friends 🎁', body: <StartStep live={false} /> }]
   const index = live ? step : 0
@@ -341,13 +342,22 @@ function RulesStep({ contest }: { contest: ContestInfo }) {
 }
 
 /** Step 5: sign in with Telegram, then the link and share buttons. */
-function StartStep({ live }: { live: boolean }) {
+const PREVIEW_LINK = 'https://www.naijatr.com/r/PREVIEW'
+
+function StartStep({ live, preview = false }: { live: boolean; preview?: boolean }) {
   const current = useReferralSession()
   if (!current) {
     return (
       <>
         <p className="invite-lead">Join with Telegram to get your link.</p>
         <TelegramLogin />
+        {preview && (
+          <div className="invite-share invite-share--preview">
+            <p className="invite-share__label">Preview: after joining, their own link goes here</p>
+            <p className="invite-share__link">{PREVIEW_LINK}</p>
+            <ShareButtons message={`${SHARE_TEXT} ${PREVIEW_LINK}`} link={PREVIEW_LINK} />
+          </div>
+        )}
       </>
     )
   }
@@ -387,10 +397,74 @@ export function TelegramLogin() {
   )
 }
 
+const onPhone = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+/** Each button opens that app's "send to…" screen with the message ready; on a computer, its web page. */
+const SHARE_TARGETS: { id: string; name: string; href: (message: string, link: string) => string }[] = [
+  {
+    id: 'wa',
+    name: 'WhatsApp',
+    href: (message) => `${onPhone() ? 'whatsapp://send' : 'https://wa.me/'}?text=${encodeURIComponent(message)}`,
+  },
+  {
+    id: 'tg',
+    name: 'Telegram',
+    href: (_message, link) =>
+      `${onPhone() ? 'tg://msg_url' : 'https://t.me/share/url'}?url=${encodeURIComponent(link)}&text=${encodeURIComponent(SHARE_TEXT)}`,
+  },
+  // x.com links open the X app on phones that have it.
+  { id: 'x', name: 'X', href: (message) => `https://x.com/intent/post?text=${encodeURIComponent(message)}` },
+]
+
+/** WhatsApp, Telegram, X, Copy and (on phones) the phone's own share menu. */
+function ShareButtons({ message, link }: { message: string; link: string }) {
+  const [copied, setCopied] = useState(false)
+  const canShare = typeof navigator.share === 'function'
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+  return (
+    <div className="invite-share__buttons">
+      {SHARE_TARGETS.map((target) => {
+        const href = target.href(message, link)
+        // App links open in place; web links in a new tab.
+        const web = href.startsWith('http')
+        return (
+          <a
+            key={target.name}
+            className={`invite-share__btn invite-share__btn--${target.id}`}
+            href={href}
+            target={web ? '_blank' : undefined}
+            rel={web ? 'noreferrer' : undefined}
+          >
+            {target.name}
+          </a>
+        )
+      })}
+      <button type="button" className="invite-share__btn" onClick={() => void copy()}>
+        <Copy aria-hidden="true" /> {copied ? 'Copied!' : 'Copy'}
+      </button>
+      {canShare && (
+        <button
+          type="button"
+          className="invite-share__btn"
+          onClick={() => void navigator.share({ text: message }).catch(() => {})}
+        >
+          <Share2 aria-hidden="true" /> More apps…
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function SharePanel({ live }: { live: boolean }) {
   const current = useReferralSession()
   const [me, setMe] = useState<Me | null>(null)
-  const [copied, setCopied] = useState(false)
   const [nickname, setNickname] = useState(current?.user.nickname ?? '')
   const [saved, setSaved] = useState<'idle' | 'saved' | 'bad'>('idle')
   useEffect(() => {
@@ -405,33 +479,11 @@ export function SharePanel({ live }: { live: boolean }) {
   if (!current) return null
   const { link, hidden } = current.user
   const message = `${SHARE_TEXT} ${link}`
-  const encoded = encodeURIComponent(message)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(message)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
   return (
     <div className="invite-share">
       <p className="invite-share__label">Your invite link</p>
       <p className="invite-share__link">{link}</p>
-      <div className="invite-share__buttons">
-        <a className="invite-share__btn invite-share__btn--wa" href={`https://wa.me/?text=${encoded}`} target="_blank" rel="noreferrer">
-          WhatsApp
-        </a>
-        <a className="invite-share__btn invite-share__btn--tg" href={`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(SHARE_TEXT)}`} target="_blank" rel="noreferrer">
-          Telegram
-        </a>
-        <a className="invite-share__btn invite-share__btn--x" href={`https://twitter.com/intent/tweet?text=${encoded}`} target="_blank" rel="noreferrer">
-          X
-        </a>
-        <button type="button" className="invite-share__btn" onClick={() => void copy()}>
-          <Copy aria-hidden="true" /> {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
+      <ShareButtons message={message} link={link} />
       <p className="invite-share__message">{message}</p>
       {live && (
         <div className="invite-share__stats">

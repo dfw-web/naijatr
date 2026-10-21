@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { sessionId } from '../live/heartbeat'
-import { readRef, saveRef } from './capture'
+import { isContestPreview, readRef, saveRef } from './capture'
 import { readSession, saveSession, type ReferralUser } from './session'
 
 /** The browser side of /api/referral/* (server/referral/handlers.ts). */
@@ -13,6 +13,8 @@ export interface ContestInfo {
   end: number | null
   prizes: number[] | null
   winners: string[] | null
+  /** ?preview=contest on this device: nothing is real. */
+  preview?: boolean
 }
 
 const OFF: ContestInfo = { phase: 'off', start: null, end: null, prizes: null, winners: null }
@@ -42,8 +44,20 @@ let contestPromise: Promise<ContestInfo> | null = null
 
 /** The contest, once per page load. */
 export function loadContest(): Promise<ContestInfo> {
-  contestPromise ??= call<ContestInfo>('contest').then(({ data }) => data ?? OFF)
+  contestPromise ??= call<ContestInfo>('contest').then(({ data }) => {
+    const contest = data ?? OFF
+    // A preview only fills in for a contest that isn't running; the real one always wins.
+    return isContestPreview() && contest.phase !== 'live' ? previewContest() : contest
+  })
   return contestPromise
+}
+
+/** The preview: default prizes, ending the coming Sunday at 11:59 PM Lagos time. */
+export function previewContest(now = Date.now()): ContestInfo {
+  const lagos = new Date(now + 3_600_000)
+  const daysToSunday = (7 - lagos.getUTCDay()) % 7
+  const end = Date.UTC(lagos.getUTCFullYear(), lagos.getUTCMonth(), lagos.getUTCDate() + daysToSunday, 22, 59, 59, 999)
+  return { phase: 'live', start: now, end: end > now ? end : end + 7 * 86_400_000, prizes: [30000, 20000, 10000], winners: null, preview: true }
 }
 
 export function useContest(): ContestInfo | null {

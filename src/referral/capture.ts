@@ -63,7 +63,27 @@ export function arrivedByInvite() {
   }
 }
 
+/** ?preview=contest: shows the contest's popup, banner and guide on this device only, without starting it. */
+export const PREVIEW_KEY = 'naijatr.contest.preview'
+
+export function isContestPreview() {
+  try {
+    return window.sessionStorage.getItem(PREVIEW_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export function captureReferral(path = window.location.pathname) {
+  if (new URLSearchParams(window.location.search).get('preview') === 'contest') {
+    try {
+      window.sessionStorage.setItem(PREVIEW_KEY, '1')
+      // Show the popup again on each preview.
+      window.sessionStorage.removeItem('naijatr.contest.popup')
+    } catch {
+      // No preview without storage.
+    }
+  }
   const prior = priorVisit()
   try {
     window.localStorage.setItem(SEEN_KEY, '1')

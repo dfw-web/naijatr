@@ -144,6 +144,36 @@ describe('contest popup, banner and guide', () => {
     expect(await screen.findByText('#1')).toBeInTheDocument()
   })
 
+  it('previews the contest on this device only, with share buttons to try', async () => {
+    const user = userEvent.setup()
+    mockApi({ phase: 'off', start: null, end: null, prizes: null, winners: null })
+    window.history.replaceState(null, '', '/?preview=contest')
+    captureReferral()
+    await host()
+    expect(await screen.findByText('Preview: only you see this. The challenge isn’t running yet.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /I'm interested/ }))
+    act(() => window.localStorage.setItem('naijatr.invite.step', '4'))
+    for (let i = 0; i < 4; i += 1) await user.click(screen.getByRole('button', { name: /Next/ }))
+    expect(screen.getByRole('heading', { name: 'Get started 🚀' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'WhatsApp' })).toHaveAttribute('href', expect.stringContaining('r%2FPREVIEW'))
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('opens the apps themselves on phones', async () => {
+    const agent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14) Mobile')
+    saveSession({ token: 't', user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' } })
+    window.sessionStorage.setItem('naijatr.contest.popup', '1')
+    await host()
+    const { openInviteGuide } = await import('./guide')
+    await screen.findByRole('region', { name: 'Invite and win' })
+    act(() => openInviteGuide())
+    const whatsapp = screen.getByRole('link', { name: 'WhatsApp' })
+    expect(whatsapp.getAttribute('href')).toMatch(/^whatsapp:\/\/send\?text=I%20watch/)
+    expect(whatsapp).not.toHaveAttribute('target')
+    expect(screen.getByRole('link', { name: 'Telegram' }).getAttribute('href')).toMatch(/^tg:\/\/msg_url\?url=https%3A%2F%2Fwww.naijatr.com%2Fr%2FBRUNO23/)
+    agent.mockRestore()
+  })
+
   it('shows nothing about prizes when no contest runs', async () => {
     mockApi({ phase: 'ended', start: 1, end: 2, prizes: null, winners: ['@a', '@b', '@c'] })
     await host()
