@@ -31,6 +31,8 @@ const session = {
 
 /** Overlays open now; they share one extra history entry, so Back closes them. */
 let openOverlays = 0
+/** Our own history.back() (dropping the entry): its popstate isn't the visitor pressing Back. */
+let ownBack = false
 
 /** Closes on Escape and on the phone's Back button (an extra history entry while open). */
 function useDismiss(open: boolean, onClose: () => void) {
@@ -44,6 +46,12 @@ function useDismiss(open: boolean, onClose: () => void) {
       window.history.pushState({ naijatrOverlay: true }, '', window.location.href)
     }
     const onPop = () => {
+      if (ownBack) {
+        ownBack = false
+        // It removed the entry this overlay shares: put it back.
+        window.history.pushState({ naijatrOverlay: true }, '', window.location.href)
+        return
+      }
       if (!window.history.state?.naijatrOverlay) closeRef.current()
     }
     const onKey = (event: KeyboardEvent) => {
@@ -57,7 +65,12 @@ function useDismiss(open: boolean, onClose: () => void) {
       document.removeEventListener('keydown', onKey)
       // Closed some other way: drop the entry, unless another overlay took it over (popup → guide).
       window.setTimeout(() => {
-        if (openOverlays === 0 && window.history.state?.naijatrOverlay) window.history.back()
+        if (openOverlays === 0 && window.history.state?.naijatrOverlay) {
+          ownBack = true
+          // Cleared once it lands, even with no overlay open to see it.
+          window.addEventListener('popstate', () => (ownBack = false), { once: true })
+          window.history.back()
+        }
       }, 0)
     }
   }, [open])
