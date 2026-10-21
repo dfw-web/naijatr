@@ -38,10 +38,6 @@ html.tv-mode {
   animation-iteration-count: infinite !important;
 }
 
-.tv-mode .player__next {
-  animation-duration: 10s !important;
-}
-
 /* ---- Focus: unmistakable from across the room ---- */
 
 .tv-mode :focus {

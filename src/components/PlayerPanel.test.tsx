@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MediaItem } from '../types/media'
-import { NEXT_EPISODE_DELAY_S, PLAYER_LOAD_TIMEOUT_MS, PlayerPanel } from './PlayerPanel'
+import { PLAYER_LOAD_TIMEOUT_MS, PlayerPanel } from './PlayerPanel'
 
 const base: MediaItem = {
   id: 'tmdb-movie-550',
@@ -260,81 +260,19 @@ describe('PlayerPanel', () => {
       return screen.findByTitle('Fight Club player')
     }
 
-    it('counts down and then plays the next season when the last episode ends', async () => {
+    it('stays on the episode when it ends, with no countdown', async () => {
       const frame = await watch('2')
       vi.useFakeTimers()
       try {
         end(frame)
-        expect(screen.getByRole('button', { name: /Next episode · S2 E1/ })).toBeInTheDocument()
         await act(async () => {
-          vi.advanceTimersByTime(NEXT_EPISODE_DELAY_S * 1000)
+          vi.advanceTimersByTime(30_000)
         })
       } finally {
         vi.useRealTimers()
       }
-      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute(
-        'src',
-        '/api/play/tv/1399/2/1',
-      )
-      expect(screen.getByLabelText('Season')).toHaveValue('2')
-    })
-
-    it('shows the button when the closing credits start', async () => {
-      // Opening credits early on don't count.
-      const frame = await watch('1', [
-        { start_ms: 60_000, end_ms: 90_000 },
-        { start_ms: 3_000_000, end_ms: null },
-      ])
-      post(frame, 'duration', 3_300)
-      post(frame, 'time', 70)
-      post(frame, 'time', 2_999)
       expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
-      post(frame, 'time', 3_001)
-      expect(screen.getByRole('button', { name: /Next episode · S1 E2/ })).toBeInTheDocument()
-    })
-
-    it('guesses 90 seconds before the end when the credits time is unknown', async () => {
-      const frame = await watch('1')
-      post(frame, 'duration', 3_000)
-      post(frame, 'time', 2_909)
-      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
-      post(frame, 'time', 2_911)
-      expect(screen.getByRole('button', { name: /Next episode/ })).toBeInTheDocument()
-    })
-
-    it('stays dismissed through the rest of the credits and the end', async () => {
-      const frame = await watch('1')
-      post(frame, 'duration', 3_000)
-      post(frame, 'time', 2_950)
-      fireEvent.pointerDown(document.body)
-      post(frame, 'time', 2_960)
-      end(frame)
-      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
-    })
-
-    it('plays the next episode right away when the button is clicked', async () => {
-      end(await watch('1'))
-      await userEvent.click(screen.getByRole('button', { name: /Next episode · S1 E2/ }))
-      expect(await screen.findByTitle('Fight Club player')).toHaveAttribute(
-        'src',
-        '/api/play/tv/1399/1/2',
-      )
-    })
-
-    it('stays on the episode when anything else is clicked', async () => {
-      const frame = await watch('1')
-      vi.useFakeTimers()
-      try {
-        end(frame)
-        fireEvent.pointerDown(document.querySelector('.player__upnext')!)
-        expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
-        await act(async () => {
-          vi.advanceTimersByTime(NEXT_EPISODE_DELAY_S * 1000)
-        })
-      } finally {
-        vi.useRealTimers()
-      }
-      expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/1')
+      expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/tv/1399/1/2')
     })
 
     it('can skip to the next episode at any time, keeping the player up while it loads', async () => {
@@ -414,18 +352,6 @@ describe('PlayerPanel', () => {
       await userEvent.keyboard('{Escape}')
       expect(section).not.toHaveClass('player--fill')
       expect(screen.getByTitle('Fight Club player')).toBeInTheDocument()
-    })
-
-    it('ignores ended messages from other frames', async () => {
-      const frame = await watch('1')
-      act(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', { data: { source: 'embedmaster_player', event: 'ended' } }),
-        )
-      })
-      expect(screen.queryByRole('button', { name: /Next episode/ })).not.toBeInTheDocument()
-      end(frame)
-      expect(screen.getByRole('button', { name: /Next episode/ })).toBeInTheDocument()
     })
   })
 })
