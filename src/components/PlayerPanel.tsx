@@ -420,7 +420,7 @@ export function PlayerPanel({
       recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
       recordTaste(item, 'play')
       // An invited friend counts once they play a movie or a series episode (not a trailer or a match).
-      reportReferralPlay()
+      void reportReferralPlay()
     }
     const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {

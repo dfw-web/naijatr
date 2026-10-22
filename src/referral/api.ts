@@ -112,14 +112,16 @@ export const sendClaim = (body: Record<string, string>) => call<{ ok: true }>('c
  * football don't count): if this device came by an invite link, report it
  * once so the friend gets their point.
  */
-export function reportReferralPlay() {
+export async function reportReferralPlay() {
   const ref = readRef()
-  if (!ref || ref.reported || !ref.newDevice) return
-  saveRef({ ...ref, reported: true })
-  void call<{ outcome: string }>('count', { body: { device: sessionId() } }).then(({ status }) => {
-    // Network trouble: try again on the next play.
-    if (status === 0 || status >= 500) saveRef({ ...ref, reported: false })
-  })
+  if (!ref || !ref.newDevice) return
+  const contest = await loadContest()
+  const round = contest.preview ? null : contest.start
+  if (ref.reported && ref.reportedFor === round) return
+  saveRef({ ...ref, reported: true, reportedFor: round })
+  const { status } = await call<{ outcome: string }>('count', { body: { device: sessionId(), code: ref.code, at: ref.at, newDevice: ref.newDevice } })
+  // Network trouble: try again on the next play.
+  if (status === 0 || status >= 500) saveRef({ ...ref, reported: false })
 }
 
 /** Naira, e.g. ₦30,000. */

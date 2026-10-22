@@ -18,7 +18,7 @@
  *
  * A referral counts once: a device new to the site that arrived by a link and
  * then plays a movie or a series episode (trailers and football don't count). Never your own device or Telegram id,
- * each device once ever, and at most IP_DAILY_CAP a day from one network
+ * each device once per contest (once ever outside one), and at most IP_DAILY_CAP a day per referrer from one network
  * (a salted hash; raw IPs are never stored). Bank details are encrypted
  * (CLAIM_ENCRYPTION_KEY), never logged or sent anywhere, shown only on
  * /admin/challenge and deleted for good by "Mark as paid".
@@ -106,8 +106,10 @@ const k = {
   code: (code: string) => `ref:code:${code}`,
   devices: (id: number) => `ref:devices:${id}`,
   arrival: (device: string) => `ref:arrive:${device}`,
-  counted: (device: string) => `ref:counted:${device}`,
-  ipDay: (ip: string, day: string) => `ref:ipday:${ip}:${day}`,
+  // A contest counts each device once on its own: a new contest (new start) lets everyone count again.
+  counted: (device: string, c: Contest | null) => (c ? `contest:${c.id}:counted:${device}` : `ref:counted:${device}`),
+  // Per referrer: mobile networks put many strangers behind one IP (CGNAT).
+  ipDay: (id: number, ip: string, day: string) => `ref:ipday:${id}:${ip}:${day}`,
   refs: (id: number) => `ref:refs:${id}`,
   total: (id: number) => `ref:total:${id}`,
   points: (c: Contest) => `contest:${c.id}:points`,
@@ -211,13 +213,17 @@ export type CountOutcome = 'counted' | 'no-invite' | 'not-new' | 'unknown-code' 
 /** The device played something: count its referral if it qualifies. */
 export async function countReferral(
   env: ReferralEnv,
-  input: { device: string; sessionUser: number | null; ip: string; agent: string },
+  input: { device: string; sessionUser: number | null; ip: string; agent: string; arrival?: Arrival | null },
   now: number,
   fetchImpl: typeof fetch = fetch,
 ): Promise<CountOutcome> {
   const { device } = input
-  const [rawArrival, rawCounted] = (await redis(env, [['GET', k.arrival(device)], ['GET', k.counted(device)]], fetchImpl)) ?? []
-  const arrival = parse<Arrival>(rawArrival)
+  const contest = env.contest
+  const inContest = scoresAt(contest, now)
+  const counted = k.counted(device, contest && inContest ? contest : null)
+  const [rawArrival, rawCounted] = (await redis(env, [['GET', k.arrival(device)], ['GET', counted]], fetchImpl)) ?? []
+  // The arrive call can be lost (flaky network, page left at once): the browser resends it with the play.
+  const arrival = parse<Arrival>(rawArrival) ?? input.arrival ?? null
   if (!arrival) return 'no-invite'
   if (rawCounted) return 'already'
   if (!arrival.newDevice) return 'not-new'
@@ -230,14 +236,12 @@ export async function countReferral(
 
   const ip = hashIp(env.secret, input.ip || 'unknown')
   const day = new Date(now + 3_600_000).toISOString().slice(0, 10) // Lagos day
-  const [today] = (await redis(env, [['INCR', k.ipDay(ip, day)], ['EXPIRE', k.ipDay(ip, day), 2 * 86_400]], fetchImpl)) ?? []
+  const [today] = (await redis(env, [['INCR', k.ipDay(referrer, ip, day)], ['EXPIRE', k.ipDay(referrer, ip, day), 2 * 86_400]], fetchImpl)) ?? []
   if (Number(today) > IP_DAILY_CAP) return 'ip-cap'
-  // Each device once, ever.
-  const [claimed] = (await redis(env, [['SET', k.counted(device), referrer, 'NX']], fetchImpl)) ?? []
+  // Each device once (per contest).
+  const [claimed] = (await redis(env, [['SET', counted, referrer, 'NX']], fetchImpl)) ?? []
   if (claimed !== 'OK') return 'already'
 
-  const contest = env.contest
-  const inContest = scoresAt(contest, now)
   const record: ReferralRecord = {
     at: now,
     ip,
@@ -619,7 +623,10 @@ export async function handleReferral(
       const device = typeof body.device === 'string' && DEVICE.test(body.device) ? body.device : ''
       if (!device) return sendJson(res, 400, { error: 'bad-request' })
       const agent = String(req.headers?.['user-agent'] ?? '')
-      const outcome = await countReferral(env, { device, sessionUser, ip: clientIp(req), agent }, now, fetchImpl)
+      const code = typeof body.code === 'string' ? body.code.toUpperCase() : ''
+      const at = Number(body.at)
+      const arrival = CODE.test(code) && Number.isFinite(at) && at <= now && now - at < ARRIVAL_TTL_S * 1000 ? { code, at, newDevice: body.newDevice === true } : null
+      const outcome = await countReferral(env, { device, sessionUser, ip: clientIp(req), agent, arrival }, now, fetchImpl)
       return reply(ok({ outcome }))
     }
   }

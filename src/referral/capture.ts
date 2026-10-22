@@ -18,12 +18,15 @@ const REF_COOKIE = 'naijatr_ref'
 export const INVITED_KEY = 'naijatr.ref.invited'
 export const REF_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const INVITE_PATH = /^\/r\/([A-Za-z0-9]{4,12})\/?$/
+const INVITE_QUERY = /[?&]ref=([A-Za-z0-9]{4,12})(?:&|$)/
 
 export interface PendingRef {
   code: string
   at: number
   newDevice: boolean
   reported: boolean
+  /** The contest (its start) it was reported for: a new contest reports it again. */
+  reportedFor?: number | null
 }
 
 function priorVisit(): boolean {
@@ -90,7 +93,8 @@ export function captureReferral(path = window.location.pathname) {
   } catch {
     // Fine.
   }
-  const match = INVITE_PATH.exec(path)
+  // ?ref=CODE is the same link after the redirect below, e.g. reopened from an in-app browser in Chrome.
+  const match = INVITE_PATH.exec(path) ?? (path === '/' ? INVITE_QUERY.exec(window.location.search) : null)
   if (!match) return
   const code = match[1].toUpperCase()
   try {
@@ -109,7 +113,10 @@ export function captureReferral(path = window.location.pathname) {
       keepalive: true,
     }).catch(() => {})
   }
-  window.history.replaceState(null, '', `/${window.location.search}`)
+  // Keeps the code in the address bar: "Open in Chrome" from Telegram or WhatsApp starts a new browser with its own storage.
+  const search = new URLSearchParams(window.location.search)
+  search.set('ref', code)
+  window.history.replaceState(null, '', `/?${search}`)
 }
 
 captureReferral()
