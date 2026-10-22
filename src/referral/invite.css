@@ -113,6 +113,17 @@
   font-weight: 700;
 }
 
+.invite-popup__prizes--gold {
+  color: #f5c518;
+}
+
+.invite-popup__logo {
+  display: block;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 0.6rem;
+}
+
 .invite-popup__ends {
   margin: 0.3rem 0 0;
   color: var(--text-muted);

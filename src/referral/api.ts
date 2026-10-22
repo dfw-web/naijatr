@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { sessionId } from '../live/heartbeat'
 import { isContestPreview, readRef, saveRef } from './capture'
+import { markCounted, trackReport } from './invitee'
 import { readSession, saveSession, type ReferralUser } from './session'
 
 /** The browser side of /api/referral/* (server/referral/handlers.ts). */
@@ -112,16 +113,24 @@ export const sendClaim = (body: Record<string, string>) => call<{ ok: true }>('c
  * football don't count): if this device came by an invite link, report it
  * once so the friend gets their point.
  */
-export async function reportReferralPlay() {
+export function reportReferralPlay() {
+  const report = sendReferralPlay()
+  trackReport(report)
+  return report
+}
+
+async function sendReferralPlay() {
   const ref = readRef()
   if (!ref || !ref.newDevice) return
   const contest = await loadContest()
   const round = contest.preview ? null : contest.start
   if (ref.reported && ref.reportedFor === round) return
   saveRef({ ...ref, reported: true, reportedFor: round })
-  const { status } = await call<{ outcome: string }>('count', { body: { device: sessionId(), code: ref.code, at: ref.at, newDevice: ref.newDevice } })
+  const { status, data } = await call<{ outcome: string }>('count', { body: { device: sessionId(), code: ref.code, at: ref.at, newDevice: ref.newDevice } })
   // Network trouble: try again on the next play.
   if (status === 0 || status >= 500) saveRef({ ...ref, reported: false })
+  // It counted for the friend (now or on an earlier play): the "You can win too" popup may follow.
+  if (data?.outcome === 'counted' || data?.outcome === 'already') markCounted()
 }
 
 /** Naira, e.g. ₦30,000. */

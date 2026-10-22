@@ -22,13 +22,17 @@ function mockApi(contest: object = live) {
 }
 
 beforeEach(() => {
+  // An invite leaves ?ref=CODE in the address bar: start each test on a plain home page.
+  window.history.replaceState(null, '', '/')
   window.localStorage.clear()
   window.sessionStorage.clear()
   document.cookie = 'naijatr_ref=; Max-Age=0; Path=/'
   document.cookie = 'naijatr_gate_joined=; Max-Age=0; Path=/'
   mockApi()
 })
-afterEach(() => {
+afterEach(async () => {
+  // A closed popup drops its Back-button entry a moment later: let it land before the next test.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
   vi.unstubAllGlobals()
   vi.resetModules()
   saveSession(null)
@@ -189,3 +193,138 @@ describe('contest popup, banner and guide', () => {
     expect(screen.queryByText(/₦/)).not.toBeInTheDocument()
   })
 })
+
+describe('"You can win too" popup for invited visitors', () => {
+  const WIN_TOO = /You too can win cash prizes!/
+
+  /** Fresh modules, so the popup's state starts over in each test. */
+  async function visit({ invited = true, outcome = 'counted' } = {}) {
+    if (invited) captureReferral('/r/BRUNO23')
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest' ? Response.json(live) : Response.json({ ok: true, outcome }),
+    )
+    const [{ ContestHost }, api, invitee] = await Promise.all([import('./Invite'), import('./api'), import('./invitee')])
+    const view = render(<ContestHost />)
+    const user = userEvent.setup()
+    // The arrival popup, as before.
+    await user.click(await screen.findByRole('button', { name: 'Maybe later' }))
+    // Its Back-button entry is dropped a moment later (the visitor is watching a movie by then).
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+    /** Plays a movie, then closes the player. */
+    const watchAndClose = async () => {
+      await act(async () => {
+        await api.reportReferralPlay()
+        await invitee.playerClosed()
+      })
+    }
+    return { view, user, watchAndClose, invitee }
+  }
+
+  it('leaves the arrival popup as it is', async () => {
+    await visit()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText(WIN_TOO)).not.toBeInTheDocument()
+  })
+
+  it('shows once the player closes after the first counted watch, and only once per device', async () => {
+    const { user, watchAndClose, view, invitee } = await visit()
+    await watchAndClose()
+    const dialog = await screen.findByRole('dialog', { name: WIN_TOO })
+    expect(dialog).toHaveTextContent('👋 Your friend invited you to NAIJA TR!')
+    expect(dialog).toHaveTextContent('🥇 ₦30,000 · 🥈 ₦20,000 · 🥉 ₦10,000')
+    expect(dialog).toHaveTextContent(/Invite your own friends and climb the leaderboard\. Ends \w+day \d+ \w{3}, \d+:\d\d [AP]M\./)
+    expect(dialog).toHaveTextContent(/⏳ Ends in/)
+    await user.click(screen.getByRole('button', { name: 'Maybe later' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // Another movie, another close: not again.
+    await watchAndClose()
+    expect(screen.queryByRole('dialog', { name: WIN_TOO })).not.toBeInTheDocument()
+    view.unmount()
+    await act(() => invitee.playerClosed())
+    expect(window.localStorage.getItem(invitee.INVITEE_SHOWN_KEY)).toBe('1')
+  })
+
+  it('opens the step-by-step guide on "Yes, I\'m interested"', async () => {
+    const { user, watchAndClose } = await visit()
+    await watchAndClose()
+    await user.click(await screen.findByRole('button', { name: "Yes, I'm interested 👀" }))
+    expect(screen.getByRole('dialog', { name: 'The Prizes 🏆' })).toBeInTheDocument()
+  })
+
+  it('closes on Escape (like Back)', async () => {
+    const { watchAndClose } = await visit()
+    await watchAndClose()
+    await screen.findByRole('dialog', { name: WIN_TOO })
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('never shows to visitors who came without an invite link', async () => {
+    const { watchAndClose } = await visit({ invited: false })
+    await watchAndClose()
+    expect(screen.queryByText(WIN_TOO)).not.toBeInTheDocument()
+    expect(posts('count')).toHaveLength(0)
+  })
+
+  it('waits for a watch that counted for the friend', async () => {
+    const { watchAndClose } = await visit({ outcome: 'ip-cap' })
+    await watchAndClose()
+    expect(screen.queryByText(WIN_TOO)).not.toBeInTheDocument()
+  })
+
+  it('skips visitors who already joined the challenge', async () => {
+    saveSession({ token: 't', user: { code: 'ADA11', nickname: '@ada', hidden: false, link: 'https://www.naijatr.com/r/ADA11' } })
+    captureReferral('/r/BRUNO23')
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest' ? Response.json(live) : url === '/api/referral/me' ? Response.json(null) : Response.json({ ok: true, outcome: 'counted' }),
+    )
+    const [{ ContestHost }, api, invitee] = await Promise.all([import('./Invite'), import('./api'), import('./invitee')])
+    render(<ContestHost />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Maybe later' }))
+    await act(async () => {
+      await api.reportReferralPlay()
+      await invitee.playerClosed()
+    })
+    expect(screen.queryByText(WIN_TOO)).not.toBeInTheDocument()
+  })
+
+  it('is hidden once the contest has ended', async () => {
+    captureReferral('/r/BRUNO23')
+    mockApi({ phase: 'ended', start: Date.now() - 3 * HOUR, end: Date.now() - HOUR, prizes: null, winners: null })
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest' ? Response.json({ phase: 'ended', start: 1, end: 2, prizes: null, winners: null }) : Response.json({ ok: true, outcome: 'counted' }),
+    )
+    const [{ ContestHost }, api, invitee] = await Promise.all([import('./Invite'), import('./api'), import('./invitee')])
+    render(<ContestHost />)
+    await act(async () => {
+      await api.reportReferralPlay()
+      await invitee.playerClosed()
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('goes away by itself when the contest ends while it is open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      captureReferral('/r/BRUNO23')
+      const endingSoon = { ...live, end: Date.now() + 60_000 }
+      fetchMock.mockImplementation(async (url: string) =>
+        url === '/api/referral/contest' ? Response.json(endingSoon) : Response.json({ ok: true, outcome: 'counted' }),
+      )
+      const [{ ContestHost }, api, invitee] = await Promise.all([import('./Invite'), import('./api'), import('./invitee')])
+      render(<ContestHost />)
+      fireClick(await screen.findByRole('button', { name: 'Maybe later' }))
+      await act(async () => {
+        await api.reportReferralPlay()
+        await invitee.playerClosed()
+      })
+      expect(await screen.findByRole('dialog', { name: WIN_TOO })).toBeInTheDocument()
+      act(() => void vi.advanceTimersByTime(61_000))
+      expect(screen.queryByRole('dialog', { name: WIN_TOO })).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+const fireClick = (element: HTMLElement) => act(() => element.click())

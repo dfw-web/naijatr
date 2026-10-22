@@ -28,6 +28,7 @@ import { isTvMode, phoneLink } from '../tv/tvMode'
 import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../utils/continueWatching'
 import { recordTaste, recordTasteById } from '../taste/profile'
 import { reportReferralPlay } from '../referral/api'
+import { playerClosed } from '../referral/invitee'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
@@ -388,6 +389,18 @@ export function PlayerPanel({
   useLiveWatching(
     playerShown && active.choice !== 'trailer' && item.tmdbId !== undefined ? (isSeries ? `tv:${item.tmdbId}` : `movie:${item.tmdbId}`) : null,
   )
+  // A movie or an episode was open: closing it (or the details around it) may bring the "You can win too" popup.
+  const watchedRef = useRef(false)
+  const watchingFilm = Boolean(active && active.choice !== 'trailer')
+  useEffect(() => {
+    if (watchingFilm) watchedRef.current = true
+  }, [watchingFilm])
+  useEffect(
+    () => () => {
+      if (watchedRef.current) void playerClosed()
+    },
+    [],
+  )
   useEffect(() => {
     if (!playerShown || !scrollToPlayerRef.current) return
     scrollToPlayerRef.current = false
@@ -470,6 +483,10 @@ export function PlayerPanel({
     if (fullscreenElement()) exitFullscreen()
     setFilling(false)
     setRun(null)
+    if (watchedRef.current) {
+      watchedRef.current = false
+      void playerClosed()
+    }
   }
 
   const checking = active?.state.status === 'checking'

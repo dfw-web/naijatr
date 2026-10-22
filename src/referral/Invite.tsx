@@ -6,12 +6,15 @@ import { arrivedByInvite } from './capture'
 import { contestOn, countdownTarget, endLabel, fetchMe, login, nairaShort, naira, updateProfile, useContest, useCountdown, type ContestInfo, type Me } from './api'
 import { useReferralSession } from './session'
 import { closeInviteGuide, OPEN_GUIDE_KEY, openInviteGuide, SHARE_TEXT, useGuideOpen } from './guide'
+import { dismissInvitee, useInviteeDue } from './invitee'
 import './invite.css'
 
 /**
  * The referral program on the movie pages: the "Invite friends 🎁" button,
  * and, only while the Invite & Win contest runs, a once-per-session popup,
- * a slim countdown banner and the 5-step guide. After the contest, a winners
+ * a slim countdown banner and the 5-step guide, plus a "You can win too"
+ * popup, once per device, for invited visitors when they close the player
+ * after their watch counted for their friend. After the contest, a winners
  * banner for 3 days. Nothing here blocks browsing or watching, and every
  * piece closes with X, a tap outside, Escape or Back.
  */
@@ -67,8 +70,9 @@ function useDismiss(open: boolean, onClose: () => void) {
       window.setTimeout(() => {
         if (openOverlays === 0 && window.history.state?.naijatrOverlay) {
           ownBack = true
-          // Cleared once it lands, even with no overlay open to see it.
-          window.addEventListener('popstate', () => (ownBack = false), { once: true })
+          // Cleared once it lands, even with no overlay open to see it; after this popstate's
+          // other listeners, so an overlay that opened meanwhile still knows it's ours.
+          window.addEventListener('popstate', () => window.setTimeout(() => (ownBack = false), 0), { once: true })
           window.history.back()
         }
       }, 0)
@@ -82,6 +86,8 @@ const prizeLine = (prizes: number[]) => prizes.map((p, i) => `${['🥇', '🥈',
 export function ContestHost() {
   const contest = useContest()
   const open = useGuideOpen()
+  const inviteeDue = useInviteeDue()
+  const signedIn = Boolean(useReferralSession())
   // Every visit, until the contest ends (not when /challenge sent them here for the guide).
   const [popup, setPopup] = useState(() => !session.get(OPEN_GUIDE_KEY))
   // Came from /challenge's "Get my invite link".
@@ -102,6 +108,7 @@ export function ContestHost() {
       {live && !popup && !open && <ContestBanner contest={contest} />}
       {contest.winners?.length === 3 && <WinnersBanner winners={contest.winners} />}
       {live && popup && !open && <ContestPopup contest={contest} onClose={dismissPopup} />}
+      {live && inviteeDue && !signedIn && !popup && !open && <InviteePopup contest={contest} onClose={dismissInvitee} />}
       {open && <InviteGuide contest={contest} onClose={closeInviteGuide} />}
     </>
   )
@@ -148,6 +155,59 @@ function ContestPopup({ contest, onClose }: { contest: ContestInfo; onClose: () 
             }}
           >
             I&apos;m interested 👀
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>
+            Maybe later
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** "Sunday 25 Oct, 11:59 PM", Lagos time. */
+const endDate = (end: number) => {
+  const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', ...options }).format(new Date(end))
+  const time = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(end))
+  return `${part({ weekday: 'long' })} ${part({ day: 'numeric' })} ${part({ month: 'short' })}, ${time}`
+}
+
+/** For a friend's invitee, after their watch counted: they can win too. */
+function InviteePopup({ contest, onClose }: { contest: ContestInfo & { end: number; prizes: number[] }; onClose: () => void }) {
+  const countdown = useContestCountdown(contest)
+  useDismiss(true, onClose)
+  // The contest ends while it's open: it goes away.
+  useEffect(() => {
+    const timer = window.setTimeout(onClose, Math.max(0, contest.end - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [contest.end, onClose])
+  return createPortal(
+    <div className="invite-popup" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="invite-popup__panel" role="dialog" aria-modal="true" aria-labelledby="invitee-popup-title">
+        <button type="button" className="invite-close" aria-label="Close" onClick={onClose}>
+          <X aria-hidden="true" />
+        </button>
+        <img src="/favicon.svg" alt="NAIJA TR" className="invite-popup__logo" />
+        <p className="invite-popup__invited">👋 Your friend invited you to NAIJA TR!</p>
+        <h2 id="invitee-popup-title" className="invite-popup__title">
+          🎁 You too can win cash prizes!
+        </h2>
+        <p className="invite-popup__prizes invite-popup__prizes--gold">
+          {contest.prizes.map((p, i) => `${['🥇', '🥈', '🥉'][i]} ${naira(p)}`).join(' · ')}
+        </p>
+        <p className="invite-popup__ends">Invite your own friends and climb the leaderboard. Ends {endDate(contest.end)}.</p>
+        <p className="invite-countdown">⏳ {countdown}</p>
+        <div className="invite-popup__actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              onClose()
+              openInviteGuide()
+            }}
+          >
+            Yes, I&apos;m interested 👀
           </button>
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             Maybe later
