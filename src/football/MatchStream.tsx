@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, MessageSquareText, MonitorPlay } from 'lucide-react'
 import { StatusMessage } from '../components/StatusMessage'
 import { useLiveWatching } from '../live/heartbeat'
+import { reportReferralPlay } from '../referral/api'
 import { useFootball } from './api'
 import { gatePlayback, watchProgress } from './playbackGate'
 import { hasStarted, isFinished, isLive } from './format'
@@ -91,6 +92,11 @@ export function MatchStream({ match }: { match: Fixture }) {
   const providerStatus = data?.status
   // Counts as watching (for the live viewer count) while the stream player is on the page.
   useLiveWatching(source ? `match:${match.fixture.id}` : null)
+  // An invited friend counts once a match's stream player is on the page, as for a movie or an episode.
+  const streaming = Boolean(source)
+  useEffect(() => {
+    if (streaming) void reportReferralPlay()
+  }, [streaming])
   const started = hasStarted(match.fixture.status)
 
   return (

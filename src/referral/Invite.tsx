@@ -416,8 +416,8 @@ function HowStep() {
       <li>Get your personal invite link.</li>
       <li>Share it with friends on WhatsApp, Telegram, X…</li>
       <li>
-        Each friend who opens <strong>your unique link</strong> on a <strong>new phone</strong> AND then <strong>watches a movie or an episode of a
-        series</strong> on that same phone counts as 1 point for you.
+        Each friend who opens <strong>your unique link</strong> on a <strong>new phone</strong> AND then <strong>watches a movie, a series episode or a
+        live match</strong> on that same phone counts as 1 point for you.
       </li>
       <li>The top 3 with the most points win.</li>
     </ol>
@@ -429,13 +429,13 @@ function CountsStep() {
     <div className="invite-counts">
       <p className="invite-counts__head">✅ Counts</p>
       <ul>
-        <li>New friends who open your unique link, then watch a movie or an episode of a series on that same phone.</li>
+        <li>New friends who open your unique link, then watch a movie, a series episode or a live football match on that same phone.</li>
       </ul>
       <p className="invite-counts__head">❌ Doesn’t count</p>
       <ul>
         <li>Friends who come to NAIJA TR without your link (typing the address, searching, someone else’s link).</li>
         <li>Friends who open your link but watch on a different phone.</li>
-        <li>Friends who only open the link, browse, or watch a trailer or live football.</li>
+        <li>Friends who only open the link, browse, or watch a trailer.</li>
         <li>Opening your own link.</li>
         <li>The same phone twice.</li>
         <li>Fake or bot visits (instant disqualification).</li>
@@ -449,7 +449,7 @@ function RulesStep({ contest }: { contest: ContestInfo }) {
     <>
       <ul className="invite-list invite-list--plain">
         <li>Free to enter</li>
-        <li>A friend only counts after opening your unique link and then watching a movie or an episode of a series</li>
+        <li>A friend only counts after opening your unique link and then watching a movie, a series episode or a live match</li>
         <li>One account per person</li>
         <li>{whenLine(contest).replace(/\.$/, '')}</li>
         <li>Fake/bot referrals are disqualified</li>

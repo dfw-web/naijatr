@@ -19,7 +19,7 @@
  *   GET  push?kind=night|final  Telegram reminders to everyone who joined (once per kind a day)
  *
  * A referral counts once: a device new to the site that arrived by a link and
- * then plays a movie or a series episode (trailers and football don't count). Never your own device or Telegram id,
+ * then plays a movie, a series episode or a football match's stream (trailers don't count). Never your own device or Telegram id,
  * each device once per contest (once ever outside one), and at most IP_DAILY_CAP a day per referrer from one network
  * (a salted hash; raw IPs are never stored). Bank details are encrypted
  * (CLAIM_ENCRYPTION_KEY), never logged or sent anywhere, shown only on

@@ -136,9 +136,9 @@ function Rules() {
           reached the score first.
         </li>
         <li>
-          A referral is verified only when a friend opens your unique invite link on a new phone and then, on that same phone, watches a movie or an episode of a series on NAIJA TR during the challenge
+          A referral is verified only when a friend opens your unique invite link on a new phone and then, on that same phone, watches a movie, an episode of a series or a live football match on NAIJA TR during the challenge
           {contest?.end && contest.phase !== 'off' ? ` (it ends ${endLabel(contest.end)}, Lagos time)` : ''}. Friends who come to NAIJA TR without your link, or who watch on a different phone from the one that opened it, don’t count for you. If a friend opens
-          more than one invite link, the first one they opened gets the point. Only opening the link, browsing, or watching a trailer or live football doesn’t
+          more than one invite link, the first one they opened gets the point. Only opening the link, browsing, or watching a trailer doesn’t
           count, and neither does opening your own link or using the same phone twice.
         </li>
         <li>Fake/bot referrals are disqualified; NAIJA TR’s decision is final.</li>
