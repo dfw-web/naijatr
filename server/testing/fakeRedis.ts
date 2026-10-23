@@ -30,6 +30,12 @@ export function fakeRedis(now: () => number = Date.now) {
     switch (name.toUpperCase()) {
       case 'GET':
         return strings.get(key) ?? null
+      case 'SCAN': {
+        // One pass returns everything: cursor "0", keys matching MATCH (only a trailing * is supported).
+        const match = args[args.findIndex((a) => a.toUpperCase() === 'MATCH') + 1] ?? '*'
+        const prefix = match.replace(/\*$/, '')
+        return ['0', [...strings.keys()].filter((k) => (sweep(k), strings.has(k) && k.startsWith(prefix)))]
+      }
       case 'MGET':
         return args.map((k) => (sweep(k), strings.get(k) ?? null))
       case 'SET': {

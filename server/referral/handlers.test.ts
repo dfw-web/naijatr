@@ -209,7 +209,7 @@ describe('leaderboard', () => {
     t.setClock(BOARD_TIME)
     const { body } = await t.call('leaderboard', { token: a.token })
     expect(body.top).toEqual([{ rank: 1, points: 1, name: 'Hidden player', me: true }])
-    expect(body.me).toEqual({ rank: 1, points: 1 })
+    expect(body.me).toEqual({ rank: 1, points: 1, toTop3: 0 })
   })
 })
 
@@ -222,7 +222,7 @@ describe('leaderboard hours', () => {
     await t.refer(a.code, 1)
     await t.refer(a.code, 2)
     const closed = await t.call('leaderboard', { token: a.token })
-    expect(closed.body).toEqual({ top: [], me: { rank: null, points: 2 }, open: false, opensAt: parseLagosTime('2026-10-23 23:40') })
+    expect(closed.body).toEqual({ top: [], me: { rank: null, points: 2, toTop3: 0 }, open: false, opensAt: parseLagosTime('2026-10-23 23:40') })
     expect((await t.call('me', { token: a.token })).body).toMatchObject({ points: 2, rank: null, boardOpen: false })
     expect((await t.call('leaderboard')).body).toMatchObject({ top: [], me: null, open: false })
 
@@ -247,6 +247,96 @@ describe('leaderboard hours', () => {
     await t.refer(a.code, 1)
     const { body } = await t.admin('admin')
     expect(body.top).toMatchObject([{ rank: 1, points: 1, nickname: '@bruno' }])
+  })
+})
+
+describe('points to the top 3', () => {
+  it('tells each player how many more friends get them into the top 3', async () => {
+    const t = setup()
+    const players = [await t.join(1, 'bruno'), await t.join(2, 'ada'), await t.join(3, 'emeka'), await t.join(4, 'tunde')]
+    let friend = 0
+    for (const [i, n] of [5, 3, 2, 1].entries()) for (let j = 0; j < n; j += 1) await t.refer(players[i].code, (friend += 1))
+    const gap = async (token: string) => ((await t.call('me', { token })).body as { toTop3: number }).toTop3
+    expect(await gap(players[0].token)).toBe(0)
+    expect(await gap(players[2].token)).toBe(0)
+    // 3rd has 2: tunde (1) needs 2 more to pass, since a tie goes to whoever got there first.
+    expect(await gap(players[3].token)).toBe(2)
+    const newcomer = await t.join(5, 'kemi')
+    expect(await gap(newcomer.token)).toBe(3)
+    // Shown with your own points even while the ranking is hidden.
+    expect((await t.call('leaderboard', { token: players[3].token })).body.me).toEqual({ rank: null, points: 1, toTop3: 2 })
+  })
+
+  it('needs just one point while fewer than 3 have any', async () => {
+    const t = setup()
+    const a = await t.join(1, 'bruno')
+    const b = await t.join(2, 'ada')
+    await t.refer(a.code, 1)
+    expect((await t.call('me', { token: b.token })).body).toMatchObject({ toTop3: 1 })
+    expect((await t.call('me', { token: a.token })).body).toMatchObject({ toTop3: 0 })
+  })
+})
+
+describe('Telegram reminders', () => {
+  const NIGHT = parseLagosTime('2026-10-23 23:40')
+  const push = (t: ReturnType<typeof setup>, kind: string, token = 'cron-secret') => t.call('push', { token, query: `?kind=${kind}` })
+
+  async function players() {
+    const t = setup({ CRON_SECRET: 'cron-secret' })
+    const a = await t.join(1, 'bruno')
+    await t.join(2, 'ada')
+    await t.join(3, 'cheat')
+    await t.refer(a.code, 1)
+    await t.refer(a.code, 2)
+    await t.admin('admin-dq', { id: 3 })
+    t.telegram.length = 0
+    return t
+  }
+
+  it('sends the nightly "leaderboard is open" message with each player’s points and gap, once a night', async () => {
+    const t = await players()
+    t.setClock(NIGHT)
+    expect((await push(t, 'night')).body).toEqual({ sent: 2, failed: 0 })
+    const [bruno, ada] = [1, 2].map((id) => t.telegram.find((m) => m.chat_id === id)!.text)
+    expect(bruno).toContain('🔓 The NAIJA TR leaderboard is open now until midnight!')
+    expect(bruno).toContain("🔥 You have 2 pts and you're in the top 3 right now.")
+    expect(ada).toContain("You don't have any points yet: 1 friend watching with your link puts you in the 🥉 top 3.")
+    expect(ada).toMatch(/⏳ 2d 0h left · 🥇₦30,000 🥈₦20,000 🥉₦10,000/)
+    expect(ada).toContain('Leaderboard: https://www.naijatr.com/challenge')
+    expect(ada).toMatch(/Your link: https:\/\/www\.naijatr\.com\/r\/ADA\d+/)
+    // Disqualified players get nothing; a cron retry doesn't send again.
+    expect(t.telegram.some((m) => m.chat_id === 3)).toBe(false)
+    expect((await push(t, 'night')).body).toEqual({ sent: 0, skipped: 'already-sent' })
+  })
+
+  it('says when it opens if it runs early, and calls the last one the final night', async () => {
+    const t = await players()
+    t.setClock(parseLagosTime('2026-10-23 23:05'))
+    await push(t, 'night')
+    expect(t.telegram[0].text).toContain('opens tonight from 11:40 PM to midnight')
+    t.setClock(parseLagosTime('2026-10-25 23:40'))
+    await push(t, 'night')
+    expect(t.telegram.at(-1)!.text).toContain('🏁 Final night! The leaderboard is open now and the challenge ends at 11:59 PM.')
+  })
+
+  it('sends the "final hours" message only on the last day', async () => {
+    const t = await players()
+    t.setClock(parseLagosTime('2026-10-24 18:00'))
+    expect((await push(t, 'final')).body).toEqual({ sent: 0, skipped: 'not-now' })
+    t.setClock(parseLagosTime('2026-10-25 18:00'))
+    expect((await push(t, 'final')).body).toEqual({ sent: 2, failed: 0 })
+    expect(t.telegram[0].text).toContain('⏳ Only 5h 59m left in the NAIJA TR Invite Challenge, and the race for the top 3 is tight!')
+  })
+
+  it('sends nothing outside the contest, and only for the cron or the admin', async () => {
+    const t = await players()
+    t.setClock(AFTER)
+    expect((await push(t, 'night')).body).toEqual({ sent: 0, skipped: 'not-now' })
+    t.setClock(NIGHT)
+    expect((await push(t, 'night', 'wrong')).status).toBe(401)
+    expect((await t.call('push', { query: '?kind=night' })).status).toBe(401)
+    expect((await push(t, 'night', 'admin-pass')).body).toEqual({ sent: 2, failed: 0 })
+    expect((await push(t, 'nope')).status).toBe(400)
   })
 })
 

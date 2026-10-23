@@ -360,3 +360,76 @@ describe('leaderboard page', () => {
     expect(screen.queryByText(/🔒/)).not.toBeInTheDocument()
   })
 })
+
+describe('push to the top 3', () => {
+  const ME = { user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' }, total: 2, rank: null, boardOpen: false }
+
+  async function joinedGuide(me: object) {
+    saveSession({ token: 't', user: ME.user })
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest' ? Response.json(live) : url === '/api/referral/me' ? Response.json({ ...ME, ...me }) : Response.json({ ok: true }),
+    )
+    const { ContestHost } = await import('./Invite')
+    const { openInviteGuide } = await import('./guide')
+    render(<ContestHost />)
+    await screen.findByRole('dialog')
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    act(() => openInviteGuide())
+  }
+
+  it('tells joined players how many more friends reach the top 3', async () => {
+    await joinedGuide({ points: 2, toTop3: 6 })
+    expect(await screen.findByText('🎯 6 more friends to reach the 🥉 top 3')).toBeInTheDocument()
+  })
+
+  it('cheers on players already in the top 3', async () => {
+    await joinedGuide({ points: 9, toTop3: 0 })
+    expect(await screen.findByText('🔥 You’re in the top 3! Keep inviting to stay there.')).toBeInTheDocument()
+  })
+
+  it('shows the gap on the leaderboard page too, while the ranking is hidden', async () => {
+    window.history.replaceState(null, '', '/challenge')
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest'
+        ? Response.json(live)
+        : Response.json({ top: [], me: { rank: null, points: 1, toTop3: 1 }, open: false, opensAt: Date.now() + HOUR }),
+    )
+    const { default: ChallengeApp } = await import('./ChallengeApp')
+    render(<ChallengeApp />)
+    expect(await screen.findByText('🎯 1 more friend to reach the 🥉 top 3')).toBeInTheDocument()
+  })
+})
+
+describe('banner toward the end', () => {
+  /** Lagos time on the contest's last day. */
+  const at = (time: string) => Date.parse(`2026-10-25T${time}:00+01:00`)
+  const END = Date.parse('2026-10-25T23:59:59.999+01:00')
+
+  async function bannerAt(time: string, contestEnd = END) {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(time) })
+    fetchMock.mockImplementation(async () => Response.json({ ...live, start: at(time) - 2 * 24 * HOUR, end: contestEnd }))
+    const { ContestHost } = await import('./Invite')
+    render(<ContestHost />)
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(await screen.findByRole('button', { name: 'Maybe later' }))
+    return screen.getByRole('region', { name: 'Invite and win' })
+  }
+  afterEach(() => vi.useRealTimers())
+
+  it('keeps the usual message with more than a day left', async () => {
+    expect(await bannerAt('12:00', END + 3 * 24 * HOUR)).toHaveTextContent(/^🎁 Invite & win up to ₦30k · ⏳ Ends in/)
+  })
+
+  it('says it’s the last day', async () => {
+    expect(await bannerAt('09:00')).toHaveTextContent(/^⏳ Last day to invite & win up to ₦30k · ⏳ Ends in 14h 59m/)
+  })
+
+  it('turns urgent in the final hours', async () => {
+    expect(await bannerAt('19:00')).toHaveTextContent(/^🔥 Final hours! The race for the top 3 is tight · ⏳ Ends in 04h 59m/)
+  })
+
+  it('says the leaderboard is open from 11:40 PM, with a link to it', async () => {
+    const banner = await bannerAt('23:45')
+    expect(banner).toHaveTextContent(/^🔓 The leaderboard is open now until midnight!/)
+    expect(screen.getByRole('link', { name: 'See leaderboard' })).toHaveAttribute('href', '/challenge')
+  })
+})

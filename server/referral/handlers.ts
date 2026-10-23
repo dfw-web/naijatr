@@ -15,6 +15,8 @@
  *   POST claim        { t, accountName, provider, accountNumber, phone }
  * Admin (ADMIN_PASSWORD):
  *   GET  admin, POST admin-confirm { place }, admin-dq { id }, admin-paid { id }
+ * Vercel Cron (CRON_SECRET, see vercel.json), or the admin:
+ *   GET  push?kind=night|final  Telegram reminders to everyone who joined (once per kind a day)
  *
  * A referral counts once: a device new to the site that arrived by a link and
  * then plays a movie or a series episode (trailers and football don't count). Never your own device or Telegram id,
@@ -62,6 +64,8 @@ export interface ReferralEnv extends RedisEnv {
   /** Signs sessions and salts IP hashes. */
   secret: string
   claimKey: string
+  /** Vercel Cron sends it as a bearer token. */
+  cronSecret: string
   contest: Contest | null
 }
 
@@ -73,6 +77,7 @@ export function readReferralEnv(env: Record<string, string | undefined>): Referr
     adminChatId: env.ADMIN_TELEGRAM_CHAT_ID?.trim() ?? '',
     secret: (env.REFERRAL_SECRET ?? env.NAIJATR_GATE_SECRET ?? '').trim(),
     claimKey: env.CLAIM_ENCRYPTION_KEY?.trim() ?? '',
+    cronSecret: env.CRON_SECRET?.trim() ?? '',
     contest: readContest(env),
   }
 }
@@ -119,6 +124,7 @@ const k = {
   announced: (c: Contest) => `contest:${c.id}:announced`,
   claimData: (c: Contest, id: number) => `contest:${c.id}:claim:${id}`,
   paid: (c: Contest) => `contest:${c.id}:paid`,
+  pushed: (c: Contest, kind: string, day: string) => `contest:${c.id}:push:${kind}:${day}`,
   claimLink: (token: string) => `claim:${token}`,
 }
 
@@ -287,6 +293,14 @@ export async function standings(env: ReferralEnv, contest: Contest, fetchImpl: t
     .map((r, index) => ({ id: r.id, points: pointsOf(r.score), rank: index + 1 }))
 }
 
+/** Points still needed to get into the top 3 (0 when already in it): one more than 3rd, since ties go to whoever got there first. */
+export function toTop3(all: Standing[], id: number): number {
+  const mine = all.find((s) => s.id === id)
+  if (mine && mine.rank <= 3) return 0
+  const third = all[2]
+  return third ? third.points - (mine?.points ?? 0) + 1 : 1
+}
+
 async function usersById(env: ReferralEnv, ids: number[], fetchImpl: typeof fetch) {
   if (!ids.length) return new Map<number, ReferralUser>()
   const [raw] = (await redis(env, [['MGET', ...ids.map(k.user)]], fetchImpl)) ?? []
@@ -301,14 +315,19 @@ async function leaderboard(env: ReferralEnv, sessionUser: number | null, now: nu
   if (!all) return fail(502, 'store-unavailable')
   if (!boardOpen(contest, now)) {
     const mine = sessionUser === null ? null : all.find((s) => s.id === sessionUser)
-    return ok({ top: [], me: sessionUser === null ? null : { rank: null, points: mine?.points ?? 0 }, open: false, opensAt: nextBoardOpening(now) })
+    return ok({
+      top: [],
+      me: sessionUser === null ? null : { rank: null, points: mine?.points ?? 0, toTop3: toTop3(all, sessionUser) },
+      open: false,
+      opensAt: nextBoardOpening(now),
+    })
   }
   const top = all.slice(0, 10)
   const users = await usersById(env, top.map((s) => s.id), fetchImpl)
   const me = sessionUser === null ? null : (all.find((s) => s.id === sessionUser) ?? { id: sessionUser, points: 0, rank: null })
   return ok({
     top: top.map((s) => ({ rank: s.rank, points: s.points, name: users.get(s.id) ? displayName(users.get(s.id)!) : 'Player', me: s.id === sessionUser })),
-    me: me && { rank: me.rank, points: me.points },
+    me: me && { rank: me.rank, points: me.points, toTop3: toTop3(all, me.id) },
     open: true,
     opensAt: null,
   })
@@ -322,7 +341,14 @@ async function me(env: ReferralEnv, userId: number, now: number, fetchImpl: type
   const all = contest ? await standings(env, contest, fetchImpl) : []
   const mine = all?.find((s) => s.id === userId)
   const open = boardOpen(contest, now)
-  return ok({ user: publicUser(user), total: Number(total) || 0, points: mine?.points ?? 0, rank: open ? (mine?.rank ?? null) : null, boardOpen: open })
+  return ok({
+    user: publicUser(user),
+    total: Number(total) || 0,
+    points: mine?.points ?? 0,
+    rank: open ? (mine?.rank ?? null) : null,
+    boardOpen: open,
+    toTop3: all && contestPhase(contest, now) === 'live' ? toTop3(all, userId) : null,
+  })
 }
 
 async function profile(env: ReferralEnv, userId: number, body: Record<string, unknown>, fetchImpl: typeof fetch): Promise<Result> {
@@ -511,6 +537,92 @@ export async function markPaid(env: ReferralEnv, contest: Contest, id: number, f
   return done ? ok() : fail(502, 'store-unavailable')
 }
 
+// ---- Reminders ----
+
+const PUSH_BATCH = 20
+const LAGOS_MS = 3_600_000
+
+/** "1d 4h", "5h 20m", "12m". */
+export function timeLeft(ms: number) {
+  const m = Math.max(0, Math.floor(ms / 60_000))
+  const d = Math.floor(m / 1440)
+  const h = Math.floor((m % 1440) / 60)
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m % 60}m` : `${m % 60}m`
+}
+
+/** Your line in a reminder: points and what it takes to reach the top 3. */
+export function standingLine(points: number, gap: number) {
+  if (gap === 0) return `🔥 You have ${points} pts and you're in the top 3 right now. Keep inviting to stay there!`
+  const friends = `${gap} friend${gap === 1 ? '' : 's'}`
+  if (points === 0) return `You don't have any points yet: ${friends} watching with your link puts you in the 🥉 top 3.`
+  return `You have ${points} pts: ${gap} more ${gap === 1 ? 'friend' : 'friends'} to reach the 🥉 top 3.`
+}
+
+/** The reminder text, or null when there's nothing to send at this time. */
+export function reminderText(kind: string, contest: Contest, now: number, points: number, gap: number, link: string): string | null {
+  const left = contest.end - now
+  if (contestPhase(contest, now) !== 'live') return null
+  const lagosMinutes = Math.floor(((now + LAGOS_MS) % 86_400_000) / 60_000)
+  const prizes = contest.prizes.map((p, i) => `${['🥇', '🥈', '🥉'][i]}${naira(p)}`).join(' ')
+  let head: string
+  if (kind === 'night') {
+    const open = lagosMinutes >= 23 * 60 + 40
+    head =
+      left < 86_400_000
+        ? `🏁 Final night! The leaderboard ${open ? 'is open now' : 'opens at 11:40 PM'} and the challenge ends at 11:59 PM.`
+        : `🔓 The NAIJA TR leaderboard ${open ? 'is open now until midnight' : 'opens tonight from 11:40 PM to midnight'}!`
+  } else if (kind === 'final') {
+    // Only on the last day.
+    if (left > 86_400_000) return null
+    head = `⏳ Only ${timeLeft(left)} left in the NAIJA TR Invite Challenge, and the race for the top 3 is tight!`
+  } else return null
+  return [head, standingLine(points, gap), `⏳ ${timeLeft(left)} left · ${prizes}`, `Leaderboard: ${SITE}/challenge`, `Your link: ${link}`].join('\n\n')
+}
+
+async function allUsers(env: ReferralEnv, fetchImpl: typeof fetch): Promise<ReferralUser[] | null> {
+  const keys: string[] = []
+  let cursor = '0'
+  do {
+    const [reply] = (await redis(env, [['SCAN', cursor, 'MATCH', 'ref:user:*', 'COUNT', 500]], fetchImpl)) ?? []
+    if (!Array.isArray(reply)) return null
+    cursor = String(reply[0])
+    keys.push(...(reply[1] as string[]))
+  } while (cursor !== '0')
+  const users: ReferralUser[] = []
+  for (let i = 0; i < keys.length; i += 100) {
+    const [raw] = (await redis(env, [['MGET', ...keys.slice(i, i + 100)]], fetchImpl)) ?? []
+    if (Array.isArray(raw)) users.push(...raw.flatMap((r) => parse<ReferralUser>(r) ?? []))
+  }
+  return users
+}
+
+/** Telegram reminders to everyone who joined, at most once per kind a day (a cron retry doesn't repeat it). */
+export async function sendReminders(env: ReferralEnv, kind: string, now: number, fetchImpl: typeof fetch): Promise<Result> {
+  const contest = env.contest
+  if (kind !== 'night' && kind !== 'final') return fail(400, 'bad-request')
+  if (!contest || !reminderText(kind, contest, now, 0, 1, SITE)) return ok({ sent: 0, skipped: 'not-now' })
+  if (!env.telegramToken) return fail(503, 'not-configured')
+  const day = new Date(now + LAGOS_MS).toISOString().slice(0, 10)
+  const [first] = (await redis(env, [['SET', k.pushed(contest, kind, day), now, 'NX', 'EX', 2 * 86_400]], fetchImpl)) ?? []
+  if (first !== 'OK') return ok({ sent: 0, skipped: 'already-sent' })
+  const [users, all] = await Promise.all([allUsers(env, fetchImpl), standings(env, contest, fetchImpl)])
+  if (!users || !all) return fail(502, 'store-unavailable')
+  const [dqRaw] = (await redis(env, [['SMEMBERS', k.dq(contest)]], fetchImpl)) ?? []
+  const dq = new Set((Array.isArray(dqRaw) ? (dqRaw as string[]) : []).map(Number))
+  const targets = users.filter((u) => !dq.has(u.id))
+  let sent = 0
+  for (let i = 0; i < targets.length; i += PUSH_BATCH) {
+    const results = await Promise.all(
+      targets.slice(i, i + PUSH_BATCH).map((user) => {
+        const points = all.find((s) => s.id === user.id)?.points ?? 0
+        return telegram(env, user.id, reminderText(kind, contest, now, points, toTop3(all, user.id), publicUser(user).link)!, fetchImpl)
+      }),
+    )
+    sent += results.filter(Boolean).length
+  }
+  return ok({ sent, failed: targets.length - sent })
+}
+
 // ---- Claims ----
 
 interface ClaimLink {
@@ -579,7 +691,7 @@ async function readBody(req: IncomingMessage & { body?: unknown }): Promise<Reco
 export const clientIp = (req: IncomingMessage) =>
   String(req.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket?.remoteAddress || ''
 
-const GET_ROUTES = new Set(['contest', 'leaderboard', 'me', 'claim', 'admin'])
+const GET_ROUTES = new Set(['contest', 'leaderboard', 'me', 'claim', 'admin', 'push'])
 const POST_ROUTES = new Set(['login', 'arrive', 'count', 'profile', 'claim', 'admin-confirm', 'admin-dq', 'admin-paid'])
 
 export async function handleReferral(
@@ -603,6 +715,14 @@ export async function handleReferral(
   }
   const authorization = req.headers?.authorization
   const reply = (r: Result) => sendJson(res, r.status, r.body)
+
+  if (action === 'push') {
+    const cron = Boolean(env.cronSecret) && authorization === `Bearer ${env.cronSecret}`
+    const admin = Boolean(env.adminPassword) && isAdmin({ ...env, adminPassword: env.adminPassword }, authorization)
+    if (!cron && !admin) return sendJson(res, 401, { error: 'unauthorized' })
+    const kind = new URL(req.url ?? '', 'http://localhost').searchParams.get('kind') ?? ''
+    return reply(await sendReminders(env, kind, now, fetchImpl))
+  }
 
   if (action.startsWith('admin')) {
     if (!env.adminPassword) return sendJson(res, 503, { error: 'not-configured' })

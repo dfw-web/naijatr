@@ -165,3 +165,10 @@
 .challenge__locked p {
   margin: 0.3rem 0;
 }
+
+.challenge__gap {
+  margin: 0.8rem 0 0;
+  color: #f5c518;
+  font-weight: 700;
+  text-align: center;
+}

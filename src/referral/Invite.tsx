@@ -3,7 +3,23 @@ import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Copy, Gift, Share2, X } from 'lucide-react'
 import { isTvMode } from '../tv/tvMode'
 import { arrivedByInvite } from './capture'
-import { contestOn, countdownTarget, endLabel, fetchMe, login, nairaShort, naira, updateProfile, useContest, useCountdown, type ContestInfo, type Me } from './api'
+import {
+  boardOpenNow,
+  contestOn,
+  countdownTarget,
+  endLabel,
+  fetchMe,
+  login,
+  nairaShort,
+  naira,
+  topThreeLine,
+  updateProfile,
+  useContest,
+  useCountdown,
+  useNow,
+  type ContestInfo,
+  type Me,
+} from './api'
 import { useReferralSession } from './session'
 import { closeInviteGuide, OPEN_GUIDE_KEY, openInviteGuide, SHARE_TEXT, useGuideOpen } from './guide'
 import { dismissInvitee, useInviteeDue } from './invitee'
@@ -219,12 +235,36 @@ function InviteePopup({ contest, onClose }: { contest: ContestInfo & { end: numb
   )
 }
 
+const HOUR = 3_600_000
+
+/** Gets more urgent toward the end; "open now" while the leaderboard shows (11:40 PM to midnight). */
 function ContestBanner({ contest }: { contest: ContestInfo }) {
   const countdown = useContestCountdown(contest)
+  const now = useNow()
+  const live = contest.phase === 'live'
+  const left = (contest.end ?? now) - now
+  if (live && boardOpenNow(now)) {
+    return (
+      <div className="invite-banner invite-banner--urgent" role="region" aria-label="Invite and win">
+        <span>
+          🔓 The leaderboard is open now until midnight! · <span className="invite-banner__time">⏳ {countdown}</span>
+        </span>
+        <a className="invite-banner__action" href="/challenge">
+          See leaderboard
+        </a>
+      </div>
+    )
+  }
+  const message =
+    live && left <= 6 * HOUR
+      ? '🔥 Final hours! The race for the top 3 is tight'
+      : live && left <= 24 * HOUR
+        ? `⏳ Last day to invite & win up to ${nairaShort(Math.max(...contest.prizes!))}`
+        : `🎁 Invite & win up to ${nairaShort(Math.max(...contest.prizes!))}`
   return (
-    <div className="invite-banner" role="region" aria-label="Invite and win">
+    <div className={`invite-banner${live && left <= 24 * HOUR ? ' invite-banner--urgent' : ''}`} role="region" aria-label="Invite and win">
       <span>
-        🎁 Invite &amp; win up to {nairaShort(Math.max(...contest.prizes!))} · <span className="invite-banner__time">⏳ {countdown}</span>
+        {message} · <span className="invite-banner__time">⏳ {countdown}</span>
       </span>
       <button type="button" onClick={openInviteGuide}>
         I&apos;m interested
@@ -577,6 +617,9 @@ export function SharePanel({ live }: { live: boolean }) {
             <strong>{me?.boardOpen === false ? '🔒' : me?.rank ? `#${me.rank}` : '–'}</strong> {me?.boardOpen === false ? 'rank shows at 11:40 PM' : 'rank'}
           </p>
         </div>
+      )}
+      {live && me && typeof me.toTop3 === 'number' && topThreeLine(me.points, me.toTop3) && (
+        <p className="invite-share__gap">{topThreeLine(me.points, me.toTop3)}</p>
       )}
       {!live && me && <p className="invite-share__total">{me.total} friends joined with your link</p>}
       {live && (

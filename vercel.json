@@ -3,6 +3,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "crons": [
+    { "path": "/api/referral/push?kind=night", "schedule": "40 22 * * *" },
+    { "path": "/api/referral/push?kind=final", "schedule": "0 17 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/tmdb/:path*", "destination": "/api/tmdb?__path=:path*" },
     { "source": "/api/play/:path*", "destination": "/api/play?__path=:path*" },

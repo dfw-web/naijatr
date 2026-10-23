@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { contestOn, countdownTarget, endLabel, fetchClaim, fetchLeaderboard, naira, sendClaim, useContest, useCountdown, type Leaderboard } from './api'
+import { contestOn, countdownTarget, endLabel, fetchClaim, fetchLeaderboard, naira, sendClaim, topThreeLine, useContest, useCountdown, type Leaderboard } from './api'
 import { TelegramLogin } from './Invite'
 import { OPEN_GUIDE_KEY } from './guide'
 import { useReferralSession } from './session'
@@ -102,6 +102,9 @@ function Board() {
         <p className="challenge__me">
           You: {board.me.rank ? `#${board.me.rank}` : 'not ranked yet'} · {board.me.points} pts
         </p>
+      )}
+      {contest.phase === 'live' && board?.me && typeof board.me.toTop3 === 'number' && topThreeLine(board.me.points, board.me.toTop3) && (
+        <p className="challenge__gap">{topThreeLine(board.me.points, board.me.toTop3)}</p>
       )}
       <a className="btn btn--primary challenge__cta" href="/" onClick={(e) => (e.preventDefault(), openFromHome())}>
         Get my invite link

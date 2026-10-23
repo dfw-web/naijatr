@@ -435,3 +435,20 @@
   color: var(--text-muted);
   font-size: 0.9rem;
 }
+
+/* ---- Top 3 gap and urgent banner ---- */
+
+.invite-share__gap {
+  margin: 0.6rem 0 0;
+  color: #f5c518;
+  font-weight: 700;
+}
+
+.invite-banner--urgent {
+  background: linear-gradient(90deg, #3a2400, #4a0c10);
+}
+
+.invite-banner__action {
+  color: #f5c518;
+  font-weight: 700;
+}

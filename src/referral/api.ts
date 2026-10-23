@@ -88,6 +88,8 @@ export interface Me {
   rank: number | null
   /** False while the ranking is hidden (outside 11:40 PM to midnight during the contest). */
   boardOpen?: boolean
+  /** Points still needed for the top 3 (0: in it); null outside the contest. */
+  toTop3?: number | null
 }
 
 export const fetchMe = () => call<Me>('me').then(({ data }) => data)
@@ -101,7 +103,7 @@ export async function updateProfile(change: { nickname?: string; hidden?: boolea
 
 export interface Leaderboard {
   top: { rank: number; points: number; name: string; me: boolean }[]
-  me: { rank: number | null; points: number } | null
+  me: { rank: number | null; points: number; toTop3?: number } | null
   /** False outside 11:40 PM to midnight while the contest runs: only your own points. */
   open?: boolean
   opensAt?: number | null
@@ -136,6 +138,25 @@ async function sendReferralPlay() {
   if (status === 0 || status >= 500) saveRef({ ...ref, reported: false })
   // It counted for the friend (now or on an earlier play): the "You can win too" popup may follow.
   if (data?.outcome === 'counted' || data?.outcome === 'already') markCounted()
+}
+
+/** "🎯 6 more friends to reach the 🥉 top 3", or that you're in it. */
+export function topThreeLine(points: number, gap: number) {
+  if (gap === 0) return points > 0 ? '🔥 You’re in the top 3! Keep inviting to stay there.' : null
+  return `🎯 ${gap} more friend${gap === 1 ? '' : 's'} to reach the 🥉 top 3`
+}
+
+/** While the contest runs, the ranking shows only from 11:40 PM to midnight, Lagos time (server/referral/contest.ts). */
+export const boardOpenNow = (now = Date.now()) => (now + 3_600_000) % 86_400_000 >= (23 * 60 + 40) * 60_000
+
+/** Re-renders every `ms`, for text that changes with the time. */
+export function useNow(ms = 30_000) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), ms)
+    return () => window.clearInterval(timer)
+  }, [ms])
+  return now
 }
 
 /** Naira, e.g. ₦30,000. */
