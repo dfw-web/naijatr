@@ -12,6 +12,8 @@ const START = parseLagosTime('2026-10-23 18:00')
 const END = parseLagosTime('2026-10-25 23:59') + 59_999
 const DURING = START + HOUR
 const AFTER = END + HOUR
+/** The ranking shows 11:40 PM to midnight while the contest runs. */
+const BOARD_TIME = parseLagosTime('2026-10-23 23:45')
 
 const device = (n: number | string) => `device-${String(n).padStart(12, '0')}`
 
@@ -191,6 +193,7 @@ describe('leaderboard', () => {
     t.setClock(DURING + 3000)
     await t.refer(b.code, 4)
     // Both on 2 points: bruno reached 2 first (ada only at the last referral).
+    t.setClock(BOARD_TIME)
     const { body } = await t.call('leaderboard')
     expect(body.top).toEqual([
       { rank: 1, points: 2, name: '@bruno', me: false },
@@ -203,9 +206,47 @@ describe('leaderboard', () => {
     const a = await t.join(1, 'bruno')
     await t.refer(a.code, 1)
     await t.call('profile', { body: { hidden: true }, token: a.token })
+    t.setClock(BOARD_TIME)
     const { body } = await t.call('leaderboard', { token: a.token })
     expect(body.top).toEqual([{ rank: 1, points: 1, name: 'Hidden player', me: true }])
     expect(body.me).toEqual({ rank: 1, points: 1 })
+  })
+})
+
+describe('leaderboard hours', () => {
+  it('shows the ranking only from 11:40 PM to midnight while the contest runs, your own points always', async () => {
+    const t = setup()
+    const a = await t.join(1, 'bruno')
+    await t.join(2, 'ada')
+    t.setClock(DURING)
+    await t.refer(a.code, 1)
+    await t.refer(a.code, 2)
+    const closed = await t.call('leaderboard', { token: a.token })
+    expect(closed.body).toEqual({ top: [], me: { rank: null, points: 2 }, open: false, opensAt: parseLagosTime('2026-10-23 23:40') })
+    expect((await t.call('me', { token: a.token })).body).toMatchObject({ points: 2, rank: null, boardOpen: false })
+    expect((await t.call('leaderboard')).body).toMatchObject({ top: [], me: null, open: false })
+
+    for (const time of ['2026-10-23 23:40', '2026-10-23 23:59']) {
+      t.setClock(parseLagosTime(time))
+      const open = await t.call('leaderboard', { token: a.token })
+      expect(open.body).toMatchObject({ top: [{ rank: 1, points: 2, name: '@bruno', me: true }], me: { rank: 1, points: 2 }, open: true })
+      expect((await t.call('me', { token: a.token })).body).toMatchObject({ rank: 1, boardOpen: true })
+    }
+    // Midnight: hidden again until tonight's 11:40 PM.
+    t.setClock(parseLagosTime('2026-10-24 00:00'))
+    expect((await t.call('leaderboard')).body).toMatchObject({ top: [], open: false, opensAt: parseLagosTime('2026-10-24 23:40') })
+    // After the end: the final standings.
+    t.setClock(AFTER)
+    expect((await t.call('leaderboard')).body).toMatchObject({ top: [{ rank: 1, points: 2 }], open: true })
+  })
+
+  it('never hides anything from the admin page', async () => {
+    const t = setup()
+    const a = await t.join(1, 'bruno')
+    t.setClock(DURING)
+    await t.refer(a.code, 1)
+    const { body } = await t.admin('admin')
+    expect(body.top).toMatchObject([{ rank: 1, points: 1, nickname: '@bruno' }])
   })
 })
 

@@ -4,7 +4,7 @@
  *
  * Public:
  *   GET  contest      the contest's phase, dates, prizes, and the winners for 3 days after they're announced
- *   GET  leaderboard  top 10 (and your own rank, when signed in)
+ *   GET  leaderboard  top 10 (and your own rank, when signed in); while the contest runs, only 11:40 PM to midnight (your points always)
  *   POST arrive       a device opened /r/CODE: { code, device, newDevice }
  *   POST count        that device played something: { device } (+ session, if signed in)
  * Signed in (Telegram Login Widget → session token):
@@ -28,7 +28,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAdmin } from '../live/handlers.js'
 import { hasRedis, readRedisEnv, redis, type Command, type RedisEnv } from '../redis.js'
-import { boardScore, contestPhase, PLACES, pointsOf, readContest, scoresAt, type Contest } from './contest.js'
+import { boardOpen, boardScore, contestPhase, nextBoardOpening, PLACES, pointsOf, readContest, scoresAt, type Contest } from './contest.js'
 import {
   bearer,
   claimToken,
@@ -294,28 +294,35 @@ async function usersById(env: ReferralEnv, ids: number[], fetchImpl: typeof fetc
   return new Map(list.flatMap((u) => (u ? [[u.id, u] as const] : [])))
 }
 
-async function leaderboard(env: ReferralEnv, sessionUser: number | null, fetchImpl: typeof fetch): Promise<Result> {
+async function leaderboard(env: ReferralEnv, sessionUser: number | null, now: number, fetchImpl: typeof fetch): Promise<Result> {
   const contest = env.contest
-  if (!contest) return ok({ top: [], me: null })
+  if (!contest) return ok({ top: [], me: null, open: true, opensAt: null })
   const all = await standings(env, contest, fetchImpl)
   if (!all) return fail(502, 'store-unavailable')
+  if (!boardOpen(contest, now)) {
+    const mine = sessionUser === null ? null : all.find((s) => s.id === sessionUser)
+    return ok({ top: [], me: sessionUser === null ? null : { rank: null, points: mine?.points ?? 0 }, open: false, opensAt: nextBoardOpening(now) })
+  }
   const top = all.slice(0, 10)
   const users = await usersById(env, top.map((s) => s.id), fetchImpl)
   const me = sessionUser === null ? null : (all.find((s) => s.id === sessionUser) ?? { id: sessionUser, points: 0, rank: null })
   return ok({
     top: top.map((s) => ({ rank: s.rank, points: s.points, name: users.get(s.id) ? displayName(users.get(s.id)!) : 'Player', me: s.id === sessionUser })),
     me: me && { rank: me.rank, points: me.points },
+    open: true,
+    opensAt: null,
   })
 }
 
-async function me(env: ReferralEnv, userId: number, fetchImpl: typeof fetch): Promise<Result> {
+async function me(env: ReferralEnv, userId: number, now: number, fetchImpl: typeof fetch): Promise<Result> {
   const user = await getUser(env, userId, fetchImpl)
   if (!user) return fail(401, 'signed-out')
   const contest = env.contest
   const [total] = (await redis(env, [['GET', k.total(userId)]], fetchImpl)) ?? []
   const all = contest ? await standings(env, contest, fetchImpl) : []
   const mine = all?.find((s) => s.id === userId)
-  return ok({ user: publicUser(user), total: Number(total) || 0, points: mine?.points ?? 0, rank: mine?.rank ?? null })
+  const open = boardOpen(contest, now)
+  return ok({ user: publicUser(user), total: Number(total) || 0, points: mine?.points ?? 0, rank: open ? (mine?.rank ?? null) : null, boardOpen: open })
 }
 
 async function profile(env: ReferralEnv, userId: number, body: Record<string, unknown>, fetchImpl: typeof fetch): Promise<Result> {
@@ -614,7 +621,7 @@ export async function handleReferral(
     case 'contest':
       return reply(await contestInfo(env, now, fetchImpl))
     case 'leaderboard':
-      return reply(await leaderboard(env, sessionUser, fetchImpl))
+      return reply(await leaderboard(env, sessionUser, now, fetchImpl))
     case 'login':
       return reply(await login(env, body, now, fetchImpl))
     case 'arrive':
@@ -631,7 +638,7 @@ export async function handleReferral(
     }
   }
   if (sessionUser === null) return sendJson(res, 401, { error: 'signed-out' })
-  if (action === 'me') return reply(await me(env, sessionUser, fetchImpl))
+  if (action === 'me') return reply(await me(env, sessionUser, now, fetchImpl))
   if (action === 'profile') return reply(await profile(env, sessionUser, body, fetchImpl))
   // claim
   const contest = env.contest

@@ -153,3 +153,15 @@
 .challenge__done {
   font-size: 1.1rem;
 }
+
+.challenge__locked {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(245, 197, 24, 0.35);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.challenge__locked p {
+  margin: 0.3rem 0;
+}

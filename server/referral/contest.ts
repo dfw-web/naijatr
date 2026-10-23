@@ -78,3 +78,18 @@ export const boardScore = (points: number, at: number, contest: Contest) =>
 export const pointsOf = (score: number) => Math.floor(score / 1e10)
 
 export const PLACES = ['1st', '2nd', '3rd'] as const
+
+const LAGOS_MS = 3_600_000
+const DAY_MS = 86_400_000
+/** While the contest runs, the ranking shows only from 11:40 PM to midnight, Lagos time (your own points always show). */
+export const BOARD_OPENS_MS = (23 * 60 + 40) * 60_000
+
+export const boardOpen = (contest: Contest | null, now: number) =>
+  contestPhase(contest, now) !== 'live' || (now + LAGOS_MS) % DAY_MS >= BOARD_OPENS_MS
+
+/** When the ranking next opens (tonight's 11:40 PM, or tomorrow's). */
+export function nextBoardOpening(now: number) {
+  const lagos = now + LAGOS_MS
+  const opens = lagos - (lagos % DAY_MS) + BOARD_OPENS_MS
+  return (opens > lagos ? opens : opens + DAY_MS) - LAGOS_MS
+}

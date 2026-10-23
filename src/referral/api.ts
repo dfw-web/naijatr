@@ -86,6 +86,8 @@ export interface Me {
   total: number
   points: number
   rank: number | null
+  /** False while the ranking is hidden (outside 11:40 PM to midnight during the contest). */
+  boardOpen?: boolean
 }
 
 export const fetchMe = () => call<Me>('me').then(({ data }) => data)
@@ -100,6 +102,9 @@ export async function updateProfile(change: { nickname?: string; hidden?: boolea
 export interface Leaderboard {
   top: { rank: number; points: number; name: string; me: boolean }[]
   me: { rank: number | null; points: number } | null
+  /** False outside 11:40 PM to midnight while the contest runs: only your own points. */
+  open?: boolean
+  opensAt?: number | null
 }
 
 export const fetchLeaderboard = () => call<Leaderboard>('leaderboard').then(({ data }) => data)

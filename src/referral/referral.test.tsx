@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureReferral, readRef, REF_KEY } from './capture'
@@ -31,8 +31,9 @@ beforeEach(() => {
   mockApi()
 })
 afterEach(async () => {
-  // A closed popup drops its Back-button entry a moment later: let it land before the next test.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+  // A closed popup drops its Back-button entry a moment later: unmount now, and let it land before the next test.
+  cleanup()
+  await new Promise((resolve) => setTimeout(resolve, 50))
   vi.unstubAllGlobals()
   vi.resetModules()
   saveSession(null)
@@ -328,3 +329,34 @@ describe('"You can win too" popup for invited visitors', () => {
 })
 
 const fireClick = (element: HTMLElement) => act(() => element.click())
+
+describe('leaderboard page', () => {
+  it('outside 11:40 PM to midnight: only your own points and when it opens', async () => {
+    saveSession({ token: 't', user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' } })
+    window.history.replaceState(null, '', '/challenge')
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest'
+        ? Response.json(live)
+        : Response.json({ top: [], me: { rank: null, points: 4 }, open: false, opensAt: Date.now() + 2 * HOUR }),
+    )
+    const { default: ChallengeApp } = await import('./ChallengeApp')
+    render(<ChallengeApp />)
+    expect(await screen.findByText('🔒 The leaderboard opens every night from 11:40 PM to midnight (Lagos time).')).toBeInTheDocument()
+    expect(screen.getByText(/^Opens in (01h 59m|02h 00m)/)).toBeInTheDocument()
+    expect(screen.getByText('Your points: 4 pts')).toBeInTheDocument()
+    expect(screen.queryByText('No points yet. Be the first!')).not.toBeInTheDocument()
+  })
+
+  it('from 11:40 PM: the live ranking', async () => {
+    window.history.replaceState(null, '', '/challenge')
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest'
+        ? Response.json(live)
+        : Response.json({ top: [{ rank: 1, points: 3, name: '@diuto', me: false }], me: null, open: true, opensAt: null }),
+    )
+    const { default: ChallengeApp } = await import('./ChallengeApp')
+    render(<ChallengeApp />)
+    expect(await screen.findByText('@diuto')).toBeInTheDocument()
+    expect(screen.queryByText(/🔒/)).not.toBeInTheDocument()
+  })
+})

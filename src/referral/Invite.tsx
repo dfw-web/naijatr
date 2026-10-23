@@ -574,7 +574,7 @@ export function SharePanel({ live }: { live: boolean }) {
             <strong>{me?.points ?? '–'}</strong> points
           </p>
           <p>
-            <strong>{me?.rank ? `#${me.rank}` : '–'}</strong> rank
+            <strong>{me?.boardOpen === false ? '🔒' : me?.rank ? `#${me.rank}` : '–'}</strong> {me?.boardOpen === false ? 'rank shows at 11:40 PM' : 'rank'}
           </p>
         </div>
       )}

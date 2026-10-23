@@ -8,7 +8,8 @@ import './challenge.css'
 
 /**
  * The challenge pages, a separate root like Football:
- * /challenge (live leaderboard), /challenge/rules and /challenge/claim (winners only).
+ * /challenge (the leaderboard: while the contest runs, only 11:40 PM to midnight Lagos time),
+ * /challenge/rules and /challenge/claim (winners only).
  */
 
 export default function ChallengeApp() {
@@ -40,6 +41,8 @@ function Board() {
   const signedIn = useReferralSession()
   const [board, setBoard] = useState<Leaderboard | null>(null)
   const countdown = useCountdown(contestOn(contest) ? countdownTarget(contest) : null)
+  const hidden = board?.open === false
+  const opensIn = useCountdown(hidden ? (board.opensAt ?? null) : null)
   useEffect(() => {
     let active = true
     const load = () =>
@@ -74,6 +77,13 @@ function Board() {
           {contest.winners ? `🏆 Winners: 🥇${contest.winners[0]} · 🥈${contest.winners[1]} · 🥉${contest.winners[2]}. Thanks to everyone who joined! 🙏` : 'The challenge has ended. Thanks to everyone who joined! 🙏'}
         </p>
       )}
+      {hidden && (
+        <div className="challenge__locked">
+          <p>🔒 The leaderboard opens every night from 11:40 PM to midnight (Lagos time).</p>
+          {opensIn && <p className="invite-countdown">Opens in {opensIn}</p>}
+          {board.me ? <p className="challenge__me">Your points: {board.me.points} pts</p> : <p className="challenge__muted">Sign in from “Get my invite link” to see your points.</p>}
+        </div>
+      )}
       <ol className="challenge__board" aria-label="Top 10">
         {board?.top.map((row) => (
           <li key={row.rank} className={row.me ? 'challenge__row challenge__row--me' : 'challenge__row'}>
@@ -87,8 +97,8 @@ function Board() {
           </li>
         ))}
       </ol>
-      {board && board.top.length === 0 && <p className="challenge__muted">No points yet. Be the first!</p>}
-      {board?.me && !inTop && (
+      {board && !hidden && board.top.length === 0 && <p className="challenge__muted">No points yet. Be the first!</p>}
+      {board?.me && !hidden && !inTop && (
         <p className="challenge__me">
           You: {board.me.rank ? `#${board.me.rank}` : 'not ranked yet'} · {board.me.points} pts
         </p>
