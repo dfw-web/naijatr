@@ -59,13 +59,16 @@ export const FOOTBALL_LEAGUES = [
 /** Cache lifetimes, in seconds. */
 export const FOOTBALL_TTL = {
   live: 5 * 60,
-  fixtures: 10 * 60,
+  /** A day's list: API-Football is only a backup for fixtures now (its free plan has 100 requests a day), and pairs our matches with its ids. */
+  fixtures: 3 * 60 * 60,
   standings: 60 * 60,
   season: 12 * 60 * 60,
   matchLive: 5 * 60,
   matchFinished: 60 * 60,
   /** Out of requests: wait before asking again. */
   rateLimited: 5 * 60,
+  /** Not in the plan (e.g. this season's standings on the free plan): don't ask again today. */
+  plan: 24 * 60 * 60,
   /** Key rejected or account suspended: it won't fix itself in a minute. */
   rejected: 30 * 60,
   /** Any other failure, while the last good answer is served. */
@@ -234,7 +237,7 @@ const ttlFor = (outcome: Outcome, successTtl: number) =>
   outcome.ok
     ? successTtl
     : outcome.reason === 'plan'
-      ? successTtl
+      ? Math.max(successTtl, FOOTBALL_TTL.plan)
       : outcome.reason === 'rate-limited'
         ? FOOTBALL_TTL.rateLimited
         : outcome.reason === 'auth'
@@ -409,8 +412,21 @@ function featuredOnly(result: Loaded): Loaded {
 
 const isProviderLive = (f: ProviderFixture) => f.fixture.status.short === 'LIVE'
 
+/**
+ * Lists come from the Live Streaming API's schedule first, saving API-Football's
+ * small daily quota for match details (events, line-ups, statistics); API-Football
+ * (then the older stream listing) only when the schedule fails.
+ */
+async function scheduleFirst(ctx: FootballContext, pick: (fixture: ProviderFixture) => boolean, fromApi: () => Promise<Loaded>): Promise<Loaded> {
+  const schedule = ctx.rapidKey ? await freshSchedule(ctx, ctx.rapidKey) : null
+  if (schedule) {
+    return { outcome: { ok: true, data: schedule.fixtures.filter(pick), extra: { source: 'rapidapi' } }, maxAge: schedule.maxAge, stale: false }
+  }
+  return withProviderFallback(ctx, await fromApi(), pick)
+}
+
 const liveOrFallback = async (ctx: FootballContext) =>
-  withStreamingMatches(ctx, featuredOnly(await withProviderFallback(ctx, await loadLive(ctx), isProviderLive)))
+  withStreamingMatches(ctx, featuredOnly(await scheduleFirst(ctx, isProviderLive, () => loadLive(ctx))))
 
 /** Three hours: the same teams within this of each other are the same match. */
 const SAME_FIXTURE_MS = 3 * 60 * 60 * 1000
@@ -471,8 +487,8 @@ async function fixtures(ctx: FootballContext, params: URLSearchParams, res: Serv
   if (!DATE.test(date) || Number.isNaN(day) || Math.abs(day - today) > DAY_MS) {
     return fail(res, 'bad-request')
   }
-  const result = await cached(ctx, `fixtures:${date}`, () => callApi(ctx, 'fixtures', { date }), fixed(FOOTBALL_TTL.fixtures))
-  send(res, featuredOnly(await withProviderFallback(ctx, result, (f) => f.fixture.date.slice(0, 10) === date)))
+  const fromApi = () => loadDay(ctx, date)
+  send(res, featuredOnly(await scheduleFirst(ctx, (f) => f.fixture.date.slice(0, 10) === date, fromApi)))
 }
 
 interface LeagueSeason {
@@ -547,9 +563,42 @@ async function match(ctx: FootballContext, params: URLSearchParams, res: ServerR
   if (!MATCH_ID.test(id)) return fail(res, 'bad-request')
   if (isProviderMatchId(Number(id))) {
     const found = await findProviderMatch(ctx, Number(id))
-    return found ? send(res, found.result) : fail(res, 'not-found')
+    if (!found) return fail(res, 'not-found')
+    return send(res, (await withApiDetails(ctx, found.fixture)) ?? found.result)
   }
   send(res, await loadMatch(ctx, id))
+}
+
+/** API-Football's fixtures on one day (UTC), through the cache. */
+const loadDay = (ctx: FootballContext, date: string) =>
+  cached(ctx, `fixtures:${date}`, () => callApi(ctx, 'fixtures', { date }), fixed(FOOTBALL_TTL.fixtures))
+
+/**
+ * One of the schedule's matches with API-Football's events, line-ups and
+ * statistics: found in its list for that day (one request every few hours)
+ * by teams and kick-off, then loaded like any match. Keeps our id. Null when
+ * API-Football doesn't have it or fails, and the plain fixture is shown.
+ */
+async function withApiDetails(ctx: FootballContext, fixture: ProviderFixture): Promise<Loaded | null> {
+  if (!ctx.key) return null
+  const day = (await loadDay(ctx, fixture.fixture.date.slice(0, 10))).outcome
+  if (!day.ok || !Array.isArray(day.data)) return null
+  const home = fixture.teams.home.name
+  const away = fixture.teams.away.name
+  const kickoff = Date.parse(fixture.fixture.date)
+  const near = (day.data as FixtureLike[]).filter((f) => {
+    const d = describeFixture(f)
+    return isFeaturedLeague((f as { league?: { id?: number; name?: string } }).league) && (!d.kickoff || Math.abs(d.kickoff - kickoff) <= SAME_FIXTURE_MS)
+  })
+  const both = (x?: string, y?: string) => Boolean(x && y) && ((sameTeam(x!, home) && nearTeam(y!, away)) || (nearTeam(x!, home) && sameTeam(y!, away)))
+  const loose = near.filter((f) => sameFixture(f, fixture))
+  const found = near.find((f) => both(f.teams?.home?.name, f.teams?.away?.name)) ?? (loose.length === 1 ? loose[0] : undefined)
+  const apiId = (found as { fixture?: { id?: number } } | undefined)?.fixture?.id
+  if (!apiId) return null
+  const detailed = await loadMatch(ctx, String(apiId))
+  if (!detailed.outcome.ok) return null
+  const data = detailed.outcome.data as { fixture: Record<string, unknown> }
+  return { ...detailed, outcome: { ok: true, data: { ...data, fixture: { ...data.fixture, id: fixture.fixture.id } } } }
 }
 
 /** A match that came from the stream provider's listing (id from providerMatchId). */

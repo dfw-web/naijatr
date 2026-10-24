@@ -174,11 +174,11 @@ describe('football API: caching', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
-  it("caches a day's fixtures for 10 minutes", async () => {
+  it("caches a day's fixtures for 3 hours", async () => {
     const fetchImpl = vi.fn().mockImplementation(async () => apiBody([]))
     const { ctx, advance } = setup(fetchImpl)
     await get(ctx, 'fixtures', 'date=2026-10-14')
-    advance(599)
+    advance(3 * 3600 - 1)
     await get(ctx, 'fixtures', 'date=2026-10-14')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     advance(2)
@@ -587,7 +587,7 @@ describe('football API: streams from the Football Live Streaming API', () => {
     const ids = await liveIds(ctx)
     expect(json(await get(ctx, 'watchable')).data).toContain(ids['Tottenham Hotspur'])
     await get(ctx, 'stream', `id=${ids['Tottenham Hotspur']}`)
-    expect(calls(fetchImpl, STREAMING_ORIGIN)).toHaveLength(1)
+    expect(calls(fetchImpl, `${STREAMING_ORIGIN}/matches?status=live`)).toHaveLength(1)
   })
 
   it('shows usage, the cached streams and the last calls to the admin only', async () => {
