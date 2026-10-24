@@ -113,3 +113,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Room below the last line for the floating Feedback button (and the "Download app" bar). */
+@media (max-width: 860px) {
+  .footer {
+    padding-bottom: 4.5rem;
+  }
+}

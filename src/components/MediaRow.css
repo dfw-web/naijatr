@@ -2,7 +2,7 @@
   max-width: var(--max-width);
   margin: 0 auto;
   padding: 0 var(--gutter);
-  scroll-margin-top: calc(var(--nav-height) + 1rem);
+  scroll-margin-top: calc(var(--header-height, var(--nav-height)) + 1rem);
 }
 
 .media-row + .media-row {
@@ -90,7 +90,7 @@
 
 @media (max-width: 860px) {
   .media-row {
-    scroll-margin-top: calc(var(--nav-height-mobile) + 1rem);
+    scroll-margin-top: calc(var(--header-height, var(--nav-height-mobile)) + 1rem);
   }
 }
 

@@ -3,7 +3,7 @@
   display: flex;
   align-items: flex-end;
   min-height: clamp(520px, 88vh, 860px);
-  padding: calc(var(--nav-height) + 2rem) var(--gutter) clamp(4rem, 10vh, 7rem);
+  padding: calc(var(--header-height, var(--nav-height)) + 2rem) var(--gutter) clamp(4rem, 10vh, 7rem);
   isolation: isolate;
   overflow: hidden;
 }
@@ -151,7 +151,7 @@
 @media (max-width: 860px) {
   .hero {
     min-height: 78vh;
-    padding-top: calc(var(--nav-height-mobile) + 2rem);
+    padding-top: calc(var(--header-height, var(--nav-height-mobile)) + 2rem);
   }
 
   .hero__shade {

@@ -24,6 +24,7 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
   const tv = isTvMode()
   const [typing, setTyping] = useState(false)
   const refocusing = useRef(false)
+  const headerRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 24)
@@ -32,13 +33,30 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  // The header is fixed, and on phones and tablets it wraps onto two rows. Pages
+  // leave room for it with --header-height, its real height (taken with the menu
+  // closed, so opening the menu doesn't move the page).
+  useEffect(() => {
+    const header = headerRef.current
+    if (!header || isMenuOpen || typeof ResizeObserver === 'undefined') return
+    const root = document.documentElement
+    const measure = () => {
+      const height = Math.ceil(header.getBoundingClientRect().height)
+      if (height > 0) root.style.setProperty('--header-height', `${height}px`)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [isMenuOpen])
+
   const navigate = (link: NavLink) => {
     setIsMenuOpen(false)
     onNavigate(link)
   }
 
   return (
-    <header className={`navbar ${isScrolled || isMenuOpen ? 'navbar--solid' : ''}`}>
+    <header ref={headerRef} className={`navbar ${isScrolled || isMenuOpen ? 'navbar--solid' : ''}`}>
       <div className="navbar__inner">
         <button
           type="button"

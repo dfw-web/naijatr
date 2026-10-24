@@ -10,7 +10,7 @@
 
 .app-rows--no-hero {
   margin-top: 0;
-  padding-top: calc(var(--nav-height) + 2rem);
+  padding-top: calc(var(--header-height, var(--nav-height)) + 2rem);
 }
 
 /* Standard page frame for non-hero views (browse, search, errors). */
@@ -18,7 +18,7 @@
   max-width: var(--max-width);
   min-height: 70vh;
   margin: 0 auto;
-  padding: calc(var(--nav-height) + 2.5rem) var(--gutter) 2rem;
+  padding: calc(var(--header-height, var(--nav-height)) + 2.5rem) var(--gutter) 2rem;
 }
 
 .page__title {
@@ -35,6 +35,6 @@
 @media (max-width: 860px) {
   .page,
   .app-rows--no-hero {
-    padding-top: calc(var(--nav-height-mobile) + 2rem);
+    padding-top: calc(var(--header-height, var(--nav-height-mobile)) + 2rem);
   }
 }

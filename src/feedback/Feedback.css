@@ -235,3 +235,24 @@
 .rate-this__error {
   flex-basis: 100%;
 }
+
+/* Phones: a small round icon, so it covers as little of the page (tabs, buttons) as possible. */
+@media (max-width: 860px) {
+  .feedback-fab {
+    justify-content: center;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    font-size: 1.1rem;
+    opacity: 0.92;
+  }
+
+  .feedback-fab__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

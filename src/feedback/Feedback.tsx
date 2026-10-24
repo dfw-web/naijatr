@@ -183,7 +183,7 @@ export function FeedbackHost() {
     <>
       {!fullscreen && !open && (
         <button type="button" className="feedback-fab" onClick={() => setOpen(true)}>
-          <span aria-hidden="true">💬</span> Feedback
+          <span aria-hidden="true">💬</span> <span className="feedback-fab__label">Feedback</span>
         </button>
       )}
       {open && <FeedbackDialog onClose={() => setOpen(false)} />}

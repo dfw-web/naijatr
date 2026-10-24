@@ -23,6 +23,10 @@
 }
 
 .navbar__logo {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  white-space: nowrap;
   font-family: var(--font-display);
   font-size: 1.75rem;
   letter-spacing: 0.06em;
@@ -147,8 +151,8 @@
 .navbar__menu-toggle {
   display: none;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   margin-left: -0.5rem;
   border-radius: 8px;
   color: var(--text);
@@ -184,7 +188,7 @@
   height: 16px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1023px) {
   .navbar__install {
     margin-left: auto;
   }
@@ -237,5 +241,82 @@
 
   .navbar__link--active {
     color: var(--accent-soft);
+  }
+}
+
+/* Laptops and small desktops: the links, search, Invite and channel link share one row. */
+@media (min-width: 1024px) and (max-width: 1400px) {
+  .navbar__inner {
+    gap: 1rem;
+  }
+
+  .navbar__logo {
+    font-size: 1.5rem;
+  }
+
+  .navbar__links {
+    gap: 0.9rem;
+  }
+
+  .navbar__link {
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .navbar__search {
+    flex: 1 1 9rem;
+    min-width: 7rem;
+    width: auto;
+  }
+
+  /* The install button as an icon. */
+  .navbar__install {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .navbar__install svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .navbar .invite-button__long {
+    display: none;
+  }
+
+  .navbar .invite-button__short {
+    display: inline;
+  }
+}
+
+/*
+ * Phones: row 1 is the menu, logo and Invite; row 2 the search, the channel
+ * link and the install icon. Nothing is absolutely positioned: the rows wrap,
+ * and pages leave room for the header's real height (--header-height, set by Navbar).
+ */
+@media (max-width: 560px) {
+  .navbar__inner {
+    gap: 0.5rem;
+  }
+
+  .navbar__logo {
+    font-size: 1.35rem;
+  }
+
+  .navbar .invite-button {
+    margin-left: auto;
+  }
+
+  .navbar .tg-header-link {
+    order: 3;
+    margin-left: 0;
+  }
+
+  .navbar .navbar__search {
+    flex: 1 1 8rem;
+    min-width: 0;
   }
 }

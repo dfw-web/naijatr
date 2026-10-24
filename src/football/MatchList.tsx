@@ -5,7 +5,7 @@ import type { Fixture } from './types'
 interface MatchRowProps {
   fixture: Fixture
   onOpen: OpenMatch
-  /** The match has a stream: show Live and Watch badges and open it on the Watch tab. */
+  /** The match has a stream: show the Watch badge and open it on the Watch tab. */
   watchable?: boolean
 }
 
@@ -47,7 +47,6 @@ export function MatchRow({ fixture, onOpen, watchable: hasStream = false }: Matc
           {statusLabel(fixture)}
           {watchable && (
             <span className="fb-match__badges" aria-hidden="true">
-              <span className="fb-badge fb-badge--live">Live</span>
               <span className="fb-badge fb-badge--watch">
                 <MonitorPlay /> Watch now
               </span>

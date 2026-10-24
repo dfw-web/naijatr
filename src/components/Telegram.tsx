@@ -139,7 +139,8 @@ export function TelegramHeaderLink() {
     >
       <img src="/favicon.svg" alt="" className="tg-marks__nt tg-header-link__nt" />
       <TelegramIcon />
-      <span>Join our channel</span>
+      <span className="tg-header-link__long">Join our channel</span>
+      <span className="tg-header-link__short">Join</span>
       <OfficialBadge />
     </TelegramLink>
   )

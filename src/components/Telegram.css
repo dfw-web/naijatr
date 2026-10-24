@@ -104,6 +104,10 @@
   height: 1.35em;
 }
 
+.tg-header-link__short {
+  display: none;
+}
+
 /* Mobile menu */
 .tg-menu-link {
   display: none;
@@ -210,7 +214,7 @@
   text-underline-offset: 3px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1023px) {
   .tg-header-link {
     margin-left: auto;
     gap: 0.35rem;
@@ -253,7 +257,28 @@
   }
 }
 
-@media (max-width: 374px) {
+/* Phones: Telegram icon, "Join" and a small OFFICIAL badge, so the first row (menu, logo, Invite, Join) fits. */
+@media (max-width: 560px) {
+  .tg-header-link {
+    gap: 0.3rem;
+    padding: 0 0.55rem;
+  }
+
+  .tg-header-link__long {
+    display: none;
+  }
+
+  .tg-header-link__short {
+    display: inline;
+  }
+
+  .tg-header-link .tg-official {
+    font-size: 0.58rem;
+    padding: 0.1em 0.4em;
+  }
+}
+
+@media (max-width: 359px) {
   .tg-header-link .tg-official {
     display: none;
   }
@@ -278,5 +303,17 @@
     position: absolute;
     top: 0.25rem;
     right: 0.25rem;
+  }
+}
+
+/* Laptops and small desktops: the short label, so the header row fits. */
+@media (min-width: 1024px) and (max-width: 1400px) {
+  .tg-header-link__long,
+  .tg-header-link__nt {
+    display: none;
+  }
+
+  .tg-header-link__short {
+    display: inline;
   }
 }

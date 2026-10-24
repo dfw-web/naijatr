@@ -4,6 +4,7 @@
   display: inline-flex;
   flex: none;
   align-items: center;
+  min-height: 44px;
   gap: 0.4rem;
   padding: 0.45rem 0.8rem;
   border-radius: 999px;
