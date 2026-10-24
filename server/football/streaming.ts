@@ -16,8 +16,8 @@ import type { StreamSource } from './stream.js'
 export const STREAMING_ORIGIN = 'https://football-live-streaming-api.p.rapidapi.com'
 const STREAMING_HOST = new URL(STREAMING_ORIGIN).host
 const TIMEOUT_MS = 10_000
-/** Pages of live matches read at most (20 each). */
-const MAX_PAGES = 3
+/** Pages of live matches read at most (20 each): a busy Saturday has 75+ in play, and a featured match can be on page 4. */
+const MAX_PAGES = 8
 /** Servers offered per match. */
 const MAX_SERVERS = 8
 
