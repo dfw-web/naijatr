@@ -1,0 +1,17 @@
+.watch-later svg {
+  width: 18px;
+  height: 18px;
+}
+
+.watch-later--saved {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.watch-later--saved svg {
+  color: var(--accent-soft);
+}
+
+.modal__save {
+  margin-top: 1rem;
+}

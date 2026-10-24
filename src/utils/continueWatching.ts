@@ -19,7 +19,7 @@ export const FINISHED_AT = 0.9
 const IMAGE_BASE = 'https://image.tmdb.org/t/p'
 
 /** The title as the details page needs it to open again. */
-type SavedTitle = Pick<MediaItem, 'id' | 'tmdbId' | 'title' | 'type' | 'year' | 'releaseDate' | 'genres' | 'score' | 'voteCount' | 'popularity' | 'description' | 'poster' | 'backdrop' | 'certification' | 'length'>
+export type SavedTitle = Pick<MediaItem, 'id' | 'tmdbId' | 'title' | 'type' | 'year' | 'releaseDate' | 'genres' | 'score' | 'voteCount' | 'popularity' | 'description' | 'poster' | 'backdrop' | 'certification' | 'length'>
 
 export interface ContinueEntry {
   /** Our title id (MediaItem.id): one entry per movie or series. */
@@ -94,7 +94,7 @@ function write(list: ContinueEntry[]): void {
   emit()
 }
 
-const saveTitle = (item: MediaItem): SavedTitle => ({
+export const saveTitle = (item: MediaItem): SavedTitle => ({
   id: item.id,
   tmdbId: item.tmdbId,
   title: item.title,

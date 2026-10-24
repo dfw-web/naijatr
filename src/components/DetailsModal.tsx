@@ -12,6 +12,7 @@ import { MediaRow } from './MediaRow'
 import { PlayerPanel } from './PlayerPanel'
 import { TelegramCard } from './Telegram'
 import { WatchProviders } from './WatchProviders'
+import { WatchLaterButton } from './WatchLater'
 import { RateThis } from '../feedback/Feedback'
 import { recordTaste } from '../taste/profile'
 import './DetailsModal.css'
@@ -148,6 +149,10 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
               </li>
             )}
           </ul>
+
+          <div className="modal__save">
+            <WatchLaterButton item={item} />
+          </div>
 
           <p id="modal-description" className="modal__description">
             {item.description}

@@ -91,9 +91,12 @@ describe('details panel', () => {
     expect(dialog).toHaveTextContent('8.7 / 10')
     expect(dialog).toHaveTextContent('21 November 2025')
 
-    // Close, the Telegram card's Join Channel and the "Rate this" stars: Tab and Shift+Tab cycle through them.
+    // Close, Watch later, the Telegram card's Join Channel and the "Rate this" stars: Tab and Shift+Tab cycle through them.
+    const later = within(dialog).getByRole('button', { name: 'Watch later' })
     const join = within(dialog).getByRole('link', { name: /Join Channel/ })
     const rate = within(dialog).getByRole('radiogroup', { name: 'Rate The Last Light of Orion' })
+    await user.tab()
+    expect(later).toHaveFocus()
     await user.tab()
     expect(join).toHaveFocus()
     await user.tab()
@@ -104,6 +107,8 @@ describe('details panel', () => {
     expect(within(rate).getByRole('radio', { name: '5 stars' })).toHaveFocus()
     for (let i = 0; i < 5; i += 1) await user.tab({ shift: true })
     expect(join).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(later).toHaveFocus()
     await user.tab({ shift: true })
     expect(close).toHaveFocus()
 
@@ -554,5 +559,22 @@ describe('TMDB upgrade features', () => {
 
     await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText(/Live catalogue unavailable/)).not.toBeInTheDocument()
+  })
+})
+
+describe('watch later', () => {
+  it('saves a title from its details, lists it on the home page, and unsaves it', async () => {
+    const { user } = renderApp()
+    await user.click(await screen.findByRole('button', { name: 'View Details' }))
+    const dialog = screen.getByRole('dialog', { name: 'The Last Light of Orion' })
+    await user.click(within(dialog).getByRole('button', { name: 'Watch later' }))
+    const saved = within(dialog).getByRole('button', { name: 'Saved to Watch later' })
+    expect(saved).toHaveAttribute('aria-pressed', 'true')
+    expect(JSON.parse(window.localStorage.getItem('naijatr:watchLater')!)).toMatchObject([{ item: { title: 'The Last Light of Orion' } }])
+    await user.keyboard('{Escape}')
+    const row = await screen.findByRole('region', { name: /Watch later/ })
+    expect(within(row).getByText('The Last Light of Orion')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Saved to Watch later' })[0])
+    expect(screen.queryByRole('region', { name: /Watch later/ })).not.toBeInTheDocument()
   })
 })

@@ -6,6 +6,7 @@ import { freeMovieItems } from '../data/freeMovies'
 import { useHomeCatalog } from '../hooks/useCatalog'
 import type { MediaItem } from '../types/media'
 import { ContinueWatchingRow } from './ContinueWatchingRow'
+import { WatchLaterRow } from './WatchLater'
 import { Hero } from './Hero'
 import { MediaRow } from './MediaRow'
 import { StatusMessage } from './StatusMessage'
@@ -109,6 +110,8 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
       <div className={`app-rows ${catalog && !catalog.featured ? 'app-rows--no-hero' : ''}`}>
         {/* What this device was watching (hidden until something is played). First in the rows, which overlap the hero's fade. */}
         <ContinueWatchingRow onSelect={onSelect} />
+        {/* Titles saved with "Watch later" (hidden while there are none). */}
+        <WatchLaterRow onSelect={onSelect} />
         <TelegramBanner />
         {/* The personal rows load when this comes near the screen. */}
         <div ref={setSentinel} aria-hidden="true" />

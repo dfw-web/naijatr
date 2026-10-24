@@ -3,6 +3,7 @@ import { useAdOnce } from '../hooks/useAdOnce'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatYear, typeLabel } from '../utils/media'
 import { MediaImage } from './MediaImage'
+import { WatchLaterButton } from './WatchLater'
 import './Hero.css'
 
 interface HeroProps {
@@ -75,6 +76,7 @@ export function Hero({ item, onViewDetails, onBrowse }: HeroProps) {
           >
             <Info aria-hidden="true" /> View Details
           </button>
+          <WatchLaterButton item={item} />
           <button type="button" className="btn btn--ghost" onClick={onBrowse}>
             <ListVideo aria-hidden="true" /> Browse Trending
           </button>

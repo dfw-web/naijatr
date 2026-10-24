@@ -33,6 +33,8 @@ export const SIGNAL_WEIGHTS = {
   /** Removed from Continue watching. */
   removed: -3,
   notInterested: -5,
+  /** Saved to Watch later. */
+  saved: 4,
   /** A "What do you like?" pick. */
   pick: 5,
 } as const
