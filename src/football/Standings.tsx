@@ -47,12 +47,16 @@ export function Standings() {
         {loading ? (
           <TableSkeleton />
         ) : error ? (
-          error.reason === 'plan' ? (
+          error.reason === 'plan' || error.reason === 'auth' || error.reason === 'not-configured' ? (
             <StatusMessage
               icon={ListOrdered}
               compact
               title={`${league.name} ${season ? `${seasonLabel(season)} ` : ''}standings aren't available`}
-              message="Standings for the current season need a paid API-Football plan. Live scores and fixtures still work."
+              message={
+                error.reason === 'plan'
+                  ? 'Standings for the current season need a paid API-Football plan. Live scores and fixtures still work.'
+                  : 'Standings are unavailable for now. Live scores, fixtures and streams still work.'
+              }
             />
           ) : (
             <StatusMessage

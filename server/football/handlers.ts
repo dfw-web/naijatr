@@ -25,6 +25,7 @@ import {
   NO_STREAM,
   nearTeam,
   providerFixtures,
+  sameTeam,
   streamingFixture,
   type MatchStream,
   type ProviderFixture,
@@ -41,6 +42,7 @@ import {
   streamsForMatch,
   type StreamingDeps,
 } from './streamingStore.js'
+import { fetchStreamingLeague, fetchStreamingLeagues } from './streaming.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -80,6 +82,10 @@ export const FOOTBALL_TTL = {
   noStreamLink: 15 * 60,
   /** A link whose feed isn't playing: asked for again soon, in case the provider replaces it. */
   brokenStreamLink: 2 * 60,
+  /** The Live Streaming API's league names (to find the featured ones' exact names). */
+  scheduleLeagues: 12 * 60 * 60,
+  /** Its featured leagues' live and upcoming matches (live scores come from the live list, see freshSchedule). */
+  schedule: 30 * 60,
   /** How long the shared cache keeps an answer, as a fallback for when a provider fails. */
   keep: 24 * 60 * 60,
 } as const
@@ -200,6 +206,7 @@ export function classifyApiErrors(errors: unknown): FootballErrorReason {
 
 /** One upstream call. Never throws; never includes the key in what it returns. */
 async function callApi(ctx: FootballContext, path: string, params: Record<string, string>): Promise<Outcome> {
+  if (!ctx.key) return { ok: false, reason: 'not-configured' }
   const url = `${FOOTBALL_ORIGIN}/${path}?${new URLSearchParams(params)}`
   let upstream: Response
   try {
@@ -309,7 +316,8 @@ const loadLive = (ctx: FootballContext) =>
 
 /**
  * When API-Football fails, answers from the stream provider's listing instead
- * (see providerFixture in stream.ts), so matches and scores keep showing.
+ * (see providerFixture in stream.ts), or else from the Live Streaming API's
+ * schedule (loadSchedule), so matches and scores keep showing.
  */
 async function withProviderFallback(
   ctx: FootballContext,
@@ -318,11 +326,74 @@ async function withProviderFallback(
 ): Promise<Loaded> {
   if (result.outcome.ok || !ctx.rapidKey) return result
   const listing = await loadStreamListing(ctx, ctx.rapidKey)
-  if (!listing.outcome.ok) return result
-  const data = featuredProviderFixtures(listing.outcome.data as unknown[])
-    .map((p) => p.fixture)
-    .filter(pick)
-  return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: listing.maxAge, stale: listing.stale }
+  if (listing.outcome.ok) {
+    const data = featuredProviderFixtures(listing.outcome.data as unknown[])
+      .map((p) => p.fixture)
+      .filter(pick)
+    return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: listing.maxAge, stale: listing.stale }
+  }
+  const schedule = await freshSchedule(ctx, ctx.rapidKey)
+  if (!schedule) return result
+  const data = schedule.fixtures.filter(pick)
+  return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: schedule.maxAge, stale: false }
+}
+
+/** The schedule with each match in play taken from the live list (5 minutes old at most): its score, and live as soon as it kicks off. */
+async function freshSchedule(ctx: FootballContext, rapidKey: string) {
+  const [schedule, live] = await Promise.all([loadSchedule(ctx, rapidKey), ctx.streaming ? loadStreaming(ctx.streaming) : null])
+  if (!schedule.outcome.ok) return null
+  const fixtures = (schedule.outcome.data as ProviderFixture[]).map((f) => {
+    const playing = findStreamingMatch(live?.snapshot ?? null, f.teams.home.name, f.teams.away.name, Date.parse(f.fixture.date))
+    if (!playing) return f
+    const now = streamingFixture({ ...playing, live: true })
+    return { ...now, fixture: { ...now.fixture, id: f.fixture.id }, league: f.league, teams: {
+      home: { ...now.teams.home, logo: f.teams.home.logo || now.teams.home.logo },
+      away: { ...now.teams.away, logo: f.teams.away.logo || now.teams.away.logo },
+    } }
+  })
+  return { fixtures, maxAge: shorterAge(schedule.maxAge, FOOTBALL_TTL.streams) }
+}
+
+/**
+ * The featured leagues' live and upcoming matches from the Football Live
+ * Streaming API, as fixtures: one request per league (filtered by its exact
+ * name, looked up twice a day). It keeps about two days ahead and drops
+ * matches once they end, so there are no results, events or line-ups.
+ */
+function loadSchedule(ctx: FootballContext, rapidKey: string) {
+  return cached(
+    ctx,
+    'schedule',
+    async () => {
+      const names = await cached(
+        ctx,
+        'schedule-leagues',
+        async () => {
+          const all = await fetchStreamingLeagues(rapidKey, ctx.fetchImpl)
+          return all ? { ok: true, data: all.filter((name) => isFeaturedLeague({ name })) } : { ok: false, reason: 'upstream-error' }
+        },
+        fixed(FOOTBALL_TTL.scheduleLeagues),
+      )
+      if (!names.outcome.ok) return names.outcome
+      const leagues = await Promise.all((names.outcome.data as string[]).map((name) => fetchStreamingLeague(rapidKey, name, ctx.fetchImpl)))
+      if (leagues.every((l) => l === null)) return { ok: false, reason: 'upstream-error' }
+      const out: ProviderFixture[] = []
+      // Some matches are listed twice, once with Vietnamese names ("thành phố Manchester"): live first, so one listed twice
+      // keeps its score, then plain English names.
+      const foreign = (m: { home: string; away: string }) => Number(/[^\x20-\x7E]/.test(m.home + m.away))
+      const all = leagues.flatMap((l) => l ?? []).sort((a, b) => Number(b.live) - Number(a.live) || foreign(a) - foreign(b))
+      for (const match of all) {
+        const fixture = streamingFixture(match)
+        // A team plays once at a time: the same kick-off with one team in common is the same match.
+        const twice = (f: ProviderFixture) =>
+          f.fixture.timestamp === fixture.fixture.timestamp &&
+          (sameTeam(f.teams.home.name, fixture.teams.home.name) || sameTeam(f.teams.away.name, fixture.teams.away.name))
+        if (!out.some(twice)) out.push(fixture)
+      }
+      return { ok: true, data: out.sort((a, b) => a.fixture.timestamp - b.fixture.timestamp) }
+    },
+    fixed(FOOTBALL_TTL.schedule),
+  )
 }
 
 /** The stream provider's matches in the featured leagues. */
@@ -496,6 +567,11 @@ async function findProviderMatch(ctx: FootballContext, id: number) {
         return match ? { fixture: streamingFixture(match) } : undefined
       })
     : undefined
+  // Or one from the schedule (upcoming, or live before the live list has it).
+  found ??= await freshSchedule(ctx, ctx.rapidKey).then((schedule) => {
+    const fixture = schedule?.fixtures.find((f) => f.fixture.id === id)
+    return fixture ? { fixture } : undefined
+  })
   if (!found) return null
   const result: Loaded = { outcome: { ok: true, data: found.fixture }, maxAge: FOOTBALL_TTL.streams, stale: false }
   return { ...found, items, result }
@@ -808,7 +884,7 @@ export async function handleFootball(
   }
   const handler = Object.hasOwn(ROUTES, route) ? ROUTES[route as FootballRoute] : undefined
   if (!handler) return fail(res, 'not-found')
-  if (!ctx.key) return fail(res, 'not-configured')
+  if (!ctx.key && !ctx.rapidKey) return fail(res, 'not-configured')
   await handler(ctx, params, res)
 }
 

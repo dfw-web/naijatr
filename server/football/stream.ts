@@ -393,21 +393,31 @@ export function streamingFixture(match: {
   league: string
   kickoff: number
   score: string | null
+  /** False for an upcoming match (the schedule); the live list only has matches in play. */
+  live?: boolean
+  homeLogo?: string
+  awayLogo?: string
+  leagueLogo?: string
 }): ProviderFixture {
   const date = new Date(match.kickoff || 0)
+  const upcoming = match.live === false
   const [home, away] = (match.score ?? '').split('-').map((n) => Number.parseInt(n, 10))
-  const goals = Number.isFinite(home) && Number.isFinite(away) ? { home, away } : { home: 0, away: 0 }
+  const goals = upcoming
+    ? { home: null, away: null }
+    : Number.isFinite(home) && Number.isFinite(away)
+      ? { home, away }
+      : { home: 0, away: 0 }
   return {
     fixture: {
       id: providerMatchId(`streaming:${match.key}`),
       date: date.toISOString(),
       timestamp: Math.floor(date.getTime() / 1000),
-      status: { short: 'LIVE', long: 'In Play', elapsed: null },
+      status: upcoming ? { short: 'NS', long: 'Not Started', elapsed: null } : { short: 'LIVE', long: 'In Play', elapsed: null },
     },
-    league: { id: PROVIDER_MATCH_BASE + (hash(match.league) % 999_999_999), name: match.league, country: '', logo: '' },
+    league: { id: PROVIDER_MATCH_BASE + (hash(match.league) % 999_999_999), name: match.league, country: '', logo: match.leagueLogo ?? '' },
     teams: {
-      home: { id: hash(match.home), name: match.home, logo: '', winner: null },
-      away: { id: hash(match.away), name: match.away, logo: '', winner: null },
+      home: { id: hash(match.home), name: match.home, logo: match.homeLogo ?? '', winner: null },
+      away: { id: hash(match.away), name: match.away, logo: match.awayLogo ?? '', winner: null },
     },
     goals,
     events: [],

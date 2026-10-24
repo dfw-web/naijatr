@@ -32,6 +32,9 @@ export interface StreamingMatch {
   live: boolean
   score: string | null
   streams: StreamSource[]
+  homeLogo?: string
+  awayLogo?: string
+  leagueLogo?: string
 }
 
 export interface StreamingQuota {
@@ -98,7 +101,16 @@ export function parseStreamingMatch(item: unknown): StreamingMatch | null {
     live: item.match_status === 'live',
     score: homeScore !== null && awayScore !== null ? `${homeScore} - ${awayScore}` : null,
     streams: directHls(item.servers),
+    homeLogo: logo(item.home_team_logo),
+    awayLogo: logo(item.away_team_logo),
+    leagueLogo: logo(item.league_logo),
   }
+}
+
+/** An https image, but not the provider's "no logo" placeholder. */
+function logo(value: unknown) {
+  const url = str(value)
+  return url && url.startsWith('https://') && !/nologo/i.test(url) ? url : undefined
 }
 
 function quotaFrom(headers: Headers): StreamingQuota | null {
@@ -144,4 +156,57 @@ export async function fetchStreamingLive(key: string, fetchImpl: typeof fetch = 
     if (pagination.hasNext !== true) return { ok: true, matches, quota, requests, status }
   }
   return { ok: true, matches, quota, requests, status: 200 }
+}
+
+/** GET with the key; the parsed body, or null on any failure. Never throws. */
+async function getJson(key: string, path: string, fetchImpl: typeof fetch): Promise<Json | null> {
+  try {
+    const response = await fetchImpl(`${STREAMING_ORIGIN}${path}`, {
+      headers: { 'x-rapidapi-key': key, 'x-rapidapi-host': STREAMING_HOST, Accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    return isObject(body) ? body : null
+  } catch {
+    return null
+  }
+}
+
+/** League listing pages read at most (20 each). */
+const MAX_LEAGUE_PAGES = 40
+
+/** Every league name the API has matches for (it lists some under two names, e.g. "Spanish La Liga" and "Spain La Liga"). */
+export async function fetchStreamingLeagues(key: string, fetchImpl: typeof fetch = fetch): Promise<string[] | null> {
+  const names: string[] = []
+  for (let page = 1; page <= MAX_LEAGUE_PAGES; page += 1) {
+    const body = await getJson(key, `/leagues?page=${page}`, fetchImpl)
+    if (!body || !Array.isArray(body.leagues)) return names.length ? names : null
+    for (const league of body.leagues) {
+      const name = isObject(league) ? str(league.name) : null
+      if (name) names.push(name)
+    }
+    const pagination = isObject(body.pagination) ? body.pagination : {}
+    if (pagination.hasNext !== true) break
+  }
+  return names
+}
+
+/** Pages read per league: its filter matches any league containing the name ("Premier League" also brings Kenya's, Wales'…). */
+const MAX_LEAGUE_MATCH_PAGES = 15
+
+/** One league's matches, live and upcoming (the API keeps about the next two days, and no results). Null on failure. */
+export async function fetchStreamingLeague(key: string, league: string, fetchImpl: typeof fetch = fetch): Promise<StreamingMatch[] | null> {
+  const matches: StreamingMatch[] = []
+  for (let page = 1; page <= MAX_LEAGUE_MATCH_PAGES; page += 1) {
+    const body = await getJson(key, `/matches?league=${encodeURIComponent(league)}${page > 1 ? `&page=${page}` : ''}`, fetchImpl)
+    if (!body || !Array.isArray(body.matches)) return page > 1 ? matches : null
+    for (const item of body.matches) {
+      const match = parseStreamingMatch(item)
+      if (match?.league === league) matches.push(match)
+    }
+    const pagination = isObject(body.pagination) ? body.pagination : {}
+    if (pagination.hasNext !== true) break
+  }
+  return matches
 }
