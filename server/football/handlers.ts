@@ -710,6 +710,8 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     maxAge = shorterAge(maxAge, link.maxAge)
   }
   result.available = result.streams.length > 0 || result.commentary.length > 0
+  // No stream yet: ask again within a minute (the CDN would otherwise keep "not available" for up to twice the age).
+  if (!result.streams.length) maxAge = shorterAge(maxAge, 60)
   send(res, { outcome: { ok: true, data: result }, maxAge, stale: false })
 }
 
