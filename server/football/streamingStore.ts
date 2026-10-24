@@ -17,7 +17,7 @@
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
 import { hasRedis, redis, type RedisEnv } from '../redis.js'
-import { nearTeam, sameTeam } from './stream.js'
+import { nearTeam, sameName, sameTeam } from './stream.js'
 import { fetchStreamingLive, type StreamingMatch, type StreamingQuota } from './streaming.js'
 
 export const STREAMING_TTL_MS = 5 * 60_000
@@ -244,8 +244,12 @@ const SAME_MATCH_MS = 3 * 60 * 60_000
 export function findStreamingMatch(snapshot: StreamingSnapshot | null, home: string, away: string, kickoff = 0) {
   for (const match of snapshot?.matches ?? []) {
     const pairs = (x: string, y: string) => (sameTeam(x, home) && nearTeam(y, away)) || (nearTeam(x, home) && sameTeam(y, away))
-    if (!pairs(match.home, match.away) && !pairs(match.away, match.home)) continue
-    if (kickoff && match.kickoff && Math.abs(kickoff - match.kickoff) > SAME_MATCH_MS) continue
+    const close = Boolean(kickoff && match.kickoff) && Math.abs(kickoff - match.kickoff) <= SAME_MATCH_MS
+    // Or one team by the very same name around the same time: a team plays one match at a
+    // time, and the other name can be written quite differently ("RC Deportivo" / "Depotivo la Coruna").
+    const oneTeam = close && [match.home, match.away].some((x) => sameName(x, home) || sameName(x, away))
+    if (!pairs(match.home, match.away) && !pairs(match.away, match.home) && !oneTeam) continue
+    if (kickoff && match.kickoff && !close) continue
     return match
   }
   return null

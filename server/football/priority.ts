@@ -5,12 +5,13 @@
  * spent on these. Shared by the browser and the server, so it has no imports.
  */
 export const FEATURED_LEAGUES: { id: number; name: RegExp }[] = [
-  { id: 39, name: /^(English )?Premier League$/i },
-  { id: 140, name: /^(Spanish )?La ?Liga( EA Sports)?$/i },
+  // The Live Streaming API files some matches under a second name ("Spain La Liga" as well as "Spanish La Liga").
+  { id: 39, name: /^(English |England )?Premier League$/i },
+  { id: 140, name: /^(Spanish |Spain )?La ?Liga( EA Sports)?$/i },
   { id: 2, name: /^(UEFA )?Champions League$/i },
   { id: 3, name: /^(UEFA )?Europa League$/i },
   { id: 848, name: /^(UEFA )?(Europa )?Conference League$/i },
-  { id: 307, name: /^(Saudi )?(Professional|Pro) League$/i },
+  { id: 307, name: /^(Saudi (Arabia )?)?(Professional|Pro) League$/i },
 ]
 
 /** Provider league ids are 10 digits; API-Football's are small. */

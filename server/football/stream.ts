@@ -189,6 +189,12 @@ function words(name: string) {
     .filter((w) => w && !NOISE.has(w))
 }
 
+/** The same name, give or take accents, punctuation and "FC"-style affixes ("Atlético Madrid" = "Atletico Madrid", but not "Arsenal U21"). */
+export function sameName(a: string, b: string) {
+  const x = words(a).join(' ')
+  return x !== '' && x === words(b).join(' ')
+}
+
 /** Loose team-name match: "Man United" ~ "Manchester United FC", "Inter" ~ "Inter Milan". */
 export function sameTeam(a: string, b: string) {
   const x = words(a)

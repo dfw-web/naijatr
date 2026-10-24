@@ -25,6 +25,7 @@ import {
   NO_STREAM,
   nearTeam,
   providerFixtures,
+  sameName,
   sameTeam,
   streamingFixture,
   type MatchStream,
@@ -374,12 +375,12 @@ interface Schedule {
 function loadSchedule(ctx: FootballContext, rapidKey: string) {
   return cached(
     ctx,
-    // v2: with the streams.
-    'schedule:v2',
+    // v3: with the streams, and leagues under their second names ("Spain La Liga").
+    'schedule:v3',
     async (): Promise<Outcome> => {
       const names = await cached(
         ctx,
-        'schedule-leagues',
+        'schedule-leagues:v2',
         async () => {
           const all = await fetchStreamingLeagues(rapidKey, ctx.fetchImpl)
           return all ? { ok: true, data: all.filter((name) => isFeaturedLeague({ name })) } : { ok: false, reason: 'upstream-error' }
@@ -397,10 +398,13 @@ function loadSchedule(ctx: FootballContext, rapidKey: string) {
       const all = leagues.flatMap((l) => l ?? []).sort((a, b) => Number(b.live) - Number(a.live) || foreign(a) - foreign(b))
       for (const match of all) {
         const fixture = streamingFixture(match)
-        // A team plays once at a time: the same kick-off with one team in common is the same match.
+        // A team plays once at a time: one team in common around the same kick-off is the same match
+        // (the copies can differ by an hour, and spell the other team differently).
+        const names = (f: ProviderFixture) => [f.teams.home.name, f.teams.away.name]
         const twice = (f: ProviderFixture) =>
-          f.fixture.timestamp === fixture.fixture.timestamp &&
-          (sameTeam(f.teams.home.name, fixture.teams.home.name) || sameTeam(f.teams.away.name, fixture.teams.away.name))
+          Math.abs(f.fixture.timestamp - fixture.fixture.timestamp) * 1000 <= SAME_FIXTURE_MS &&
+          ((sameTeam(f.teams.home.name, fixture.teams.home.name) && f.fixture.timestamp === fixture.fixture.timestamp) ||
+            names(f).some((x) => names(fixture).some((y) => sameName(x, y))))
         const same = out.find(twice)
         if (!same) out.push(fixture)
         const id = (same ?? fixture).fixture.id
