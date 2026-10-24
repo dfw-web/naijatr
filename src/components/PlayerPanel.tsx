@@ -29,6 +29,7 @@ import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../u
 import { recordTaste, recordTasteById } from '../taste/profile'
 import { reportReferralPlay } from '../referral/api'
 import { playerClosed } from '../referral/invitee'
+import { WatchLaterButton } from './WatchLater'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
@@ -738,6 +739,7 @@ export function PlayerPanel({
             {fullscreenOn ? 'Exit fullscreen' : 'Fullscreen'}
           </button>
         )}
+        <WatchLaterButton item={item} />
         <button type="button" className="btn btn--ghost player__close" onClick={closePlayer}>
           <X aria-hidden="true" /> Close player
         </button>
