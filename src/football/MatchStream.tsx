@@ -10,8 +10,9 @@ import type { CommentaryLine, Fixture, FixtureEvent, MatchStream as MatchStreamD
 
 /** Live data is re-checked every few minutes, not every minute, to spare the providers' quotas. */
 const LIVE_REFRESH_MS = 5 * 60_000
-/** ...but every 2 minutes while the stream isn't playing, so a replacement link from the provider shows up soon. */
-const FAILED_STREAM_REFRESH_MS = 2 * 60_000
+/** ...but every minute while there's no stream or it isn't playing, so a new link from the provider shows up soon. */
+const FAILED_STREAM_REFRESH_MS = 60_000
+const NO_STREAMS: StreamSource[] = []
 
 const minuteOf = (event: FixtureEvent) => `${event.time.elapsed}${event.time.extra ? `+${event.time.extra}` : ''}`
 
@@ -76,13 +77,17 @@ export function MatchStream({ match }: { match: Fixture }) {
   // The link whose player gave up; a new link from the provider plays again.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const [selected, setSelected] = useState(0)
+  // The last servers we had: a refresh that briefly comes back without any doesn't stop a match being watched.
+  const [kept, setKept] = useState(NO_STREAMS)
   const { data } = useFootball<MatchStreamData>(
     `stream?id=${match.fixture.id}`,
-    live ? (failedUrl ? FAILED_STREAM_REFRESH_MS : LIVE_REFRESH_MS) : undefined,
+    live ? (failedUrl || !kept.length ? FAILED_STREAM_REFRESH_MS : LIVE_REFRESH_MS) : undefined,
   )
 
   const commentary = [...(data?.commentary ?? []), ...buildCommentary(match)]
-  const streams = data?.streams ?? []
+  const fetched = data?.streams ?? NO_STREAMS
+  if (fetched.length && fetched !== kept) setKept(fetched)
+  const streams = fetched.length ? fetched : live ? kept : NO_STREAMS
   const current = Math.min(selected, streams.length - 1)
   const source = streams[current]
   // This server isn't playing: move on to the next one, if there is one.

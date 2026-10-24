@@ -28,6 +28,7 @@ import {
   sameTeam,
   streamingFixture,
   type MatchStream,
+  type StreamSource,
   type ProviderFixture,
 } from './stream.js'
 import { isFeaturedLeague } from './priority.js'
@@ -345,7 +346,8 @@ async function withProviderFallback(
 async function freshSchedule(ctx: FootballContext, rapidKey: string) {
   const [schedule, live] = await Promise.all([loadSchedule(ctx, rapidKey), ctx.streaming ? loadStreaming(ctx.streaming) : null])
   if (!schedule.outcome.ok) return null
-  const fixtures = (schedule.outcome.data as ProviderFixture[]).map((f) => {
+  const { fixtures: listed, streams } = schedule.outcome.data as Schedule
+  const fixtures = listed.map((f) => {
     const playing = findStreamingMatch(live?.snapshot ?? null, f.teams.home.name, f.teams.away.name, Date.parse(f.fixture.date))
     if (!playing) return f
     const now = streamingFixture({ ...playing, live: true })
@@ -354,7 +356,13 @@ async function freshSchedule(ctx: FootballContext, rapidKey: string) {
       away: { ...now.teams.away, logo: f.teams.away.logo || now.teams.away.logo },
     } }
   })
-  return { fixtures, maxAge: shorterAge(schedule.maxAge, FOOTBALL_TTL.streams) }
+  return { fixtures, streams, maxAge: shorterAge(schedule.maxAge, FOOTBALL_TTL.streams) }
+}
+
+/** The schedule's matches, and the stream servers it lists with each (by our match id): a second source when the live list misses one. */
+interface Schedule {
+  fixtures: ProviderFixture[]
+  streams: Record<number, StreamSource[]>
 }
 
 /**
@@ -366,8 +374,9 @@ async function freshSchedule(ctx: FootballContext, rapidKey: string) {
 function loadSchedule(ctx: FootballContext, rapidKey: string) {
   return cached(
     ctx,
-    'schedule',
-    async () => {
+    // v2: with the streams.
+    'schedule:v2',
+    async (): Promise<Outcome> => {
       const names = await cached(
         ctx,
         'schedule-leagues',
@@ -381,6 +390,7 @@ function loadSchedule(ctx: FootballContext, rapidKey: string) {
       const leagues = await Promise.all((names.outcome.data as string[]).map((name) => fetchStreamingLeague(rapidKey, name, ctx.fetchImpl)))
       if (leagues.every((l) => l === null)) return { ok: false, reason: 'upstream-error' }
       const out: ProviderFixture[] = []
+      const streams: Record<number, StreamSource[]> = {}
       // Some matches are listed twice, once with Vietnamese names ("thành phố Manchester"): live first, so one listed twice
       // keeps its score, then plain English names.
       const foreign = (m: { home: string; away: string }) => Number(/[^\x20-\x7E]/.test(m.home + m.away))
@@ -391,9 +401,14 @@ function loadSchedule(ctx: FootballContext, rapidKey: string) {
         const twice = (f: ProviderFixture) =>
           f.fixture.timestamp === fixture.fixture.timestamp &&
           (sameTeam(f.teams.home.name, fixture.teams.home.name) || sameTeam(f.teams.away.name, fixture.teams.away.name))
-        if (!out.some(twice)) out.push(fixture)
+        const same = out.find(twice)
+        if (!same) out.push(fixture)
+        const id = (same ?? fixture).fixture.id
+        const known = streams[id] ?? []
+        streams[id] = [...known, ...match.streams.filter((s) => !known.some((k) => k.url === s.url))]
       }
-      return { ok: true, data: out.sort((a, b) => a.fixture.timestamp - b.fixture.timestamp) }
+      const data: Schedule = { fixtures: out.sort((a, b) => a.fixture.timestamp - b.fixture.timestamp), streams }
+      return { ok: true, data }
     },
     fixed(FOOTBALL_TTL.schedule),
   )
@@ -697,10 +712,18 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     ctx.streaming && described.home && described.away
       ? (await streamsForMatch(ctx.streaming, described.home, described.away, described.kickoff, described.live)).match
       : null
+  // The schedule's servers for the match, when the live list has none (one of its reads may have skipped it).
+  const scheduled =
+    !streaming?.streams.length && described.live && isProviderMatchId(Number(id)) && ctx.rapidKey
+      ? ((await freshSchedule(ctx, ctx.rapidKey))?.streams[Number(id)] ?? [])
+      : []
   if (streaming?.streams.length) {
     result.streams = streaming.streams
     result.status ??= { status: 'Live', score: streaming.score, minute: null }
     // Within a minute of a new list.
+    maxAge = shorterAge(maxAge, 60)
+  } else if (scheduled.length) {
+    result.streams = scheduled.slice(0, 8).map((s, i) => ({ ...s, label: `Server ${i + 1}` }))
     maxAge = shorterAge(maxAge, 60)
   } else if (listingFailed) {
     return send(res, listingFailed)
