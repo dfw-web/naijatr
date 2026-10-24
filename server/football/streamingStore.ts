@@ -217,12 +217,24 @@ export async function loadStreaming(
       why,
     })
     if (!result.ok) return { snapshot, limited: false }
-    const fresh = { fetchedAt: at, matches: result.matches }
+    const fresh = { fetchedAt: at, matches: withMissed(result.matches, snapshot) }
     await store.set(LIVE_KEY, fresh, SNAPSHOT_KEEP_S)
     return { snapshot: fresh, limited: false }
   } finally {
     await store.unlock(LOCK_KEY)
   }
+}
+
+/**
+ * The list is read page by page while matches start and end, so entries shift
+ * between pages and one read can skip a match that is still on. A match from
+ * the last list that this read lacks is kept once (marked missed); missing
+ * twice in a row, it's gone.
+ */
+export function withMissed(matches: StreamingMatch[], previous: StreamingSnapshot | null): StreamingMatch[] {
+  const keys = new Set(matches.map((m) => m.key))
+  const kept = (previous?.matches ?? []).filter((m) => !m.missed && !keys.has(m.key)).map((m) => ({ ...m, missed: true }))
+  return [...matches, ...kept]
 }
 
 /** Kick-offs further apart than this are different matches between the same teams. */

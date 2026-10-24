@@ -35,6 +35,8 @@ export interface StreamingMatch {
   homeLogo?: string
   awayLogo?: string
   leagueLogo?: string
+  /** Kept from the previous list, which this read skipped (see withMissed). */
+  missed?: boolean
 }
 
 export interface StreamingQuota {
