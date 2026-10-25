@@ -141,6 +141,8 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
 
         <InstallAppButton className="navbar__install navbar__install--download" />
       </div>
+      {/* The contest bars (ContestHost) show here, under the header row, so they never cover the page. */}
+      <div id="navbar-banner" />
     </header>
   )
 }

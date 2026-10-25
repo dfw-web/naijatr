@@ -107,6 +107,9 @@ export function ContestHost() {
   const signedIn = Boolean(useReferralSession())
   // Every visit, until the contest ends (not when /challenge sent them here for the guide).
   const [popup, setPopup] = useState(() => !session.get(OPEN_GUIDE_KEY))
+  // The bars go inside the fixed header (Navbar), which leaves room for them; without one, at the top of the page.
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  useEffect(() => setSlot(document.getElementById('navbar-banner')), [])
   // Came from /challenge's "Get my invite link".
   useEffect(() => {
     if (!session.get(OPEN_GUIDE_KEY)) return
@@ -122,14 +125,16 @@ export function ContestHost() {
   const dismissPopup = () => setPopup(false)
   return (
     <>
-      {live && !popup && !open && <ContestBanner contest={contest} />}
-      {contest.winners?.length === 3 && <WinnersBanner winners={contest.winners} />}
+      {inSlot(slot, live && !popup && !open && <ContestBanner contest={contest} />)}
+      {inSlot(slot, contest.winners?.length === 3 && <WinnersBanner winners={contest.winners} />)}
       {live && popup && !open && <ContestPopup contest={contest} onClose={dismissPopup} />}
       {live && inviteeDue && !signedIn && !popup && !open && <InviteePopup contest={contest} onClose={dismissInvitee} />}
       {open && <InviteGuide contest={contest} onClose={closeInviteGuide} />}
     </>
   )
 }
+
+const inSlot = (slot: HTMLElement | null, bar: ReactNode) => (slot && bar ? createPortal(bar, slot) : bar)
 
 /** "Starts in 1d 02h…" before the start, "Ends in …" after. */
 function useContestCountdown(contest: ContestInfo) {
