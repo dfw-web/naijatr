@@ -516,7 +516,21 @@ async function messagePlayer(env: ReferralEnv, id: number, body: Record<string, 
   const text = typeof body.text === 'string' ? body.text.trim() : ''
   if (!text || text.length > 1000) return fail(400, 'bad-request')
   if (!(await getUser(env, id, fetchImpl))) return fail(404, 'no-such-player')
-  return (await telegram(env, id, text, fetchImpl)) ? ok({ sent: true }) : fail(502, 'not-sent')
+  if (!env.telegramToken) return fail(503, 'not-configured')
+  try {
+    const response = await fetchImpl(`https://api.telegram.org/bot${env.telegramToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: id, text, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
+    })
+    if (response.ok) return ok({ sent: true })
+    // Telegram's reason, e.g. "Forbidden: bot can't initiate conversation with a user".
+    const reason = ((await response.json().catch(() => null)) as { description?: unknown } | null)?.description
+    return { status: 502, body: { error: 'not-sent', reason: typeof reason === 'string' ? reason : null } }
+  } catch {
+    return fail(502, 'not-sent')
+  }
 }
 
 export async function disqualify(env: ReferralEnv, contest: Contest, id: number, fetchImpl: typeof fetch): Promise<Result> {
