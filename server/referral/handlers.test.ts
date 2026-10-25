@@ -367,6 +367,19 @@ describe('ending and winners', () => {
     expect((body.top as { name: string }[]).map((r) => r.name)).toEqual(['@second', '@third', '@fourth'])
   })
 
+  it('makes a new claim link for a confirmed winner, for the admin to send', async () => {
+    const { t, players } = await finished()
+    expect((await t.admin('admin-claim-link', { id: 1 })).body).toEqual({ error: 'not-a-winner' })
+    await t.admin('admin-confirm', { place: 1 })
+    const { body } = await t.admin('admin-claim-link', { id: 1 })
+    const link = (body as { link: string }).link
+    expect(link).toMatch(/^https:\/\/www\.naijatr\.com\/challenge\/claim\?t=/)
+    const token = new URL(link).searchParams.get('t')!
+    expect((await t.call('claim', { query: `?t=${token}`, token: players[0].token })).body).toEqual({ place: '1st', amount: 30000 })
+    await t.admin('admin-paid', { id: 1 })
+    expect((await t.admin('admin-claim-link', { id: 1 })).body).toEqual({ error: 'already-paid' })
+  })
+
   it('sends one player a Telegram message from the admin page', async () => {
     const t = setup()
     await t.join(1, 'bruno')

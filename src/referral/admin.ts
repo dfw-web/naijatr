@@ -82,6 +82,34 @@ function button(label: string, onClick: () => void, ghost = false) {
   return b
 }
 
+async function showClaimLink(id: number, li: HTMLElement) {
+  const response = await fetch('/api/referral/admin-claim-link', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${password}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  }).catch(() => null)
+  const data = ((await response?.json().catch(() => null)) ?? null) as { link?: string; expiresAt?: number } | null
+  li.querySelector('.claim-link')?.remove()
+  const box = el('div', '', 'claim-link')
+  if (!response?.ok || !data?.link) {
+    box.append(el('span', 'Couldn’t make a link. Please try again.', 'flag'))
+  } else {
+    const link = data.link
+    const input = el('input') as HTMLInputElement
+    input.readOnly = true
+    input.value = link
+    input.addEventListener('focus', () => input.select())
+    const copy = button('Copy', () => {
+      void navigator.clipboard?.writeText(link).then(
+        () => (copy.textContent = 'Copied ✓'),
+        () => input.select(),
+      )
+    })
+    box.append(input, copy, el('span', `Works until ${lagos(data.expiresAt!)} (Lagos). They open it signed in with the same Telegram.`, 'muted'))
+  }
+  li.append(box)
+}
+
 async function post(action: string, body: unknown) {
   const response = await fetch(`/api/referral/${action}`, {
     method: 'POST',
@@ -134,7 +162,13 @@ function render(view: View) {
           }),
         )
         li.append(actions)
-      } else li.append(el('span', 'Waiting for their claim (48h link).', 'muted'))
+      } else {
+        li.append(el('span', 'Waiting for their claim (48h link).', 'muted'))
+        // A fresh link to send them yourself (their message failed, or the link ran out).
+        const actions = el('div', '', 'actions')
+        actions.append(button('Get a new claim link', () => void showClaimLink(c.id, li), true))
+        li.append(actions)
+      }
       return li
     }),
   )

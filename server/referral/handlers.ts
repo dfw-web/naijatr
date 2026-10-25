@@ -540,6 +540,18 @@ export async function disqualify(env: ReferralEnv, contest: Contest, id: number,
   return ok()
 }
 
+/** A new 48h claim link for a confirmed winner, for the admin to send themselves (e.g. the winner blocked the bot). */
+export async function newClaimLink(env: ReferralEnv, contest: Contest, id: number, now: number, fetchImpl: typeof fetch): Promise<Result> {
+  const winner = (await confirmedWinners(env, contest, fetchImpl)).find((c) => c.id === id)
+  if (!winner) return fail(404, 'not-a-winner')
+  const [paid] = (await redis(env, [['SISMEMBER', k.paid(contest), id]], fetchImpl)) ?? []
+  if (Number(paid) === 1) return fail(409, 'already-paid')
+  const token = claimToken()
+  const saved = await redis(env, [['SET', k.claimLink(token), JSON.stringify({ id, place: winner.place, amount: winner.amount, contest: contest.id }), 'EX', CLAIM_TTL_S]], fetchImpl)
+  if (!saved) return fail(502, 'store-unavailable')
+  return ok({ link: `${SITE}/challenge/claim?t=${token}`, expiresAt: now + CLAIM_TTL_S * 1000 })
+}
+
 /** Paid: the bank details are deleted for good. */
 export async function markPaid(env: ReferralEnv, contest: Contest, id: number, fetchImpl: typeof fetch): Promise<Result> {
   const done = await redis(env, [['DEL', k.claimData(contest, id)], ['SADD', k.paid(contest), id]], fetchImpl)
@@ -699,7 +711,7 @@ export const clientIp = (req: IncomingMessage) =>
   String(req.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket?.remoteAddress || ''
 
 const GET_ROUTES = new Set(['contest', 'leaderboard', 'me', 'claim', 'admin', 'push'])
-const POST_ROUTES = new Set(['login', 'arrive', 'count', 'profile', 'claim', 'admin-confirm', 'admin-dq', 'admin-paid', 'admin-message'])
+const POST_ROUTES = new Set(['login', 'arrive', 'count', 'profile', 'claim', 'admin-confirm', 'admin-dq', 'admin-paid', 'admin-message', 'admin-claim-link'])
 
 export async function handleReferral(
   env: ReferralEnv,
@@ -741,6 +753,7 @@ export async function handleReferral(
     const id = Number(body.id)
     if (!Number.isSafeInteger(id) || id <= 0) return sendJson(res, 400, { error: 'bad-request' })
     if (action === 'admin-message') return reply(await messagePlayer(env, id, body, fetchImpl))
+    if (action === 'admin-claim-link') return reply(await newClaimLink(env, contest, id, now, fetchImpl))
     return reply(action === 'admin-dq' ? await disqualify(env, contest, id, fetchImpl) : await markPaid(env, contest, id, fetchImpl))
   }
 
