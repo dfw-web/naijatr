@@ -4,10 +4,10 @@ import { ChevronLeft, ChevronRight, Copy, Gift, Share2, X } from 'lucide-react'
 import { isTvMode } from '../tv/tvMode'
 import { arrivedByInvite } from './capture'
 import {
-  boardOpenNow,
   contestOn,
   countdownTarget,
   endLabel,
+  fetchLeaderboard,
   fetchMe,
   login,
   nairaShort,
@@ -18,6 +18,7 @@ import {
   useCountdown,
   useNow,
   type ContestInfo,
+  type Leaderboard,
   type Me,
 } from './api'
 import { useReferralSession } from './session'
@@ -236,22 +237,64 @@ function InviteePopup({ contest, onClose }: { contest: ContestInfo & { end: numb
 }
 
 const HOUR = 3_600_000
+const MEDALS = ['🥇', '🥈', '🥉']
 
-/** Gets more urgent toward the end; "open now" while the leaderboard shows (11:40 PM to midnight). */
+/** The top 3 right now, refreshed every minute while the page is in view. */
+function useLiveTop(on: boolean) {
+  const [top, setTop] = useState<Leaderboard['top'] | null>(null)
+  useEffect(() => {
+    if (!on) return
+    let active = true
+    const load = () => {
+      if (document.hidden) return
+      void fetchLeaderboard().then((data) => {
+        // Can't load it: the usual invite message stays.
+        if (active && Array.isArray(data?.top)) setTop(data.top.slice(0, 3))
+      })
+    }
+    load()
+    const timer = window.setInterval(load, 60_000)
+    document.addEventListener('visibilitychange', load)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', load)
+    }
+  }, [on])
+  return top
+}
+
+/** A slim bar above the page (never over it): the live top 3 while the contest runs, more urgent toward the end. */
 function ContestBanner({ contest }: { contest: ContestInfo }) {
   const countdown = useContestCountdown(contest)
   const now = useNow()
   const live = contest.phase === 'live'
   const left = (contest.end ?? now) - now
-  if (live && boardOpenNow(now)) {
+  const top = useLiveTop(live)
+  if (live && top) {
     return (
-      <div className="invite-banner invite-banner--urgent" role="region" aria-label="Invite and win">
-        <span>
-          🔓 The leaderboard is open now until midnight! · <span className="invite-banner__time">⏳ {countdown}</span>
-        </span>
-        <a className="invite-banner__action" href="/challenge">
-          See leaderboard
-        </a>
+      <div className="invite-banner invite-banner--live" role="region" aria-label="Live leaderboard">
+        <a className="invite-banner__board" href="/challenge">
+          <span className="invite-banner__badge">
+            <span className="live-dot" aria-hidden="true" /> LIVE
+          </span>{' '}
+          <span className="invite-banner__title">Leaderboard:</span>{' '}
+          {top.length ? (
+            <span className="invite-banner__top">
+              {top.map((row) => (
+                <span key={row.rank} className="invite-banner__player">
+                  {MEDALS[row.rank - 1]} <span className="invite-banner__name">{row.name}</span> <strong>{row.points} pts</strong>{' '}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span>No points yet: be the first!</span>
+          )}
+        </a>{' '}
+        <span className="invite-banner__time">⏳ {countdown}</span>{' '}
+        <button type="button" onClick={openInviteGuide}>
+          Join &amp; win
+        </button>
       </div>
     )
   }
@@ -614,7 +657,7 @@ export function SharePanel({ live }: { live: boolean }) {
             <strong>{me?.points ?? '–'}</strong> points
           </p>
           <p>
-            <strong>{me?.boardOpen === false ? '🔒' : me?.rank ? `#${me.rank}` : '–'}</strong> {me?.boardOpen === false ? 'rank shows at 11:40 PM' : 'rank'}
+            <strong>{me?.rank ? `#${me.rank}` : '–'}</strong> rank
           </p>
         </div>
       )}

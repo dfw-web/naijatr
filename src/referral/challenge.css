@@ -154,16 +154,15 @@
   font-size: 1.1rem;
 }
 
-.challenge__locked {
-  margin: 1rem 0;
-  padding: 1rem;
-  border: 1px solid rgba(245, 197, 24, 0.35);
-  border-radius: 12px;
-  text-align: center;
-}
-
-.challenge__locked p {
-  margin: 0.3rem 0;
+.challenge__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  color: #ff6b6b;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .challenge__gap {

@@ -8,7 +8,7 @@ import './challenge.css'
 
 /**
  * The challenge pages, a separate root like Football:
- * /challenge (the leaderboard: while the contest runs, only 11:40 PM to midnight Lagos time),
+ * /challenge (the live leaderboard),
  * /challenge/rules and /challenge/claim (winners only).
  */
 
@@ -41,8 +41,6 @@ function Board() {
   const signedIn = useReferralSession()
   const [board, setBoard] = useState<Leaderboard | null>(null)
   const countdown = useCountdown(contestOn(contest) ? countdownTarget(contest) : null)
-  const hidden = board?.open === false
-  const opensIn = useCountdown(hidden ? (board.opensAt ?? null) : null)
   useEffect(() => {
     let active = true
     const load = () =>
@@ -50,8 +48,8 @@ function Board() {
         if (active && data) setBoard(data)
       })
     load()
-    // Live: refresh every 30 seconds.
-    const timer = window.setInterval(load, 30_000)
+    // Live: refresh every 15 seconds.
+    const timer = window.setInterval(load, 15_000)
     return () => {
       active = false
       window.clearInterval(timer)
@@ -65,6 +63,11 @@ function Board() {
       <h1 className="challenge__title">{live ? 'NAIJA TR Invite Challenge 🏆' : 'Invite Challenge'}</h1>
       {live && (
         <>
+          {contest.phase === 'live' && (
+            <p className="challenge__live">
+              <span className="live-dot" aria-hidden="true" /> LIVE · updates by itself
+            </p>
+          )}
           <p className="challenge__prizes">{contest.prizes!.map((p, i) => `${MEDALS[i]} ${naira(p)}`).join(' · ')}</p>
           <p className="invite-countdown">
             ⏳ {contest.phase === 'upcoming' ? `Starts in ${countdown} · ${endLabel(contest.start!)}` : `${countdown} · ends ${endLabel(contest.end!)}`}
@@ -76,13 +79,6 @@ function Board() {
         <p className="challenge__muted">
           {contest.winners ? `🏆 Winners: 🥇${contest.winners[0]} · 🥈${contest.winners[1]} · 🥉${contest.winners[2]}. Thanks to everyone who joined! 🙏` : 'The challenge has ended. Thanks to everyone who joined! 🙏'}
         </p>
-      )}
-      {hidden && (
-        <div className="challenge__locked">
-          <p>🔒 The leaderboard opens every night from 11:40 PM to midnight (Lagos time).</p>
-          {opensIn && <p className="invite-countdown">Opens in {opensIn}</p>}
-          {board.me ? <p className="challenge__me">Your points: {board.me.points} pts</p> : <p className="challenge__muted">Sign in from “Get my invite link” to see your points.</p>}
-        </div>
       )}
       <ol className="challenge__board" aria-label="Top 10">
         {board?.top.map((row) => (
@@ -97,8 +93,8 @@ function Board() {
           </li>
         ))}
       </ol>
-      {board && !hidden && board.top.length === 0 && <p className="challenge__muted">No points yet. Be the first!</p>}
-      {board?.me && !hidden && !inTop && (
+      {board && board.top.length === 0 && <p className="challenge__muted">No points yet. Be the first!</p>}
+      {board?.me && !inTop && (
         <p className="challenge__me">
           You: {board.me.rank ? `#${board.me.rank}` : 'not ranked yet'} · {board.me.points} pts
         </p>

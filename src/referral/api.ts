@@ -86,8 +86,6 @@ export interface Me {
   total: number
   points: number
   rank: number | null
-  /** False while the ranking is hidden (outside 11:40 PM to midnight during the contest). */
-  boardOpen?: boolean
   /** Points still needed for the top 3 (0: in it); null outside the contest. */
   toTop3?: number | null
 }
@@ -104,9 +102,6 @@ export async function updateProfile(change: { nickname?: string; hidden?: boolea
 export interface Leaderboard {
   top: { rank: number; points: number; name: string; me: boolean }[]
   me: { rank: number | null; points: number; toTop3?: number } | null
-  /** False outside 11:40 PM to midnight while the contest runs: only your own points. */
-  open?: boolean
-  opensAt?: number | null
 }
 
 export const fetchLeaderboard = () => call<Leaderboard>('leaderboard').then(({ data }) => data)
@@ -145,9 +140,6 @@ export function topThreeLine(points: number, gap: number) {
   if (gap === 0) return points > 0 ? '🔥 You’re in the top 3! Keep inviting to stay there.' : null
   return `🎯 ${gap} more friend${gap === 1 ? '' : 's'} to reach the 🥉 top 3`
 }
-
-/** While the contest runs, the ranking shows only from 11:40 PM to midnight, Lagos time (server/referral/contest.ts). */
-export const boardOpenNow = (now = Date.now()) => (now + 3_600_000) % 86_400_000 >= (23 * 60 + 40) * 60_000
 
 /** Re-renders every `ms`, for text that changes with the time. */
 export function useNow(ms = 30_000) {

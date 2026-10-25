@@ -12,8 +12,7 @@ const START = parseLagosTime('2026-10-23 18:00')
 const END = parseLagosTime('2026-10-25 23:59') + 59_999
 const DURING = START + HOUR
 const AFTER = END + HOUR
-/** The ranking shows 11:40 PM to midnight while the contest runs. */
-const BOARD_TIME = parseLagosTime('2026-10-23 23:45')
+const BOARD_TIME = DURING
 
 const device = (n: number | string) => `device-${String(n).padStart(12, '0')}`
 
@@ -213,31 +212,24 @@ describe('leaderboard', () => {
   })
 })
 
-describe('leaderboard hours', () => {
-  it('shows the ranking only from 11:40 PM to midnight while the contest runs, your own points always', async () => {
+describe('live leaderboard', () => {
+  it('shows the ranking at any time of day while the contest runs, and after it', async () => {
     const t = setup()
     const a = await t.join(1, 'bruno')
     await t.join(2, 'ada')
     t.setClock(DURING)
     await t.refer(a.code, 1)
     await t.refer(a.code, 2)
-    const closed = await t.call('leaderboard', { token: a.token })
-    expect(closed.body).toEqual({ top: [], me: { rank: null, points: 2, toTop3: 0 }, open: false, opensAt: parseLagosTime('2026-10-23 23:40') })
-    expect((await t.call('me', { token: a.token })).body).toMatchObject({ points: 2, rank: null, boardOpen: false })
-    expect((await t.call('leaderboard')).body).toMatchObject({ top: [], me: null, open: false })
-
-    for (const time of ['2026-10-23 23:40', '2026-10-23 23:59']) {
+    for (const time of ['2026-10-24 09:00', '2026-10-24 15:30', '2026-10-24 23:45']) {
       t.setClock(parseLagosTime(time))
-      const open = await t.call('leaderboard', { token: a.token })
-      expect(open.body).toMatchObject({ top: [{ rank: 1, points: 2, name: '@bruno', me: true }], me: { rank: 1, points: 2 }, open: true })
-      expect((await t.call('me', { token: a.token })).body).toMatchObject({ rank: 1, boardOpen: true })
+      const { body } = await t.call('leaderboard', { token: a.token })
+      expect(body).toEqual({ top: [{ rank: 1, points: 2, name: '@bruno', me: true }], me: { rank: 1, points: 2, toTop3: 0 } })
+      expect((await t.call('me', { token: a.token })).body).toMatchObject({ points: 2, rank: 1 })
     }
-    // Midnight: hidden again until tonight's 11:40 PM.
-    t.setClock(parseLagosTime('2026-10-24 00:00'))
-    expect((await t.call('leaderboard')).body).toMatchObject({ top: [], open: false, opensAt: parseLagosTime('2026-10-24 23:40') })
+    expect((await t.call('leaderboard')).body).toMatchObject({ top: [{ rank: 1, points: 2 }], me: null })
     // After the end: the final standings.
     t.setClock(AFTER)
-    expect((await t.call('leaderboard')).body).toMatchObject({ top: [{ rank: 1, points: 2 }], open: true })
+    expect((await t.call('leaderboard')).body).toMatchObject({ top: [{ rank: 1, points: 2 }] })
   })
 
   it('never hides anything from the admin page', async () => {
@@ -263,8 +255,7 @@ describe('points to the top 3', () => {
     expect(await gap(players[3].token)).toBe(2)
     const newcomer = await t.join(5, 'kemi')
     expect(await gap(newcomer.token)).toBe(3)
-    // Shown with your own points even while the ranking is hidden.
-    expect((await t.call('leaderboard', { token: players[3].token })).body.me).toEqual({ rank: null, points: 1, toTop3: 2 })
+    expect((await t.call('leaderboard', { token: players[3].token })).body.me).toEqual({ rank: 4, points: 1, toTop3: 2 })
   })
 
   it('needs just one point while fewer than 3 have any', async () => {
@@ -298,7 +289,7 @@ describe('Telegram reminders', () => {
     t.setClock(NIGHT)
     expect((await push(t, 'night')).body).toEqual({ sent: 2, failed: 0 })
     const [bruno, ada] = [1, 2].map((id) => t.telegram.find((m) => m.chat_id === id)!.text)
-    expect(bruno).toContain('🔓 The NAIJA TR leaderboard is open now until midnight!')
+    expect(bruno).toContain('🔴 The NAIJA TR leaderboard is live: see where you stand!')
     expect(bruno).toContain("🔥 You have 2 pts and you're in the top 3 right now.")
     expect(ada).toContain("You don't have any points yet: 1 friend watching with your link puts you in the 🥉 top 3.")
     expect(ada).toMatch(/⏳ 2d 0h left · 🥇₦30,000 🥈₦20,000 🥉₦10,000/)
@@ -309,14 +300,11 @@ describe('Telegram reminders', () => {
     expect((await push(t, 'night')).body).toEqual({ sent: 0, skipped: 'already-sent' })
   })
 
-  it('says when it opens if it runs early, and calls the last one the final night', async () => {
+  it('calls the last one the final night', async () => {
     const t = await players()
-    t.setClock(parseLagosTime('2026-10-23 23:05'))
-    await push(t, 'night')
-    expect(t.telegram[0].text).toContain('opens tonight from 11:40 PM to midnight')
     t.setClock(parseLagosTime('2026-10-25 23:40'))
     await push(t, 'night')
-    expect(t.telegram.at(-1)!.text).toContain('🏁 Final night! The leaderboard is open now and the challenge ends at 11:59 PM.')
+    expect(t.telegram.at(-1)!.text).toContain('🏁 Final night! Check the live leaderboard: the challenge ends at 11:59 PM.')
   })
 
   it('sends the "final hours" message only on the last day', async () => {

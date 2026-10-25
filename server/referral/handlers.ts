@@ -4,7 +4,7 @@
  *
  * Public:
  *   GET  contest      the contest's phase, dates, prizes, and the winners for 3 days after they're announced
- *   GET  leaderboard  top 10 (and your own rank, when signed in); while the contest runs, only 11:40 PM to midnight (your points always)
+ *   GET  leaderboard  top 10 (and your own rank, when signed in), live at any time
  *   POST arrive       a device opened /r/CODE: { code, device, newDevice }
  *   POST count        that device played something: { device } (+ session, if signed in)
  * Signed in (Telegram Login Widget → session token):
@@ -30,7 +30,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAdmin } from '../live/handlers.js'
 import { hasRedis, readRedisEnv, redis, type Command, type RedisEnv } from '../redis.js'
-import { boardOpen, boardScore, contestPhase, nextBoardOpening, PLACES, pointsOf, readContest, scoresAt, type Contest } from './contest.js'
+import { boardScore, contestPhase, PLACES, pointsOf, readContest, scoresAt, type Contest } from './contest.js'
 import {
   bearer,
   claimToken,
@@ -308,28 +308,17 @@ async function usersById(env: ReferralEnv, ids: number[], fetchImpl: typeof fetc
   return new Map(list.flatMap((u) => (u ? [[u.id, u] as const] : [])))
 }
 
-async function leaderboard(env: ReferralEnv, sessionUser: number | null, now: number, fetchImpl: typeof fetch): Promise<Result> {
+async function leaderboard(env: ReferralEnv, sessionUser: number | null, fetchImpl: typeof fetch): Promise<Result> {
   const contest = env.contest
-  if (!contest) return ok({ top: [], me: null, open: true, opensAt: null })
+  if (!contest) return ok({ top: [], me: null })
   const all = await standings(env, contest, fetchImpl)
   if (!all) return fail(502, 'store-unavailable')
-  if (!boardOpen(contest, now)) {
-    const mine = sessionUser === null ? null : all.find((s) => s.id === sessionUser)
-    return ok({
-      top: [],
-      me: sessionUser === null ? null : { rank: null, points: mine?.points ?? 0, toTop3: toTop3(all, sessionUser) },
-      open: false,
-      opensAt: nextBoardOpening(now),
-    })
-  }
   const top = all.slice(0, 10)
   const users = await usersById(env, top.map((s) => s.id), fetchImpl)
   const me = sessionUser === null ? null : (all.find((s) => s.id === sessionUser) ?? { id: sessionUser, points: 0, rank: null })
   return ok({
     top: top.map((s) => ({ rank: s.rank, points: s.points, name: users.get(s.id) ? displayName(users.get(s.id)!) : 'Player', me: s.id === sessionUser })),
     me: me && { rank: me.rank, points: me.points, toTop3: toTop3(all, me.id) },
-    open: true,
-    opensAt: null,
   })
 }
 
@@ -340,13 +329,11 @@ async function me(env: ReferralEnv, userId: number, now: number, fetchImpl: type
   const [total] = (await redis(env, [['GET', k.total(userId)]], fetchImpl)) ?? []
   const all = contest ? await standings(env, contest, fetchImpl) : []
   const mine = all?.find((s) => s.id === userId)
-  const open = boardOpen(contest, now)
   return ok({
     user: publicUser(user),
     total: Number(total) || 0,
     points: mine?.points ?? 0,
-    rank: open ? (mine?.rank ?? null) : null,
-    boardOpen: open,
+    rank: mine?.rank ?? null,
     toTop3: all && contestPhase(contest, now) === 'live' ? toTop3(all, userId) : null,
   })
 }
@@ -562,15 +549,13 @@ export function standingLine(points: number, gap: number) {
 export function reminderText(kind: string, contest: Contest, now: number, points: number, gap: number, link: string): string | null {
   const left = contest.end - now
   if (contestPhase(contest, now) !== 'live') return null
-  const lagosMinutes = Math.floor(((now + LAGOS_MS) % 86_400_000) / 60_000)
   const prizes = contest.prizes.map((p, i) => `${['🥇', '🥈', '🥉'][i]}${naira(p)}`).join(' ')
   let head: string
   if (kind === 'night') {
-    const open = lagosMinutes >= 23 * 60 + 40
     head =
       left < 86_400_000
-        ? `🏁 Final night! The leaderboard ${open ? 'is open now' : 'opens at 11:40 PM'} and the challenge ends at 11:59 PM.`
-        : `🔓 The NAIJA TR leaderboard ${open ? 'is open now until midnight' : 'opens tonight from 11:40 PM to midnight'}!`
+        ? '🏁 Final night! Check the live leaderboard: the challenge ends at 11:59 PM.'
+        : '🔴 The NAIJA TR leaderboard is live: see where you stand!'
   } else if (kind === 'final') {
     // Only on the last day.
     if (left > 86_400_000) return null
@@ -741,7 +726,7 @@ export async function handleReferral(
     case 'contest':
       return reply(await contestInfo(env, now, fetchImpl))
     case 'leaderboard':
-      return reply(await leaderboard(env, sessionUser, now, fetchImpl))
+      return reply(await leaderboard(env, sessionUser, fetchImpl))
     case 'login':
       return reply(await login(env, body, now, fetchImpl))
     case 'arrive':

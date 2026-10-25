@@ -453,3 +453,115 @@
   color: #f5c518;
   font-weight: 700;
 }
+
+/* ---- Live leaderboard bar ---- */
+
+.live-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: none;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.7);
+  animation: live-dot 1.6s ease-out infinite;
+}
+
+@keyframes live-dot {
+  70% {
+    box-shadow: 0 0 0 0.45rem rgba(255, 59, 59, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 59, 59, 0);
+  }
+}
+
+.invite-banner--live {
+  border-bottom: 1px solid rgba(245, 197, 24, 0.45);
+  background: linear-gradient(90deg, #4a0c10, #3a2400 50%, #4a0c10);
+  background-size: 200% 100%;
+  animation: invite-banner-sweep 8s linear infinite;
+  font-size: 0.9rem;
+}
+
+@keyframes invite-banner-sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.invite-banner__board {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.6rem;
+  min-height: 32px;
+  min-width: 0;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
+.invite-banner__board:hover .invite-banner__title,
+.invite-banner__board:focus-visible .invite-banner__title {
+  text-decoration: underline;
+}
+
+.invite-banner__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 59, 59, 0.18);
+  color: #ff8a8a;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.invite-banner__title {
+  color: #f5c518;
+  font-weight: 800;
+}
+
+.invite-banner__top {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.2rem 0.7rem;
+  min-width: 0;
+}
+
+.invite-banner__player {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.invite-banner__name {
+  display: inline-block;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.invite-banner__player strong {
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .invite-banner__name {
+    max-width: 5.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot,
+  .invite-banner--live {
+    animation: none;
+  }
+}

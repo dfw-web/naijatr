@@ -331,38 +331,22 @@ describe('"You can win too" popup for invited visitors', () => {
 const fireClick = (element: HTMLElement) => act(() => element.click())
 
 describe('leaderboard page', () => {
-  it('outside 11:40 PM to midnight: only your own points and when it opens', async () => {
-    saveSession({ token: 't', user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' } })
+  it('shows the live ranking at any time', async () => {
     window.history.replaceState(null, '', '/challenge')
     fetchMock.mockImplementation(async (url: string) =>
       url === '/api/referral/contest'
         ? Response.json(live)
-        : Response.json({ top: [], me: { rank: null, points: 4 }, open: false, opensAt: Date.now() + 2 * HOUR }),
-    )
-    const { default: ChallengeApp } = await import('./ChallengeApp')
-    render(<ChallengeApp />)
-    expect(await screen.findByText('🔒 The leaderboard opens every night from 11:40 PM to midnight (Lagos time).')).toBeInTheDocument()
-    expect(screen.getByText(/^Opens in (01h 59m|02h 00m)/)).toBeInTheDocument()
-    expect(screen.getByText('Your points: 4 pts')).toBeInTheDocument()
-    expect(screen.queryByText('No points yet. Be the first!')).not.toBeInTheDocument()
-  })
-
-  it('from 11:40 PM: the live ranking', async () => {
-    window.history.replaceState(null, '', '/challenge')
-    fetchMock.mockImplementation(async (url: string) =>
-      url === '/api/referral/contest'
-        ? Response.json(live)
-        : Response.json({ top: [{ rank: 1, points: 3, name: '@diuto', me: false }], me: null, open: true, opensAt: null }),
+        : Response.json({ top: [{ rank: 1, points: 3, name: '@diuto', me: false }], me: null }),
     )
     const { default: ChallengeApp } = await import('./ChallengeApp')
     render(<ChallengeApp />)
     expect(await screen.findByText('@diuto')).toBeInTheDocument()
-    expect(screen.queryByText(/🔒/)).not.toBeInTheDocument()
+    expect(screen.getByText(/LIVE · updates by itself/)).toBeInTheDocument()
   })
 })
 
 describe('push to the top 3', () => {
-  const ME = { user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' }, total: 2, rank: null, boardOpen: false }
+  const ME = { user: { code: 'BRUNO23', nickname: '@bruno', hidden: false, link: 'https://www.naijatr.com/r/BRUNO23' }, total: 2, rank: null }
 
   async function joinedGuide(me: object) {
     saveSession({ token: 't', user: ME.user })
@@ -387,12 +371,12 @@ describe('push to the top 3', () => {
     expect(await screen.findByText('🔥 You’re in the top 3! Keep inviting to stay there.')).toBeInTheDocument()
   })
 
-  it('shows the gap on the leaderboard page too, while the ranking is hidden', async () => {
+  it('shows the gap on the leaderboard page too', async () => {
     window.history.replaceState(null, '', '/challenge')
     fetchMock.mockImplementation(async (url: string) =>
       url === '/api/referral/contest'
         ? Response.json(live)
-        : Response.json({ top: [], me: { rank: null, points: 1, toTop3: 1 }, open: false, opensAt: Date.now() + HOUR }),
+        : Response.json({ top: [], me: { rank: null, points: 1, toTop3: 1 } }),
     )
     const { default: ChallengeApp } = await import('./ChallengeApp')
     render(<ChallengeApp />)
@@ -427,9 +411,26 @@ describe('banner toward the end', () => {
     expect(await bannerAt('19:00')).toHaveTextContent(/^🔥 Final hours! The race for the top 3 is tight · ⏳ Ends in 04h 59m/)
   })
 
-  it('says the leaderboard is open from 11:40 PM, with a link to it', async () => {
-    const banner = await bannerAt('23:45')
-    expect(banner).toHaveTextContent(/^🔓 The leaderboard is open now until midnight!/)
-    expect(screen.getByRole('link', { name: 'See leaderboard' })).toHaveAttribute('href', '/challenge')
+})
+
+describe('live leaderboard bar', () => {
+  it('shows the live top 3 on the site, linking to the full leaderboard', async () => {
+    const top = [
+      { rank: 1, points: 12, name: '@diuto', me: false },
+      { rank: 2, points: 9, name: '@bruno', me: false },
+      { rank: 3, points: 4, name: 'Hidden player', me: false },
+      { rank: 4, points: 2, name: '@ada', me: false },
+    ]
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/referral/contest' ? Response.json(live) : url === '/api/referral/leaderboard' ? Response.json({ top, me: null }) : Response.json({ ok: true }),
+    )
+    const { ContestHost } = await import('./Invite')
+    render(<ContestHost />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Maybe later' }))
+    const bar = await screen.findByRole('region', { name: 'Live leaderboard' })
+    expect(bar).toHaveTextContent(/^LIVE Leaderboard: 🥇 @diuto 12 pts 🥈 @bruno 9 pts 🥉 Hidden player 4 pts ⏳ Ends in/)
+    expect(bar).not.toHaveTextContent('@ada')
+    expect(screen.getByRole('link', { name: /LIVE Leaderboard:/ })).toHaveAttribute('href', '/challenge')
+    expect(screen.getByRole('button', { name: 'Join & win' })).toBeInTheDocument()
   })
 })
