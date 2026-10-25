@@ -44,7 +44,7 @@ import {
   streamsForMatch,
   type StreamingDeps,
 } from './streamingStore.js'
-import { fetchStreamingLeague, fetchStreamingLeagues } from './streaming.js'
+import { fetchStreamingLeague, fetchStreamingLeagues, serverLabel } from './streaming.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -727,7 +727,7 @@ async function stream(ctx: FootballContext, params: URLSearchParams, res: Server
     // Within a minute of a new list.
     maxAge = shorterAge(maxAge, 60)
   } else if (scheduled.length) {
-    result.streams = scheduled.slice(0, 8).map((s, i) => ({ ...s, label: `Server ${i + 1}` }))
+    result.streams = scheduled.slice(0, 8).map((s, i) => ({ ...s, label: serverLabel(s.url, i) }))
     maxAge = shorterAge(maxAge, 60)
   } else if (listingFailed) {
     return send(res, listingFailed)

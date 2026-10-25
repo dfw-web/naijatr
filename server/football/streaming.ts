@@ -57,7 +57,12 @@ const str = (value: unknown) => (typeof value === 'string' && value.trim() ? val
  * 1.6, while others can be 1080p60 at 4 Mbps, too much for many phones. The
  * player starts with Server 1 and moves on if it can't keep up.
  */
-const weight = (url: string) => (/_lsd\b/i.test(url) ? 0 : /_lhd\b/i.test(url) ? 1 : 2)
+const weight = (url: string) => (isEnglish(url) ? -1 : /_lsd\b/i.test(url) ? 0 : /_lhd\b/i.test(url) ? 1 : 2)
+
+/** Feeds tagged English in their path ("/live/hd-en-….m3u8"): first in the list, and named so. */
+const isEnglish = (url: string) => /(^|[-_/])en([-_.]|$)/i.test(new URL(url).pathname)
+
+export const serverLabel = (url: string, index: number) => `Server ${index + 1}${isEnglish(url) ? ' (English)' : ''}`
 
 function directHls(servers: unknown): StreamSource[] {
   if (!Array.isArray(servers)) return []
@@ -80,7 +85,7 @@ function directHls(servers: unknown): StreamSource[] {
     .map((s, index) => ({ ...s, index }))
     .sort((a, b) => weight(a.url) - weight(b.url) || a.index - b.index)
     .slice(0, MAX_SERVERS)
-    .map(({ url }, i) => ({ label: `Server ${i + 1}`, url, kind: 'hls' as const }))
+    .map(({ url }, i) => ({ label: serverLabel(url, i), url, kind: 'hls' as const }))
 }
 
 /** One listing entry, or null without both teams. */

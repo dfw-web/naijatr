@@ -61,6 +61,23 @@ describe('Football Live Streaming API: the listing', () => {
     ])
   })
 
+  it('puts feeds tagged English first, named so', () => {
+    const match = parseStreamingMatch(
+      listed('FC Barcelona', 'Real Madrid', [
+        { name: 'Server 1', type: 'direct', url: 'https://a.example/live/stream-1_lsd.m3u8' },
+        { name: 'Server 2', type: 'direct', url: 'https://b.example/live/sd-6Mwea.m3u8' },
+        { name: 'Server 3', type: 'direct', url: 'https://b.example/live/hd-en-6Mwea.m3u8' },
+        { name: 'Server 4', type: 'direct', url: 'https://c.example/live/benfica-tv.m3u8' },
+      ]),
+    )
+    expect(match?.streams.map((s) => s.label + ' ' + s.url)).toEqual([
+      'Server 1 (English) https://b.example/live/hd-en-6Mwea.m3u8',
+      'Server 2 https://a.example/live/stream-1_lsd.m3u8',
+      'Server 3 https://b.example/live/sd-6Mwea.m3u8',
+      'Server 4 https://c.example/live/benfica-tv.m3u8',
+    ])
+  })
+
   it('asks only for live matches, with the key in headers only', async () => {
     const { deps, fetchImpl } = setup()
     await loadStreaming(deps)
