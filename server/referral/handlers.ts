@@ -511,6 +511,14 @@ export async function confirmPlace(env: ReferralEnv, contest: Contest, place: nu
   return ok({ confirmed: entry })
 }
 
+/** One Telegram message from the bot to one player (admin page, e.g. "you've just been overtaken"). */
+async function messagePlayer(env: ReferralEnv, id: number, body: Record<string, unknown>, fetchImpl: typeof fetch): Promise<Result> {
+  const text = typeof body.text === 'string' ? body.text.trim() : ''
+  if (!text || text.length > 1000) return fail(400, 'bad-request')
+  if (!(await getUser(env, id, fetchImpl))) return fail(404, 'no-such-player')
+  return (await telegram(env, id, text, fetchImpl)) ? ok({ sent: true }) : fail(502, 'not-sent')
+}
+
 export async function disqualify(env: ReferralEnv, contest: Contest, id: number, fetchImpl: typeof fetch): Promise<Result> {
   const confirmed = await confirmedWinners(env, contest, fetchImpl)
   if (confirmed.some((c) => c.id === id)) return fail(409, 'already-confirmed')
@@ -677,7 +685,7 @@ export const clientIp = (req: IncomingMessage) =>
   String(req.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket?.remoteAddress || ''
 
 const GET_ROUTES = new Set(['contest', 'leaderboard', 'me', 'claim', 'admin', 'push'])
-const POST_ROUTES = new Set(['login', 'arrive', 'count', 'profile', 'claim', 'admin-confirm', 'admin-dq', 'admin-paid'])
+const POST_ROUTES = new Set(['login', 'arrive', 'count', 'profile', 'claim', 'admin-confirm', 'admin-dq', 'admin-paid', 'admin-message'])
 
 export async function handleReferral(
   env: ReferralEnv,
@@ -718,6 +726,7 @@ export async function handleReferral(
     if (action === 'admin-confirm') return reply(await confirmPlace(env, contest, Number(body.place), now, fetchImpl))
     const id = Number(body.id)
     if (!Number.isSafeInteger(id) || id <= 0) return sendJson(res, 400, { error: 'bad-request' })
+    if (action === 'admin-message') return reply(await messagePlayer(env, id, body, fetchImpl))
     return reply(action === 'admin-dq' ? await disqualify(env, contest, id, fetchImpl) : await markPaid(env, contest, id, fetchImpl))
   }
 

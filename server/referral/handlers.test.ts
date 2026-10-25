@@ -367,6 +367,16 @@ describe('ending and winners', () => {
     expect((body.top as { name: string }[]).map((r) => r.name)).toEqual(['@second', '@third', '@fourth'])
   })
 
+  it('sends one player a Telegram message from the admin page', async () => {
+    const t = setup()
+    await t.join(1, 'bruno')
+    expect((await t.admin('admin-message', { id: 1, text: ' You can do this! ' })).body).toEqual({ sent: true })
+    expect(t.telegram).toEqual([expect.objectContaining({ chat_id: 1, text: 'You can do this!' })])
+    expect((await t.admin('admin-message', { id: 9, text: 'Hi' })).status).toBe(404)
+    expect((await t.admin('admin-message', { id: 1, text: '' })).status).toBe(400)
+    expect((await t.call('admin-message', { body: { id: 1, text: 'Hi' }, token: 'wrong' })).status).toBe(401)
+  })
+
   it('keeps the admin page behind the password', async () => {
     const { t } = await finished()
     expect((await t.call('admin')).status).toBe(401)
