@@ -557,8 +557,8 @@
   color: #fff;
 }
 
-/* Phones: one slim line, LIVE · ticker · Join & win. */
-@media (max-width: 760px) {
+/* Phones and tablets: one slim line, LIVE · ticker · Join & win. */
+@media (max-width: 1023px) {
   .invite-banner--live {
     flex-wrap: nowrap;
     gap: 0.5rem;
