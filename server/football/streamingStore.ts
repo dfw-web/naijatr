@@ -36,7 +36,8 @@ const WAIT_STEP_MS = 500
 export const MANUAL_REFRESH_EVERY_MS = 10 * 60_000
 const CALLS_KEPT = 10
 
-const LIVE_KEY = 'fb:sl:live'
+// v2: English feeds first.
+const LIVE_KEY = 'fb:sl:live:v2'
 const LOCK_KEY = 'fb:sl:lock'
 const QUOTA_KEY = 'fb:sl:quota'
 const CALLS_KEY = 'fb:sl:calls'

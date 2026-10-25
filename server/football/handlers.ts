@@ -375,8 +375,8 @@ interface Schedule {
 function loadSchedule(ctx: FootballContext, rapidKey: string) {
   return cached(
     ctx,
-    // v3: with the streams, and leagues under their second names ("Spain La Liga").
-    'schedule:v3',
+    // v4: English feeds first (v3: with the streams, and leagues under their second names, "Spain La Liga").
+    'schedule:v4',
     async (): Promise<Outcome> => {
       const names = await cached(
         ctx,
