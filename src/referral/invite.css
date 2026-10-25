@@ -525,12 +525,16 @@
   font-weight: 800;
 }
 
-.invite-banner__top {
+.invite-banner__ticker {
+  min-width: 0;
+}
+
+.invite-banner__track {
   display: inline-flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
   gap: 0.2rem 0.7rem;
-  min-width: 0;
 }
 
 .invite-banner__player {
@@ -553,15 +557,55 @@
   color: #fff;
 }
 
-@media (max-width: 480px) {
-  .invite-banner__name {
-    max-width: 5.5rem;
+/* Phones: one slim line, LIVE · ticker · Join & win. */
+@media (max-width: 760px) {
+  .invite-banner--live {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    padding: 0.3rem 12px;
+  }
+
+  .invite-banner--live .invite-banner__board {
+    flex: 1;
+    flex-wrap: nowrap;
+  }
+
+  .invite-banner--live .invite-banner__ticker {
+    flex: 1;
+    overflow: hidden;
+    text-align: left;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 0.6rem, #000 calc(100% - 0.6rem), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 0.6rem, #000 calc(100% - 0.6rem), transparent);
+  }
+
+  .invite-banner--live .invite-banner__track {
+    flex-wrap: nowrap;
+    padding-left: 100%;
+    white-space: nowrap;
+    animation: invite-ticker 16s linear infinite;
+  }
+
+  .invite-banner--live button {
+    flex: none;
+  }
+}
+
+@keyframes invite-ticker {
+  to {
+    transform: translateX(-100%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .live-dot,
-  .invite-banner--live {
+  .invite-banner--live,
+  .invite-banner--live .invite-banner__track {
     animation: none;
+  }
+
+  .invite-banner--live .invite-banner__track {
+    flex-wrap: wrap;
+    padding-left: 0;
+    white-space: normal;
   }
 }

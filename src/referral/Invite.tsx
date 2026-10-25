@@ -283,20 +283,23 @@ function ContestBanner({ contest }: { contest: ContestInfo }) {
           <span className="invite-banner__badge">
             <span className="live-dot" aria-hidden="true" /> LIVE
           </span>{' '}
-          <span className="invite-banner__title">Leaderboard:</span>{' '}
-          {top.length ? (
-            <span className="invite-banner__top">
-              {top.map((row) => (
-                <span key={row.rank} className="invite-banner__player">
-                  {MEDALS[row.rank - 1]} <span className="invite-banner__name">{row.name}</span> <strong>{row.points} pts</strong>{' '}
-                </span>
-              ))}
+          {/* On phones, one line that scrolls by like a ticker. */}
+          <span className="invite-banner__ticker">
+            <span className="invite-banner__track">
+              <span className="invite-banner__title">Leaderboard:</span>{' '}
+              {top.length ? (
+                top.map((row) => (
+                  <span key={row.rank} className="invite-banner__player">
+                    {MEDALS[row.rank - 1]} <span className="invite-banner__name">{row.name}</span> <strong>{row.points} pts</strong>{' '}
+                  </span>
+                ))
+              ) : (
+                <span>No points yet: be the first!</span>
+              )}{' '}
+              <span className="invite-banner__time">⏳ {countdown}</span>
             </span>
-          ) : (
-            <span>No points yet: be the first!</span>
-          )}
+          </span>
         </a>{' '}
-        <span className="invite-banner__time">⏳ {countdown}</span>{' '}
         <button type="button" onClick={openInviteGuide}>
           Join &amp; win
         </button>
