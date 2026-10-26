@@ -3,9 +3,10 @@
  * (GET /api/download/options). Playback never comes through here: the Watch
  * streams stay in handlers.ts / nextstream.ts.
  *
- * The Worker's /search is broken, so titles are found in an index built from
- * its working discovery endpoints (/home/rows, then /home/subjects for each
- * row), cached for hours. A confident match is saved per title (TMDB id), and
+ * Titles are found with the Worker's /search first (title, then the original
+ * title); when that fails or finds nothing confident, in an index built from
+ * its discovery endpoints (/home/rows, then /home/subjects for each row),
+ * cached for hours. A confident match is saved per title (TMDB id), and
  * misses are remembered for a while, so most clicks cost one Worker call.
  *
  * The Worker secret is only ever sent from here, in the X-Worker-Secret header.
@@ -26,6 +27,8 @@ const INDEX_PAGES = 2
 const INDEX_PER_PAGE = 50
 const INDEX_CONCURRENCY = 6
 const INDEX_MAX_ENTRIES = 5000
+
+const SEARCH_PER_PAGE = 20
 
 const INDEX_TTL_S = 6 * 60 * 60
 const MATCH_TTL_S = 30 * 24 * 60 * 60
@@ -397,11 +400,17 @@ export function createMovieboxDownloads(config: MovieboxConfig, fetchImpl: typeo
   let index: { entries: IndexEntry[]; expires: number } | null = null
   let building: Promise<IndexEntry[]> | null = null
 
-  const worker = async (path: string, timeoutMs = WORKER_TIMEOUT_MS): Promise<unknown> => {
+  const worker = async (path: string, timeoutMs = WORKER_TIMEOUT_MS, body?: unknown): Promise<unknown> => {
     let response: Response
     try {
       response = await fetchImpl(`${config.workerUrl}${path}`, {
-        headers: { 'X-Worker-Secret': config.secret, Accept: 'application/json' },
+        method: body === undefined ? 'GET' : 'POST',
+        headers: {
+          'X-Worker-Secret': config.secret,
+          Accept: 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(timeoutMs),
       })
     } catch {
@@ -463,6 +472,25 @@ export function createMovieboxDownloads(config: MovieboxConfig, fetchImpl: typeo
     return entries
   }
 
+  /** A confident match from the Worker's /search (title, then original title); null when it fails or finds none. */
+  const searchSubject = async (want: WantedTitle): Promise<string | null> => {
+    const keywords = [...new Set([want.title, want.originalTitle].filter(Boolean))]
+    for (const keyword of keywords) {
+      let body: unknown
+      try {
+        body = await worker('/search', WORKER_TIMEOUT_MS, { keyword, page: 1, perPage: SEARCH_PER_PAGE, subjectType: 0 })
+      } catch (error) {
+        console.info(`[Download] search failed (${error instanceof WorkerError ? (error.status ?? 'unreachable') : 'error'})`)
+        return null
+      }
+      const results = collect(body, (o) => (o.subjectId !== undefined ? subjectToEntry(o) : null))
+      const match = matchSubject(want, results)
+      if (match && 'id' in match) return match.id
+      if (match) return null
+    }
+    return null
+  }
+
   /** The saved subject for the title, or a new match (saved either way); null when there's none. */
   const resolveSubject = async (request: DownloadRequest): Promise<string | null> => {
     const key = mapKey(request.want.type, request.movieId)
@@ -472,10 +500,17 @@ export function createMovieboxDownloads(config: MovieboxConfig, fetchImpl: typeo
       return saved || null
     }
     console.info('[Download] resolving subject')
+    const found = await searchSubject(request.want)
+    if (found) {
+      console.info(`[Download] matched subjectId ${found} (search)`)
+      await store.set(key, found, MATCH_TTL_S)
+      return found
+    }
+    console.info('[Download] no search match, trying the home rows index')
     const entries = await getIndex()
     const match = matchSubject(request.want, entries)
     if (match && 'id' in match) {
-      console.info(`[Download] matched subjectId ${match.id}`)
+      console.info(`[Download] matched subjectId ${match.id} (index)`)
       await store.set(key, match.id, MATCH_TTL_S)
       return match.id
     }

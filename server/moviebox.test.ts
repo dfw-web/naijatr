@@ -131,6 +131,7 @@ describe('createMovieboxDownloads', () => {
     vi.fn(async (url: string, init?: RequestInit) => {
       expect((init?.headers as Record<string, string> | undefined)?.['X-Worker-Secret']).toBe('s3cret')
       const path = url.replace(config.workerUrl, '')
+      if (path === '/search') return Response.json({ items: [], pager: null })
       if (path === '/home/rows') return Response.json({ data: { rows: [{ opId: 'trend' }] } })
       if (path.startsWith('/home/subjects')) {
         return Response.json({ data: { items: [{ subjectId: '77', subjectType: 1, title: 'Dune', releaseDate: '2021-09-15' }] } })
@@ -156,6 +157,35 @@ describe('createMovieboxDownloads', () => {
     fetchImpl.mockClear()
     await service.handle(query('Dune', '2021'), fakeResponse() as never)
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(['https://worker.example/download/77'])
+  })
+
+  it('uses a confident /search match before the home rows index', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      const path = url.replace(config.workerUrl, '')
+      if (path === '/search') {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ keyword: 'Dune' })
+        return Response.json({ items: [{ subjectId: '88', subjectType: 1, title: 'Dune', releaseDate: '2021-09-15' }, { subjectId: '89', subjectType: 1, title: 'Dune', releaseDate: '1984-12-14' }] })
+      }
+      if (path === '/download/88') return Response.json({ downloads: [{ url: 'https://cdn.example/s.mp4', resolution: 1080 }] })
+      return new Response('nope', { status: 404 })
+    })
+    const store = memoryStore()
+    const service = createMovieboxDownloads(config, fetchImpl as never, store)
+    const res = fakeResponse()
+    await service.handle(query('Dune', '2021'), res as never)
+    expect(JSON.parse(res.body).options[0].quality).toBe('1080p')
+    expect(store.data.get('moviebox:map:v1:movie:438631')).toBe('88')
+    expect(fetchImpl.mock.calls.map(([url]) => url)).not.toContain('https://worker.example/home/rows')
+  })
+
+  it('falls back to the index when /search fails', async () => {
+    const base = worker()
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) =>
+      url.endsWith('/search') ? new Response('boom', { status: 500 }) : base(url, init),
+    )
+    const res = fakeResponse()
+    await createMovieboxDownloads(config, fetchImpl as never, memoryStore()).handle(query('Dune', '2021'), res as never)
+    expect(JSON.parse(res.body).available).toBe(true)
   })
 
   it('remembers a title with no match', async () => {
