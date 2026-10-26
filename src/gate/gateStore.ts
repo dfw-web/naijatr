@@ -1,14 +1,15 @@
 import { pageview } from '@vercel/analytics'
 import { useSyncExternalStore } from 'react'
 import { isDevHost } from '../ads/directLink'
-import { TELEGRAM_GATE_ENABLED } from '../config/telegramGate'
+import { telegramGateEnabled } from '../config/telegramGate'
 import { isTvMode } from '../tv/tvMode'
 
 /**
- * The Telegram gate: the first Play (or match Watch) on a phone or tablet asks
- * the visitor to join the official channel. Tapping Join opens Telegram and
- * starts the video; nothing is checked, and the gate never shows again on
- * that device (localStorage plus a 1-year cookie). TVs get a QR code instead.
+ * The Telegram gate: Play (or match Watch) first asks the visitor to join the
+ * official channel. Never forced: Join opens Telegram and starts the video,
+ * "Continue without joining" just starts it. Nothing is checked. After Join it
+ * never shows again on that device (localStorage plus a 1-year cookie); after
+ * Continue, not again this visit. TVs get a QR code instead.
  */
 
 const DONE_KEY = 'naijatr.gate.joined'
@@ -16,6 +17,8 @@ const COOKIE = 'naijatr_gate_joined'
 /** Set by the earlier, verified gate: those visitors already joined. */
 const OLD_TOKEN_KEY = 'naijatr.gate.token'
 const TV_PASS_KEY = 'naijatr.gate.tv'
+/** Continue without joining: this visit only (sessionStorage). */
+const SKIPPED_KEY = 'naijatr.gate.skipped'
 const YEAR_S = 365 * 24 * 60 * 60
 
 interface Pending {
@@ -29,7 +32,7 @@ let doneThisVisit = false
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((listener) => listener())
 
-/** Laptops and desktops (no touch, or a Windows/macOS/Linux browser) skip the gate. iPads say "Macintosh" but have touch. */
+/** Phones and tablets (iPads say "Macintosh" but have touch); not laptops or desktops. */
 export function isPhoneOrTablet(
   userAgent = navigator.userAgent,
   touchPoints = navigator.maxTouchPoints || 0,
@@ -59,6 +62,11 @@ function store(key: string): void {
 /** Whether this device has been through the gate (joined, or Continue on a TV). */
 export function gateDone(): boolean {
   if (doneThisVisit) return true
+  try {
+    if (window.sessionStorage.getItem(SKIPPED_KEY) === '1') return true
+  } catch {
+    // Asked again; Continue still plays.
+  }
   if (isTvMode()) return stored(TV_PASS_KEY) === '1'
   return stored(DONE_KEY) === '1' || Boolean(stored(OLD_TOKEN_KEY)) || document.cookie.includes(`${COOKIE}=1`)
 }
@@ -68,10 +76,9 @@ export function trackGatePage(path: string): void {
   pageview({ route: path, path })
 }
 
-/** Whether this visit could see the gate at all (switched on, a real visit, a phone, tablet or TV). */
+/** Whether this visit could see the gate at all (switched on, a real visit; phones, tablets, computers and TVs). */
 export function gateApplies(): boolean {
-  if (!TELEGRAM_GATE_ENABLED || isDevHost()) return false
-  return isTvMode() || isPhoneOrTablet()
+  return telegramGateEnabled() && !isDevHost()
 }
 
 /**
@@ -100,6 +107,20 @@ export function passGate(): void {
   current?.action()
 }
 
+/** Continue without joining: play now, and don't ask again this visit. */
+export function skipGate(): void {
+  try {
+    window.sessionStorage.setItem(SKIPPED_KEY, '1')
+  } catch {
+    doneThisVisit = true
+  }
+  trackGatePage('/go/gate-skipped')
+  const current = pending
+  pending = null
+  emit()
+  current?.action()
+}
+
 /** Not now: close without playing. */
 export function cancelGate(): void {
   pending = null
@@ -117,5 +138,10 @@ export const usePendingGate = () => useSyncExternalStore(subscribe, () => pendin
 export function resetGate(): void {
   pending = null
   doneThisVisit = false
+  try {
+    window.sessionStorage.removeItem(SKIPPED_KEY)
+  } catch {
+    // Nothing to clear.
+  }
   emit()
 }

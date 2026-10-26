@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { OfficialBadge, TelegramIcon, TelegramLink } from '../components/Telegram'
 import { TELEGRAM_CHANNEL_URL, TELEGRAM_USERNAME } from '../config/telegram'
 import { QrCode } from '../tv/QrCode'
-import { cancelGate, passGate, usePendingGate } from './gateStore'
+import { cancelGate, passGate, skipGate, usePendingGate } from './gateStore'
 import './TelegramGate.css'
 
 /** Render once per root (App and Football). Shows the gate while a Play waits on it. */
@@ -26,11 +26,27 @@ const Brand = () => (
 
 const Title = () => (
   <h2 id="tg-gate-title" className="tg-gate__title">
-    Follow the official NAIJA TR channel to start watching <span aria-hidden="true">🎬⚽</span>
+    Follow the official NAIJA TR channel before you watch <span aria-hidden="true">📢</span>
   </h2>
 )
 
-/** Phones and tablets: one button. It opens the channel in a new tab and starts the video here. */
+const WHY = 'It’s where we post important NAIJA TR updates: how everything works, and what to do if a movie or match gives you an error.'
+
+const Points = () => (
+  <ul className="tg-gate__points">
+    <li>
+      <span aria-hidden="true">🔔</span> Important NAIJA TR updates and news
+    </li>
+    <li>
+      <span aria-hidden="true">🛠️</span> What to do if a movie or match shows an error
+    </li>
+    <li>
+      <span aria-hidden="true">📖</span> How everything on NAIJA TR works
+    </li>
+  </ul>
+)
+
+/** Phones, tablets and computers: Join opens the channel in a new tab and starts the video here; Continue just starts it. */
 function PhoneGate() {
   const panelRef = useRef<HTMLDivElement>(null)
   useGateKeys(panelRef, cancelGate)
@@ -51,12 +67,16 @@ function PhoneGate() {
         <Brand />
         <Title />
         <p id="tg-gate-text" className="tg-gate__text">
-          Get the latest movies, series, match links and NAIJA TR news first.
+          {WHY} Follow it so you’re never stuck.
         </p>
+        <Points />
         <TelegramLink from="gate" className="tg-button tg-gate__button" newTab onClick={passGate}>
           <TelegramIcon /> Join @{TELEGRAM_USERNAME} on Telegram
         </TelegramLink>
         <p className="tg-gate__note">Your video starts as soon as you tap Join.</p>
+        <button type="button" className="tg-gate__skip" onClick={skipGate}>
+          Continue without joining
+        </button>
       </div>
     </div>
   )
@@ -77,7 +97,7 @@ function TvGate() {
           <QrCode url={TELEGRAM_CHANNEL_URL} label={`QR code: join @${TELEGRAM_USERNAME} on Telegram`} size="10em" />
           <p>
             <strong>Scan to join @{TELEGRAM_USERNAME}</strong>
-            Get the latest movies, series, match links and NAIJA TR news first.
+            {WHY}
           </p>
         </div>
         <button ref={continueRef} type="button" className="tg-gate__continue" onClick={passGate}>

@@ -93,6 +93,39 @@
   line-height: 1.5;
 }
 
+.tg-gate__points {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(34, 158, 217, 0.35);
+  border-radius: 12px;
+  background: rgba(34, 158, 217, 0.08);
+  list-style: none;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.tg-gate__skip {
+  align-self: center;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 0;
+  background: none;
+  color: var(--text-muted, #b3b3bd);
+  font: inherit;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.tg-gate__skip:hover,
+.tg-gate__skip:focus-visible {
+  color: var(--text, #fff);
+}
+
 .tg-gate .tg-gate__button {
   width: 100%;
   min-height: 52px;

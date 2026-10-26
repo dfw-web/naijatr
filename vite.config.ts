@@ -115,7 +115,8 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
       // The ad tests need ads on; src/ads/adsOff.test.tsx checks the real default (off).
-      env: { VITE_ADS_ENABLED: 'true' },
+      // The Telegram gate would stop every Play: off, except in src/gate's own tests.
+      env: { VITE_ADS_ENABLED: 'true', VITE_TELEGRAM_GATE_ENABLED: 'false' },
       // The App tests click through whole pages: slow when every file runs in parallel.
       testTimeout: 15_000,
     },

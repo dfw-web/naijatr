@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { isPhoneOrTablet, playAfterGate } from './gateStore'
+import { isPhoneOrTablet, playAfterGate, resetGate } from './gateStore'
 import { TelegramGateHost } from './TelegramGate'
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
@@ -21,6 +21,8 @@ function firstPlay() {
 const noNavigation = (event: MouseEvent) => event.preventDefault()
 
 beforeEach(() => {
+  // Off for the other tests (vite.config.ts): on here.
+  vi.stubEnv('VITE_TELEGRAM_GATE_ENABLED', 'true')
   userAgent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(IPHONE)
   va = vi.fn()
   window.va = va as unknown as typeof window.va
@@ -28,6 +30,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
+  resetGate()
   userAgent.mockRestore()
   delete window.va
   document.removeEventListener('click', noNavigation)
@@ -48,10 +52,26 @@ describe('isPhoneOrTablet', () => {
 })
 
 describe('Telegram gate', () => {
-  it('lets desktops play straight away', () => {
+  it('asks computers too', () => {
     userAgent.mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0')
-    expect(firstPlay()).toHaveBeenCalledTimes(1)
+    expect(firstPlay()).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('never forces it: Continue without joining plays, and doesn’t ask again this visit', async () => {
+    const action = firstPlay()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue without joining' }))
+    expect(action).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(tracked()).toEqual(['/go/gate-shown', '/go/gate-skipped'])
+    expect(localStorage.getItem('naijatr.gate.joined')).toBeNull()
+    const next = vi.fn()
+    act(() => playAfterGate(next))
+    expect(next).toHaveBeenCalledTimes(1)
+    // A new visit asks again.
+    sessionStorage.clear()
+    act(() => playAfterGate(vi.fn()))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('asks a phone once: Join opens Telegram and starts the video, with no check', async () => {
@@ -60,8 +80,9 @@ describe('Telegram gate', () => {
     const action = firstPlay()
     expect(action).not.toHaveBeenCalled()
 
-    const gate = screen.getByRole('dialog', { name: /Follow the official NAIJA TR channel to start watching/ })
-    expect(gate).toHaveTextContent('Get the latest movies, series, match links and NAIJA TR news first.')
+    const gate = screen.getByRole('dialog', { name: /Follow the official NAIJA TR channel before you watch/ })
+    expect(gate).toHaveTextContent('It’s where we post important NAIJA TR updates: how everything works, and what to do if a movie or match gives you an error.')
+    expect(gate).toHaveTextContent('What to do if a movie or match shows an error')
     expect(within(gate).getByText('Official')).toHaveClass('tg-official')
     expect(within(gate).queryByRole('button', { name: /Verify/ })).not.toBeInTheDocument()
     expect(tracked()).toEqual(['/go/gate-shown'])

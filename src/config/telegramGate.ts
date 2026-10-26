@@ -4,4 +4,4 @@
  * VITE_TELEGRAM_GATE_ENABLED=false in the Vercel project's environment
  * variables and redeploy to switch it off.
  */
-export const TELEGRAM_GATE_ENABLED: boolean = import.meta.env.VITE_TELEGRAM_GATE_ENABLED !== 'false'
+export const telegramGateEnabled = (): boolean => import.meta.env.VITE_TELEGRAM_GATE_ENABLED !== 'false'
