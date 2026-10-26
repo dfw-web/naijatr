@@ -5,6 +5,8 @@ export type MediaType = 'movie' | 'series'
 export interface MediaItem {
   id: string
   title: string
+  /** TMDB's original-language title, when it differs from `title`. */
+  originalTitle?: string
   type: MediaType
   /** Release year, or null when the title has no announced date yet. */
   year: number | null

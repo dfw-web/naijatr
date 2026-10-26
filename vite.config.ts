@@ -9,6 +9,8 @@ import {
   type NextStreamConfig,
 } from './server/nextstream.ts'
 import { handleDownload, handlePlay, splitApiUrl } from './server/handlers.ts'
+import { createMovieboxDownloads, isMovieboxConfigured, readMovieboxConfig, type MovieboxConfig } from './server/moviebox.ts'
+import { readRedisEnv } from './server/redis.ts'
 import { footballApi } from './server/football/vite.ts'
 import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 
@@ -37,15 +39,19 @@ function telegramPage(): Plugin {
  * Serves /api/play/... and /api/download/... in dev and preview. The handlers
  * live in server/handlers.ts and are shared with the Vercel functions in api/.
  */
-function nextStreamPlayback(config: NextStreamConfig): Plugin {
+function nextStreamPlayback(config: NextStreamConfig, movieboxConfig: MovieboxConfig): Plugin {
   // Connect strips the mount path, so req.url is e.g. /movie/123?check=1.
   const middleware = (req: IncomingMessage, res: ServerResponse) => {
     const { path, params } = splitApiUrl(req.url ?? '', '')
     void handlePlay(config, path, params, res)
   }
 
+  // /api/download/options: the Download button's MovieBox Worker options (server/moviebox.ts).
+  const moviebox = createMovieboxDownloads(movieboxConfig)
   const download = (req: IncomingMessage, res: ServerResponse) => {
-    handleDownload(config, splitApiUrl(req.url ?? '', '').path, res)
+    const { path, params } = splitApiUrl(req.url ?? '', '')
+    if (path === '/options') return void moviebox.handle(params, res)
+    handleDownload(config, path, res)
   }
 
   return {
@@ -79,6 +85,9 @@ export default defineConfig(({ mode }) => {
     mode === 'test' ? { movie: false, tv: false } : isPlaybackConfigured(nextStream)
   const downloads =
     mode === 'test' ? { movie: false, tv: false } : isDownloadConfigured(nextStream)
+  // MovieBox Worker downloads: the secret stays server-side; the page only learns whether it's set.
+  const moviebox = readMovieboxConfig(env, readRedisEnv(env))
+  const movieboxDownloads = mode !== 'test' && isMovieboxConfigured(moviebox)
 
   const tmdbProxy: Record<string, ProxyOptions> = {
     '/api/tmdb': {
@@ -95,11 +104,12 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
       __DOWNLOAD_ENABLED__: JSON.stringify(downloads),
+      __MOVIEBOX_DOWNLOADS__: JSON.stringify(movieboxDownloads),
     },
     // Smart TVs run old Chromium (2019+ Samsung/LG: Chromium 64-94), so the
     // bundle is compiled down for them; src/tv/polyfills.ts fills the APIs.

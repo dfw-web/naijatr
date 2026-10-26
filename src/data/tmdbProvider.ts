@@ -36,6 +36,8 @@ export interface TmdbResult {
   media_type?: 'movie' | 'tv' | 'person'
   title?: string
   name?: string
+  original_title?: string
+  original_name?: string
   release_date?: string
   first_air_date?: string
   genre_ids?: number[]
@@ -349,11 +351,14 @@ export function mapTmdbResult(
   const type: MediaType =
     result.media_type === 'tv' ? 'series' : result.media_type === 'movie' ? 'movie' : fallbackType
   const releaseDate = (type === 'movie' ? result.release_date : result.first_air_date) || null
+  const title = result.title ?? result.name ?? 'Untitled'
+  const originalTitle = result.original_title ?? result.original_name
 
   return {
     id: `tmdb-${type}-${result.id}`,
     tmdbId: result.id,
-    title: result.title ?? result.name ?? 'Untitled',
+    title,
+    ...(originalTitle && originalTitle !== title ? { originalTitle } : {}),
     type,
     year: releaseDate ? Number(releaseDate.slice(0, 4)) : null,
     releaseDate,

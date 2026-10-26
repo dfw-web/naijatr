@@ -30,6 +30,7 @@ import { recordTaste, recordTasteById } from '../taste/profile'
 import { reportReferralPlay } from '../referral/api'
 import { playerClosed } from '../referral/invitee'
 import { WatchLaterButton } from './WatchLater'
+import { DownloadButton } from './DownloadButton'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
 import './PlayerPanel.css'
@@ -47,6 +48,8 @@ interface PlayerPanelProps {
   availability?: PlaybackAvailability
   /** Download flags; defaults to the build-time values from vite.config.ts. */
   downloads?: PlaybackAvailability
+  /** MovieBox Worker downloads (the Download button's options); defaults to the build-time value. */
+  workerDownloads?: boolean
   fetchImpl?: typeof fetch
 }
 
@@ -124,6 +127,7 @@ export function PlayerPanel({
   isLoading = false,
   availability = __PLAYBACK_ENABLED__,
   downloads = __DOWNLOAD_ENABLED__,
+  workerDownloads = __MOVIEBOX_DOWNLOADS__,
   fetchImpl = fetch.bind(globalThis),
 }: PlayerPanelProps) {
   const isSeries = item.type === 'series'
@@ -603,10 +607,19 @@ export function PlayerPanel({
           <Clapperboard aria-hidden="true" /> Play Trailer
         </button>
       )}
-      {(downloadSrc ?? freeDownload) && (
+      {downloadSrc ?? freeDownload ? (
         <a className="btn btn--ghost" href={downloadSrc ?? freeDownload ?? undefined} download>
           <Download aria-hidden="true" /> {isSeries ? `Download S${season} E${episode}` : 'Download'}
         </a>
+      ) : (
+        workerDownloads && (
+          <DownloadButton
+            item={item}
+            season={isSeries ? season : undefined}
+            episode={isSeries ? episode : undefined}
+            fetchImpl={fetchImpl}
+          />
+        )
       )}
       {free && <span className="player__license">{free.license} · full movie</span>}
     </div>
