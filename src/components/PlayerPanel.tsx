@@ -48,7 +48,7 @@ interface PlayerPanelProps {
   availability?: PlaybackAvailability
   /** Download flags; defaults to the build-time values from vite.config.ts. */
   downloads?: PlaybackAvailability
-  /** MovieBox Worker downloads (the Download button's options); defaults to the build-time value. */
+  /** The MovieBox Download button (its server checks the Worker setup when clicked). Tests turn it off. */
   workerDownloads?: boolean
   fetchImpl?: typeof fetch
 }
@@ -127,7 +127,7 @@ export function PlayerPanel({
   isLoading = false,
   availability = __PLAYBACK_ENABLED__,
   downloads = __DOWNLOAD_ENABLED__,
-  workerDownloads = __MOVIEBOX_DOWNLOADS__,
+  workerDownloads = true,
   fetchImpl = fetch.bind(globalThis),
 }: PlayerPanelProps) {
   const isSeries = item.type === 'series'
