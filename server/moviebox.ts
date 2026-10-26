@@ -17,6 +17,8 @@ import { hasRedis, redis, type RedisEnv } from './redis.js'
 export const DEFAULT_WORKER_URL = 'https://spun-moviebox-api.nextloft-clientr.workers.dev'
 
 const WORKER_TIMEOUT_MS = 10_000
+/** The Worker's /download goes through its relay and often takes 10-15s. */
+const DOWNLOAD_TIMEOUT_MS = 25_000
 /** Building the index stops fetching rows after this and keeps what it has. */
 const INDEX_BUDGET_MS = 8000
 const INDEX_ROW_LIMIT = 40
@@ -395,12 +397,12 @@ export function createMovieboxDownloads(config: MovieboxConfig, fetchImpl: typeo
   let index: { entries: IndexEntry[]; expires: number } | null = null
   let building: Promise<IndexEntry[]> | null = null
 
-  const worker = async (path: string): Promise<unknown> => {
+  const worker = async (path: string, timeoutMs = WORKER_TIMEOUT_MS): Promise<unknown> => {
     let response: Response
     try {
       response = await fetchImpl(`${config.workerUrl}${path}`, {
         headers: { 'X-Worker-Secret': config.secret, Accept: 'application/json' },
-        signal: AbortSignal.timeout(WORKER_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       })
     } catch {
       throw new WorkerError(null)
@@ -496,7 +498,7 @@ export function createMovieboxDownloads(config: MovieboxConfig, fetchImpl: typeo
     const query = season !== null && episode !== null ? `?se=${season}&ep=${episode}&season=${season}&episode=${episode}` : ''
     let body: unknown
     try {
-      body = await worker(`/download/${encodeURIComponent(subjectId)}${query}`)
+      body = await worker(`/download/${encodeURIComponent(subjectId)}${query}`, DOWNLOAD_TIMEOUT_MS)
     } catch (error) {
       if (error instanceof WorkerError && error.status === 404) body = null
       else throw error
