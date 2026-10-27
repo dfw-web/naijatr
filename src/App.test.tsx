@@ -136,7 +136,7 @@ describe('details panel', () => {
 })
 
 describe('title ad', () => {
-  it('opens the ad on the first click of each title, a minute apart at most, while the details still open', async () => {
+  it('opens the ad on the first click of each title, while the details still open', async () => {
     let now = Date.UTC(2026, 9, 27, 12)
     adClock.now = () => now
     const { user } = renderApp()
@@ -148,17 +148,11 @@ describe('title ad', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Close details' }))
     expect(adLinkClicks()).toHaveLength(1)
 
-    // Within a minute of the last ad: the details open, the ad waits.
+    // No cooldown: another title's first click opens it straight away, with its details.
     const series = screen.getByRole('region', { name: 'Popular Series' })
     const [first, second] = within(series).getAllByRole('button', { name: /^View details for / })
     await user.click(first)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(adLinkClicks()).toHaveLength(1)
-    await user.keyboard('{Escape}')
-
-    // A minute later, that title's next click opens it.
-    now += 60_000
-    await user.click(first)
     expect(adLinkClicks()).toHaveLength(2)
     await user.keyboard('{Escape}')
 

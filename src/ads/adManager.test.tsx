@@ -47,15 +47,11 @@ afterEach(() => {
 })
 
 describe('the shared limits', () => {
-  it('leaves at least a minute between two ads', async () => {
+  it('has no cooldown: two ads can open back to back', async () => {
     card('a')
-    now += 30_000
-    card('b')
-    expect(ads()).toBe(1)
-    now += 30_000
     card('b')
     expect(adLinkClicks()).toEqual([AD_LINK, AD_LINK])
-    await vi.waitFor(() => expect(reported()).toEqual(['card', 'cooldown', 'card']))
+    await vi.waitFor(() => expect(reported()).toEqual(['card', 'card']))
     expect(navigator.sendBeacon).toHaveBeenCalledWith('/api/live/ad', expect.any(Blob))
   })
 
@@ -81,12 +77,12 @@ describe('the shared limits', () => {
   })
 
   it('keeps the turn of a held-back tap for the next one', () => {
-    card('a')
-    now += 10_000
-    card('b') // cooldown
-    now += MINUTE
+    tap((event) => {
+      holdAdsThisTap()
+      cardAd(event, { id: 'b' })
+    })
     card('b')
-    expect(ads()).toBe(2)
+    expect(ads()).toBe(1)
   })
 })
 
