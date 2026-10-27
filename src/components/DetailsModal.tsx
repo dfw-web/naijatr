@@ -10,6 +10,7 @@ import { isTvMode, phoneLink } from '../tv/tvMode'
 import { MediaImage } from './MediaImage'
 import { MediaRow } from './MediaRow'
 import { PlayerPanel } from './PlayerPanel'
+import { WorkerDownload } from './WorkerDownload'
 import { TelegramCard } from './Telegram'
 import { WatchProviders } from './WatchProviders'
 import { WatchLaterButton } from './WatchLater'
@@ -214,6 +215,7 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
           </dl>
 
           <PlayerPanel item={item} isLoading={isLoadingMore} />
+          {__WORKER_DOWNLOADS__ && !isTvMode() && item.tmdbId !== undefined && <WorkerDownload item={item} />}
           {item.watchProviders && <WatchProviders providers={item.watchProviders} />}
           <TelegramCard from="details" />
           {item.title && <RateThis titleKey={`${item.type}:${item.tmdbId ?? item.id}`} title={item.title} />}

@@ -11,6 +11,13 @@ import {
 import { handleDownload, handlePlay, splitApiUrl } from './server/handlers.ts'
 import { createMovieboxDownloads, readMovieboxConfig, type MovieboxConfig } from './server/moviebox.ts'
 import { readRedisEnv } from './server/redis.ts'
+import {
+  createWorkerDownloads,
+  isWorkerDownloadConfigured,
+  readJsonBody,
+  readWorkerDownloadConfig,
+  type WorkerDownloadConfig,
+} from './server/workerDownloads.ts'
 import { footballApi } from './server/football/vite.ts'
 import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 
@@ -39,7 +46,7 @@ function telegramPage(): Plugin {
  * Serves /api/play/... and /api/download/... in dev and preview. The handlers
  * live in server/handlers.ts and are shared with the Vercel functions in api/.
  */
-function nextStreamPlayback(config: NextStreamConfig, movieboxConfig: MovieboxConfig): Plugin {
+function nextStreamPlayback(config: NextStreamConfig, movieboxConfig: MovieboxConfig, workerConfig: WorkerDownloadConfig): Plugin {
   // Connect strips the mount path, so req.url is e.g. /movie/123?check=1.
   const middleware = (req: IncomingMessage, res: ServerResponse) => {
     const { path, params } = splitApiUrl(req.url ?? '', '')
@@ -48,9 +55,15 @@ function nextStreamPlayback(config: NextStreamConfig, movieboxConfig: MovieboxCo
 
   // /api/download/options: the Download button's MovieBox Worker options (server/moviebox.ts).
   const moviebox = createMovieboxDownloads(movieboxConfig)
+  // /api/download/job...: download jobs on the naijatr-download-worker (server/workerDownloads.ts).
+  const workerDownloads = createWorkerDownloads(workerConfig)
   const download = (req: IncomingMessage, res: ServerResponse) => {
     const { path, params } = splitApiUrl(req.url ?? '', '')
     if (path === '/options') return void moviebox.handle(params, res)
+    if (path === '/job' || path.startsWith('/job/')) {
+      const method = req.method ?? 'GET'
+      return void (method === 'POST' ? readJsonBody(req) : Promise.resolve(null)).then((body) => workerDownloads.handle(method, path, body, res))
+    }
     handleDownload(config, path, res)
   }
 
@@ -87,6 +100,8 @@ export default defineConfig(({ mode }) => {
     mode === 'test' ? { movie: false, tv: false } : isDownloadConfigured(nextStream)
   // MovieBox Worker downloads (/api/download/options): the secret stays server-side.
   const moviebox = readMovieboxConfig(env, readRedisEnv(env))
+  // naijatr-download-worker jobs (/api/download/job...): WORKER_API_KEY stays server-side.
+  const workerDownloads = readWorkerDownloadConfig(env)
 
   const tmdbProxy: Record<string, ProxyOptions> = {
     '/api/tmdb': {
@@ -103,11 +118,12 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
       __DOWNLOAD_ENABLED__: JSON.stringify(downloads),
+      __WORKER_DOWNLOADS__: JSON.stringify(mode !== 'test' && isWorkerDownloadConfigured(workerDownloads)),
     },
     // Smart TVs run old Chromium (2019+ Samsung/LG: Chromium 64-94), so the
     // bundle is compiled down for them; src/tv/polyfills.ts fills the APIs.
