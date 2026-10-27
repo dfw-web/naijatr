@@ -320,12 +320,12 @@ describe('football API: hosts', () => {
   })
 })
 
-describe('football API: only the featured leagues', () => {
-  it('drops matches from other leagues', async () => {
+describe('football API: every league', () => {
+  it('keeps matches from every league (the page puts the featured ones first)', async () => {
     const other = { ...LIVE_MATCH, fixture: { ...LIVE_MATCH.fixture, id: 2 }, league: { id: 71, name: 'Serie A' } }
     const europa = { ...LIVE_MATCH, fixture: { ...LIVE_MATCH.fixture, id: 3 }, league: { id: 3, name: 'UEFA Europa League' } }
     const { ctx } = setup(vi.fn().mockImplementation(async () => apiBody([LIVE_MATCH, other, europa])))
-    expect(json(await get(ctx, 'live')).data).toEqual([LIVE_MATCH, europa])
+    expect(json(await get(ctx, 'live')).data).toEqual([LIVE_MATCH, other, europa])
   })
 })
 
@@ -433,7 +433,7 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     ctx.rapidKey = 'rapid-key'
 
     const live = json(await get(ctx, 'live')).data as { fixture: { id: number }; league: { name: string } }[]
-    expect(live.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga'])
+    expect(live.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga', 'Brazilian Serie A', 'USL Championship'])
     // Listing the live matches checks no streams.
     expect(rapidCalls(fetchImpl).map((url) => url.split('.com')[1])).toEqual(['/all-match'])
 
@@ -501,14 +501,14 @@ describe('football API: stream checks (API-Football suspended, stream provider o
     expect(rapidCalls(fetchImpl)).toHaveLength(2)
   })
 
-  it('does not open a match from another league', async () => {
+  it("lists and opens every league's matches", async () => {
     const fetchImpl = provider()
     const { ctx } = setup(fetchImpl)
     ctx.rapidKey = 'rapid-key'
     const all = json(await get(ctx, 'fixtures', 'date=2026-10-14')).data as { fixture: { id: number }; league: { name: string } }[]
-    expect(all.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga'])
+    expect(all.map((f) => f.league.name)).toEqual(['English Premier League', 'Spanish La Liga', 'Brazilian Serie A', 'USL Championship'])
     const { providerMatchId } = await import('./stream')
-    expect((await get(ctx, 'match', `id=${providerMatchId('other1')}`)).statusCode).toBe(404)
+    expect((await get(ctx, 'match', `id=${providerMatchId('other1')}`)).statusCode).toBe(200)
     expect((await get(ctx, 'match', `id=${all[0].fixture.id}`)).statusCode).toBe(200)
   })
 })

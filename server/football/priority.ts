@@ -1,8 +1,9 @@
 /**
- * The only leagues the Football section shows, most important first: the
- * order of the "Watch now" list. Matches from any other league are dropped on
- * the server, which also means the stream provider's request quota is only
- * spent on these. Shared by the browser and the server, so it has no imports.
+ * The featured leagues, most important first: the order of the "Watch now"
+ * list and of the league groups (any other league follows, by country). Every
+ * league's matches are shown; the requests made per league or per match (the
+ * schedule, stream link checks) are only spent on these. Shared by the browser
+ * and the server, so it has no imports.
  */
 export const FEATURED_LEAGUES: { id: number; name: RegExp }[] = [
   // The Live Streaming API files some matches under a second name ("Spain La Liga" as well as "Spanish La Liga").

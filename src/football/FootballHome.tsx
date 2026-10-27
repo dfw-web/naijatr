@@ -104,7 +104,7 @@ function LiveMatches({ query, onOpenMatch, watchIds, refreshMs }: ListProps & { 
     return query.trim() && data?.length ? (
       <StatusMessage icon={SearchX} compact title="No live matches for that search" />
     ) : (
-      <StatusMessage icon={Radio} compact title="No live matches right now" message="Premier League, La Liga, Champions League, Europa League and Conference League matches show here at kick-off." />
+      <StatusMessage icon={Radio} compact title="No live matches right now" message="Matches show here at kick-off, Premier League, La Liga and the European cups first." />
     )
   }
   return (
@@ -129,7 +129,7 @@ function TodayMatches({ query, onOpenMatch, watchIds, today }: ListProps & { tod
     return query.trim() && data?.length ? (
       <StatusMessage icon={SearchX} compact title="No matches today for that search" />
     ) : (
-      <StatusMessage icon={CalendarDays} compact title="No matches scheduled today" message="Only Premier League, La Liga, Champions League, Europa League and Conference League matches are shown." />
+      <StatusMessage icon={CalendarDays} compact title="No matches scheduled today" message="Check back later: matches from other leagues show here once they're live." />
     )
   }
 

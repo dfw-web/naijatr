@@ -11,7 +11,10 @@
  * fails, the last good answer is served instead, marked `stale`, and the call
  * isn't tried again for a while.
  *
- * Only the featured leagues are served (server/football/priority.ts).
+ * Every league's matches are served. Only the requests that cost one call per
+ * league or per match (the schedule, a stream link check from the watchable
+ * list) are kept to the featured leagues (server/football/priority.ts); the
+ * live list, one request for every live match, covers the others.
  *
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
@@ -332,7 +335,7 @@ async function withProviderFallback(
   if (result.outcome.ok || !ctx.rapidKey) return result
   const listing = await loadStreamListing(ctx, ctx.rapidKey)
   if (listing.outcome.ok) {
-    const data = featuredProviderFixtures(listing.outcome.data as unknown[])
+    const data = providerFixtures(listing.outcome.data as unknown[])
       .map((p) => p.fixture)
       .filter(pick)
     return { outcome: { ok: true, data, extra: { source: 'rapidapi' } }, maxAge: listing.maxAge, stale: listing.stale }
@@ -418,17 +421,6 @@ function loadSchedule(ctx: FootballContext, rapidKey: string) {
   )
 }
 
-/** The stream provider's matches in the featured leagues. */
-const featuredProviderFixtures = (items: unknown[]) => providerFixtures(items).filter((p) => isFeaturedLeague(p.fixture.league))
-
-/** Drops the matches outside the featured leagues from a list of fixtures. */
-function featuredOnly(result: Loaded): Loaded {
-  const { outcome } = result
-  if (!outcome.ok || !Array.isArray(outcome.data)) return result
-  const data = (outcome.data as { league?: { id?: number; name?: string } }[]).filter((f) => isFeaturedLeague(f.league))
-  return { ...result, outcome: { ...outcome, data } }
-}
-
 const isProviderLive = (f: ProviderFixture) => f.fixture.status.short === 'LIVE'
 
 /**
@@ -445,7 +437,7 @@ async function scheduleFirst(ctx: FootballContext, pick: (fixture: ProviderFixtu
 }
 
 const liveOrFallback = async (ctx: FootballContext) =>
-  withStreamingMatches(ctx, featuredOnly(await scheduleFirst(ctx, isProviderLive, () => loadLive(ctx))))
+  withStreamingMatches(ctx, await scheduleFirst(ctx, isProviderLive, () => loadLive(ctx)))
 
 /** Three hours: the same teams within this of each other are the same match. */
 const SAME_FIXTURE_MS = 3 * 60 * 60 * 1000
@@ -460,17 +452,17 @@ function sameFixture(a: unknown, b: unknown) {
 }
 
 /**
- * The featured live matches with streams that only the Football Live
- * Streaming API lists, as fixtures (streamingFixture). It often has a
- * match the other listings miss, and lists some twice: the entry with the
- * most streams is kept.
+ * The live matches with streams that only the Football Live Streaming API
+ * lists, as fixtures (streamingFixture): every league outside the schedule's
+ * featured ones, and any match the other listings miss. It lists some twice:
+ * the entry with the most streams is kept.
  */
 async function streamingOnlyFixtures(ctx: FootballContext, known: unknown[]): Promise<ProviderFixture[]> {
   if (!ctx.streaming) return []
   const { snapshot } = await loadStreaming(ctx.streaming)
   const out: ProviderFixture[] = []
   const candidates = (snapshot?.matches ?? [])
-    .filter((m) => m.live && m.streams.length && isFeaturedLeague({ name: m.league }))
+    .filter((m) => m.live && m.streams.length)
     .sort((a, b) => b.streams.length - a.streams.length)
   for (const match of candidates) {
     const fixture = streamingFixture(match)
@@ -480,9 +472,9 @@ async function streamingOnlyFixtures(ctx: FootballContext, known: unknown[]): Pr
   return out
 }
 
-async function withStreamingMatches(ctx: FootballContext, result: Loaded): Promise<Loaded> {
+async function withStreamingMatches(ctx: FootballContext, result: Loaded, pick: (fixture: ProviderFixture) => boolean = () => true): Promise<Loaded> {
   if (!result.outcome.ok || !Array.isArray(result.outcome.data)) return result
-  const extra = await streamingOnlyFixtures(ctx, result.outcome.data)
+  const extra = (await streamingOnlyFixtures(ctx, result.outcome.data)).filter(pick)
   if (!extra.length) return result
   return { ...result, outcome: { ...result.outcome, data: [...result.outcome.data, ...extra] } }
 }
@@ -507,7 +499,9 @@ async function fixtures(ctx: FootballContext, params: URLSearchParams, res: Serv
     return fail(res, 'bad-request')
   }
   const fromApi = () => loadDay(ctx, date)
-  send(res, featuredOnly(await scheduleFirst(ctx, (f) => f.fixture.date.slice(0, 10) === date, fromApi)))
+  const onDate = (f: ProviderFixture) => f.fixture.date.slice(0, 10) === date
+  // The schedule covers the featured leagues; the live list adds every other league's matches in play.
+  send(res, await withStreamingMatches(ctx, await scheduleFirst(ctx, onDate, fromApi), onDate))
 }
 
 interface LeagueSeason {
@@ -607,7 +601,7 @@ async function withApiDetails(ctx: FootballContext, fixture: ProviderFixture): P
   const kickoff = Date.parse(fixture.fixture.date)
   const near = (day.data as FixtureLike[]).filter((f) => {
     const d = describeFixture(f)
-    return isFeaturedLeague((f as { league?: { id?: number; name?: string } }).league) && (!d.kickoff || Math.abs(d.kickoff - kickoff) <= SAME_FIXTURE_MS)
+    return !d.kickoff || Math.abs(d.kickoff - kickoff) <= SAME_FIXTURE_MS
   })
   const both = (x?: string, y?: string) => Boolean(x && y) && ((sameTeam(x!, home) && nearTeam(y!, away)) || (nearTeam(x!, home) && sameTeam(y!, away)))
   const loose = near.filter((f) => sameFixture(f, fixture))
@@ -625,7 +619,7 @@ async function findProviderMatch(ctx: FootballContext, id: number) {
   if (!ctx.rapidKey) return null
   const listing = await loadStreamListing(ctx, ctx.rapidKey)
   const items = listing.outcome.ok ? (listing.outcome.data as unknown[]) : []
-  let found: { fixture: ProviderFixture; providerId?: string } | undefined = featuredProviderFixtures(items).find(
+  let found: { fixture: ProviderFixture; providerId?: string } | undefined = providerFixtures(items).find(
     (p) => p.fixture.fixture.id === id,
   )
   // Or a match only the streaming list has.
@@ -757,7 +751,7 @@ const KICKOFF_AFTER_MS = 20 * 60 * 1000
 
 /** Whether a featured match in the listing is about to kick off, or has but isn't listed as started yet. */
 export function kickoffDue(items: unknown[], now: number): boolean {
-  return featuredProviderFixtures(items).some(({ fixture: { fixture } }) => {
+  return providerFixtures(items).some(({ fixture: { fixture } }) => {
     const kickoff = Date.parse(fixture.date)
     return fixture.status.short === 'NS' && kickoff - KICKOFF_BEFORE_MS <= now && now <= kickoff + KICKOFF_AFTER_MS
   })
@@ -854,6 +848,8 @@ async function watchable(ctx: FootballContext, _params: URLSearchParams, res: Se
           viaStreaming.push(id)
           return []
         }
+        // A link check is a request per match: only for the featured leagues (the others are many).
+        if (!isFeaturedLeague((f as { league?: { id?: number; name?: string } }).league)) return []
         const own = providerIds.get(id)
         if (own) return [{ id, providerId: own, streams: [] }]
         const { providerId, streams } = findMatchStream(items, home, away)
@@ -900,12 +896,14 @@ async function adminStreams(ctx: FootballContext, _params: URLSearchParams, res:
     streamingAdmin(ctx.streaming),
     ctx.rapidKey ? loadStreamListing(ctx, ctx.rapidKey) : null,
   ])
-  const ours = listing?.outcome.ok ? featuredProviderFixtures(listing.outcome.data as unknown[]) : []
+  const ours = listing?.outcome.ok ? providerFixtures(listing.outcome.data as unknown[]) : []
   const rows = (info.snapshot?.matches ?? []).map((m) => {
     const our = ours.find(({ fixture }) =>
       findStreamingMatch({ fetchedAt: 0, matches: [m] }, fixture.teams.home.name, fixture.teams.away.name, Date.parse(fixture.fixture.date)),
     )
-    return { key: m.key, matchId: our?.fixture.fixture.id ?? null, home: m.home, away: m.away, league: m.league, score: m.score, servers: m.streams.length }
+    // Every live match with streams is on the site: under its listing's id, or as the streaming list's own fixture.
+    const matchId = our?.fixture.fixture.id ?? (m.live && m.streams.length ? streamingFixture(m).fixture.id : null)
+    return { key: m.key, matchId, home: m.home, away: m.away, league: m.league, score: m.score, servers: m.streams.length }
   })
   // Viewers of the matches shown on the site (the live counter's per-match sets).
   const ids = rows.flatMap((r) => (r.matchId ? [r.matchId] : []))

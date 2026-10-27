@@ -209,7 +209,7 @@ function renderStreams(info: StreamsInfo) {
     button.textContent = 'Refresh stream'
     button.addEventListener('click', () => void refreshStream(row, button))
     const viewers = row.viewers === null ? '' : ` · ${row.viewers} watching`
-    const shown = row.matchId ? 'on the site' : 'not on the site (other league)'
+    const shown = row.matchId ? 'on the site' : 'not on the site (no stream yet)'
     li.append(name, button, cell(`${row.league} · ${row.servers} server${row.servers === 1 ? '' : 's'}${viewers} · ${shown}`, 'meta'))
     return li
   })
