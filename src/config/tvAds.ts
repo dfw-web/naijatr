@@ -2,7 +2,7 @@ import { OFFICIAL_SITE, telegramGoPath } from './telegram'
 
 /**
  * TV ad and promo settings. TV browsers can't open the direct-link ad in a new
- * tab, and the Vignette / In-Page Push tags can't be closed with a remote, so
+ * tab, and the Monetag Multitag can't be closed with a remote, so
  * TVs get an ad break before playback and a banner between home rows instead.
  */
 

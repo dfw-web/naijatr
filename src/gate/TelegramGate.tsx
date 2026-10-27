@@ -4,12 +4,15 @@ import { X } from 'lucide-react'
 import { OfficialBadge, TelegramIcon, TelegramLink } from '../components/Telegram'
 import { TELEGRAM_CHANNEL_URL, TELEGRAM_USERNAME } from '../config/telegram'
 import { QrCode } from '../tv/QrCode'
+import { useAdOverlay } from '../ads/adManager'
 import { cancelGate, passGate, skipGate, usePendingGate } from './gateStore'
 import './TelegramGate.css'
 
 /** Render once per root (App and Football). Shows the gate while a Play waits on it. */
 export function TelegramGateHost() {
   const pending = usePendingGate()
+  // No ad (and no "ads are back" card) while the gate is open.
+  useAdOverlay(pending !== null)
   if (!pending) return null
   return createPortal(pending.tv ? <TvGate /> : <PhoneGate />, document.body)
 }

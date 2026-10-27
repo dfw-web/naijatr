@@ -1,9 +1,9 @@
-import { ADS_ENABLED } from '../config/ads'
+import { ADS_ENABLED, DIRECT_LINK_URL } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { setAdStatus } from './adStatus'
 import { requestAdBreak } from './adBreakStore'
 
-export const AD_URL = 'https://uplcm.com/4/12033849'
+export const AD_URL = DIRECT_LINK_URL
 
 /**
  * How long after the tap the page must lose focus or visibility (the new ad tab
@@ -15,6 +15,8 @@ export const adTiming = { blockCheckMs: 1000 }
 const NO_ADS_KEY = 'naijatr.noads'
 // Dev machines and phones on the home network (vite --host): never a real visit.
 const LOCAL_HOST = /^(localhost|127\.|0\.0\.0\.0$|\[::1\]$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.local$/
+// Pages that never show ads: the admin pages, the contest rules and the prize claim form.
+const NO_ADS_PATH = /^\/(admin(\/|$)|challenge\/(rules|claim)\/?$)/
 
 /** ?noads=1 (in the query or the #/route) turns ads off for the session; ?noads=0 turns them back on. */
 function noAdsFlag(url: URL): boolean {
@@ -38,13 +40,15 @@ export function rememberNoAdsFlag(href = window.location.href): void {
 }
 
 /**
- * True while ads are switched off (ADS_ENABLED) and for test visits (localhost,
- * the home network, ?noads=1), so no impressions are wasted.
+ * True while ads are switched off (ADS_ENABLED), for test visits (localhost,
+ * the home network, ?noads=1), so no impressions are wasted, and on the pages
+ * that never show ads (/admin, /challenge/rules, /challenge/claim).
  */
 export function adsDisabled(href = window.location.href): boolean {
   if (!ADS_ENABLED) return true
   const url = new URL(href)
   if (noAdsFlag(url)) return true
+  if (NO_ADS_PATH.test(url.pathname)) return true
   // The test runner's page is http://localhost/; it checks the ads, so let them run there.
   return isDevHost(url.hostname)
 }

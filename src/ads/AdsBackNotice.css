@@ -1,0 +1,56 @@
+/* "Ads are back": a slim card along the bottom, above the install bar. */
+.ads-back {
+  position: fixed;
+  left: 50%;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: min(calc(100% - 2rem), 640px);
+  padding: 0.6rem 0.75rem 0.6rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  animation: ads-back-in 0.25s ease-out;
+}
+
+.ads-back__text {
+  flex: 1;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.ads-back__ok {
+  flex: none;
+  padding: 0.45rem 0.85rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ads-back__ok:hover {
+  background: var(--accent-hover);
+}
+
+@keyframes ads-back-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 0.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ads-back {
+    animation: none;
+  }
+}

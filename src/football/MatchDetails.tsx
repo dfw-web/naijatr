@@ -3,7 +3,6 @@ import { ArrowLeftRight, BarChart3, ChevronLeft, Goal, ShieldAlert, Tv, Users } 
 import { StatusMessage } from '../components/StatusMessage'
 import { AdBreak } from '../ads/AdBreak'
 import { TelegramCard } from '../components/Telegram'
-import { useAdTwice } from '../hooks/useAdTwice'
 import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { useMatchWatchers } from '../live/heartbeat'
@@ -35,7 +34,6 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
   const { data: match, error, loading, retry } = useFootball<Fixture>(`match?id=${id}`, refreshMs)
   const [tab, setTab] = useState<Tab>('events')
   const watchers = useMatchWatchers(match && isLive(match.fixture.status) ? `match:${match.fixture.id}` : null)
-  const onTabClickCapture = useAdTwice(`match:${id}`)
 
   // Keep refreshing only while the match can still change.
   const shouldRefresh = !match || !isFinished(match.fixture.status) ? LIVE_REFRESH_MS : undefined
@@ -69,7 +67,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
       ) : match ? (
         <>
           <MatchHeader match={match} watchers={watchers} />
-          <div className="fb-tabs" role="tablist" aria-label="Match details" onClickCapture={onTabClickCapture}>
+          <div className="fb-tabs" role="tablist" aria-label="Match details">
             {TABS.map((t) => (
               <button
                 key={t.id}
@@ -79,7 +77,7 @@ export function MatchDetails({ id, onBack }: MatchDetailsProps) {
                 className="fb-tab"
                 aria-selected={tab === t.id}
                 aria-controls="fb-match-panel"
-                // The first Watch asks to join the Telegram channel (phones, tablets, TVs); on a TV, the ad break follows.
+                // The first Watch asks to join the Telegram channel (phones, tablets, TVs); then the ad (src/ads/adManager.ts), or on a TV the ad break.
                 onClick={() =>
                   t.id === 'watch'
                     ? playAfterGate(() => playAfterAdBreak(`match:${id}`, () => setTab('watch')))

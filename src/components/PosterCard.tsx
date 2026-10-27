@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, Star } from 'lucide-react'
-import { useAdOnce } from '../hooks/useAdOnce'
+import { cardAd } from '../ads/adManager'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatVotes, formatYear, typeLabel } from '../utils/media'
 import { MediaImage } from './MediaImage'
@@ -16,7 +16,6 @@ interface PosterCardProps {
 }
 
 export function PosterCard({ item, onSelect, rank, onNotInterested }: PosterCardProps) {
-  const openAd = useAdOnce()
   const score = formatScore(item)
   const label = [
     item.title,
@@ -37,7 +36,7 @@ export function PosterCard({ item, onSelect, rank, onNotInterested }: PosterCard
         type="button"
         className="poster-card__button"
         onClick={(event) => {
-          openAd(event, item)
+          cardAd(event.nativeEvent, item)
           onSelect(item)
         }}
         aria-label={`View details for ${label}`}

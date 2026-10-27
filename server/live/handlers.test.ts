@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
-import { countLive, handleLive, isAdmin, parseHeartbeat, readLiveEnv, recordHeartbeat, WINDOW_MS, type LiveEnv } from './handlers'
+import { countLive, handleLive, isAdmin, lagosDay, parseHeartbeat, readLiveEnv, recordHeartbeat, WINDOW_MS, type LiveEnv } from './handlers'
 
 const NOW = Date.parse('2026-10-18T12:00:00Z')
 const SID = 'a1b2c3d4-e5f6-4789-abcd-ef0123456789'
@@ -105,6 +105,28 @@ describe('heartbeats', () => {
   })
 })
 
+describe('ad reports', () => {
+  it("counts today's ads by trigger and the held-back ones, by Lagos date", async () => {
+    const { fetchImpl, calls } = upstash([1, 1])
+    const ok = await call('ad', request('POST', { event: 'football' }), fetchImpl)
+    expect(ok.statusCode).toBe(200)
+    expect(calls[0]).toEqual([
+      ['HINCRBY', `ads:${lagosDay(NOW)}`, 'football', '1'],
+      ['EXPIRE', `ads:${lagosDay(NOW)}`, String(8 * 24 * 60 * 60)],
+    ])
+    expect(lagosDay(Date.UTC(2026, 9, 27, 22, 59))).toBe('2026-10-27')
+    expect(lagosDay(Date.UTC(2026, 9, 27, 23))).toBe('2026-10-28')
+  })
+
+  it('refuses anything else', async () => {
+    const { fetchImpl, calls } = upstash([1, 1])
+    expect((await call('ad', request('POST', { event: 'popunder' }), fetchImpl)).statusCode).toBe(400)
+    expect((await call('ad', request('POST', '{oops'), fetchImpl)).statusCode).toBe(400)
+    expect((await call('ad', request('GET'), fetchImpl)).statusCode).toBe(405)
+    expect(calls).toHaveLength(0)
+  })
+})
+
 describe('the count', () => {
   const at = (seconds: number) => String(NOW - seconds * 1000)
 
@@ -120,6 +142,7 @@ describe('the count', () => {
         'browse|match:123|eeeeeeeeeeeeeeee', at(50),
         'browse||ffffffffffffffff', at(100),
       ],
+      ['card', '5', 'cooldown', '2', 'play', '1', 'bogus', '9'],
     ])
     expect(await countLive(ENV, NOW, fetchImpl)).toEqual({
       watching: 3,
@@ -128,10 +151,12 @@ describe('the count', () => {
         { item: 'tv:1399', viewers: 2 },
         { item: 'match:123', viewers: 1 },
       ],
+      ads: { card: 5, play: 1, football: 0, search: 0, cooldown: 2, cap: 0 },
     })
     expect(calls[0]).toEqual([
       ['ZREMRANGEBYSCORE', 'live:now', '-inf', `(${NOW - WINDOW_MS}`],
       ['ZRANGE', 'live:now', String(NOW - WINDOW_MS), '+inf', 'BYSCORE', 'WITHSCORES'],
+      ['HGETALL', `ads:${lagosDay(NOW)}`],
     ])
   })
 
@@ -147,7 +172,7 @@ describe('the count', () => {
     expect((await call('count', request('GET', undefined, 'Bearer wrong'), fetchImpl)).statusCode).toBe(401)
     const ok = await call('count', request('GET', undefined, 'Bearer open sesame'), fetchImpl)
     expect(ok.statusCode).toBe(200)
-    expect(ok.json).toEqual({ watching: 0, browsing: 0, top: [] })
+    expect(ok.json).toEqual({ watching: 0, browsing: 0, top: [], ads: { card: 0, play: 0, football: 0, search: 0, cooldown: 0, cap: 0 } })
     expect(ok.headers['cache-control']).toBe('no-store')
   })
 

@@ -1,5 +1,5 @@
 import { Play, X } from 'lucide-react'
-import { useAdOnce } from '../hooks/useAdOnce'
+import { cardAd } from '../ads/adManager'
 import type { MediaItem } from '../types/media'
 import {
   entryTitle,
@@ -22,7 +22,6 @@ interface ContinueWatchingRowProps {
 /** The first home row: what this device was watching, newest first. Hidden while empty. */
 export function ContinueWatchingRow({ onSelect }: ContinueWatchingRowProps) {
   const entries = useContinueWatching()
-  const openAd = useAdOnce()
   if (entries.length === 0) return null
   return (
     <MediaRow id="continue-watching" title="Continue watching" items={[]} onSelect={onSelect}>
@@ -32,7 +31,7 @@ export function ContinueWatchingRow({ onSelect }: ContinueWatchingRowProps) {
           entry={entry}
           onPlay={(event) => {
             const item = entryTitle(entry)
-            openAd(event, item)
+            cardAd(event.nativeEvent, item)
             requestResume(entry)
             onSelect(item)
           }}

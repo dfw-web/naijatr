@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { playbackAd } from '../ads/adManager'
 import { ADS_ENABLED } from '../config/ads'
 import { isTvMode } from './tvMode'
 
@@ -21,8 +22,13 @@ let pending: Pending | null = null
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((listener) => listener())
 
-/** Runs `action` now, or after the ad break when this is the title's first play on a TV. */
+/**
+ * Runs `action` now, or after the ad break when this is the title's first play
+ * on a TV. Elsewhere, the Play / Watch tap may open the direct-link ad first
+ * (src/ads/adManager.ts); the playback starts either way.
+ */
 export function playAfterAdBreak(key: string, action: () => void, phoneUrl?: string) {
+  if (!isTvMode()) playbackAd(key)
   if (!ADS_ENABLED || !isTvMode() || shown.has(key)) return action()
   shown.add(key)
   pending = { key, action, phoneUrl }

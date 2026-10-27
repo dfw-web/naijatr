@@ -1,5 +1,6 @@
 import { pageview } from '@vercel/analytics'
 import { useSyncExternalStore } from 'react'
+import { holdAdsThisTap } from '../ads/adManager'
 import { isDevHost } from '../ads/directLink'
 import { telegramGateEnabled } from '../config/telegramGate'
 import { isTvMode } from '../tv/tvMode'
@@ -87,6 +88,8 @@ export function gateApplies(): boolean {
  */
 export function playAfterGate(action: () => void): void {
   if (!gateApplies() || gateDone()) return action()
+  // No ad on the tap that opens the gate.
+  holdAdsThisTap()
   pending = { action, tv: isTvMode() }
   emit()
   trackGatePage('/go/gate-shown')
@@ -104,6 +107,8 @@ export function passGate(): void {
   const current = pending
   pending = null
   emit()
+  // The video starts in this tap, but the ad waits for the next one.
+  holdAdsThisTap()
   current?.action()
 }
 
@@ -118,6 +123,8 @@ export function skipGate(): void {
   const current = pending
   pending = null
   emit()
+  // The video starts in this tap, but the ad waits for the next one.
+  holdAdsThisTap()
   current?.action()
 }
 

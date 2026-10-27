@@ -9,11 +9,24 @@
 export const REFRESH_MS = 30_000
 const PASSWORD_KEY = 'naijatr.admin.password'
 
+type AdEvent = 'card' | 'play' | 'football' | 'search' | 'cooldown' | 'cap'
+
 interface LiveCount {
   watching: number
   browsing: number
   top: { item: string; viewers: number }[]
+  /** Today's direct-link ads (server/live/handlers.ts). */
+  ads?: Record<AdEvent, number>
 }
+
+const AD_ROWS: { event: AdEvent; label: string }[] = [
+  { event: 'card', label: 'Opened: title card' },
+  { event: 'play', label: 'Opened: Play' },
+  { event: 'football', label: 'Opened: football Watch' },
+  { event: 'search', label: 'Opened: search' },
+  { event: 'cooldown', label: 'Held back: 60-second cooldown' },
+  { event: 'cap', label: 'Held back: daily cap (8)' },
+]
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -94,8 +107,26 @@ async function render(count: LiveCount) {
     }),
   )
   $('top').replaceChildren(...rows)
+  renderAds(count.ads)
   $('empty').hidden = rows.length > 0
   $('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 30 seconds`
+}
+
+function renderAds(ads: LiveCount['ads']) {
+  const n = (event: AdEvent) => ads?.[event] ?? 0
+  $('ads-opened').textContent = ads ? String(n('card') + n('play') + n('football') + n('search')) : '–'
+  $('ads-held').textContent = ads ? String(n('cooldown') + n('cap')) : '–'
+  $('ads').replaceChildren(
+    ...AD_ROWS.map(({ event, label }) => {
+      const li = document.createElement('li')
+      const name = document.createElement('span')
+      name.textContent = label
+      const number = document.createElement('span')
+      number.textContent = String(n(event))
+      li.append(name, number)
+      return li
+    }),
+  )
 }
 
 interface StreamRow {

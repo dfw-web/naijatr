@@ -6,7 +6,6 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './tv/tv.css'
 import App from './App.tsx'
-import { loadMonetagTags } from './ads/monetag'
 import { isDevHost } from './ads/directLink'
 import { startLiveHeartbeat } from './live/heartbeat'
 import { listenForInstallPrompt, registerServiceWorker } from './pwa'
@@ -37,6 +36,3 @@ createRoot(document.getElementById('root')!).render(
 
 // Live viewer counter (/admin/live): a heartbeat once a minute while the tab is visible.
 if (!isDevHost()) startLiveHeartbeat()
-
-// The Vignette / In-Page Push tags: only while ADS_ENABLED (src/config/ads.ts).
-loadMonetagTags()

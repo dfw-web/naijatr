@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { adClock } from '../ads/adManager'
 import { AD_LINK, adLinkClicks } from '../test/ads'
 import App from '../App'
 import FootballApp from './FootballApp'
@@ -161,7 +162,6 @@ describe('Football page', () => {
     expect(screen.getByText('B. Saka')).toBeInTheDocument()
     expect(screen.getByText('Assist: M. Ødegaard')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('tab', { name: 'Lineups' })) // first click only opens the ad
     await user.click(screen.getByRole('tab', { name: 'Lineups' }))
     expect(screen.getByText("Lineups aren't available")).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'Stats' }))
@@ -263,20 +263,21 @@ describe('Football page', () => {
     const user = userEvent.setup()
     render(<FootballApp />)
 
-    await user.click(await screen.findByRole('tab', { name: 'Watch' })) // first click only opens the ad
-    await user.click(screen.getByRole('tab', { name: 'Watch' }))
+    await user.click(await screen.findByRole('tab', { name: 'Watch' }))
     expect(screen.getByText('Live commentary')).toBeInTheDocument()
     expect(screen.getByText('GOAL! B. Saka scores for Arsenal, set up by M. Ødegaard.')).toBeInTheDocument()
     expect(screen.getByText('Kick-off! Arsenal vs Chelsea is under way.')).toBeInTheDocument()
   })
 
-  it('opens the ad on the first two tab clicks of each match visit, holding the tab on the first', async () => {
+  it('opens the ad on the first Watch of a match, then again only 5+ minutes after its last ad', async () => {
     mockApi({
       live: { body: { data: [LIVE] } },
       fixtures: { body: { data: [] } },
       standings: { body: { data: [], season: SEASON } },
       match: { body: { data: LIVE } },
     })
+    let now = Date.UTC(2026, 9, 27, 12)
+    adClock.now = () => now
     const user = userEvent.setup()
     render(<FootballApp />)
     const openMatch = async () => {
@@ -286,24 +287,28 @@ describe('Football page', () => {
     const selected = (name: string) => expect(screen.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
 
     await openMatch()
-    selected('Events')
-    await user.click(screen.getByRole('tab', { name: 'Watch' }))
-    expect(adLinkClicks()).toHaveLength(1)
-    selected('Events')
-    await user.click(screen.getByRole('tab', { name: 'Watch' }))
-    expect(adLinkClicks()).toHaveLength(2)
-    selected('Watch')
+    // The other tabs never open it.
     await user.click(screen.getByRole('tab', { name: 'Stats' }))
-    selected('Stats')
-    expect(adLinkClicks()).toHaveLength(2)
-    expect(adLinkClicks()).toEqual([AD_LINK, AD_LINK])
+    expect(adLinkClicks()).toHaveLength(0)
+    // Watch opens the ad and the tab in the same tap.
+    await user.click(screen.getByRole('tab', { name: 'Watch' }))
+    expect(adLinkClicks()).toEqual([AD_LINK])
+    selected('Watch')
 
+    // Back to the match 2 minutes later: no ad yet.
+    now += 2 * 60_000
     await user.click(screen.getByRole('link', { name: /All football/ }))
     await openMatch()
-    selected('Events')
-    await user.click(screen.getByRole('tab', { name: 'Lineups' }))
-    expect(adLinkClicks()).toHaveLength(3)
-    selected('Events')
+    await user.click(screen.getByRole('tab', { name: 'Watch' }))
+    expect(adLinkClicks()).toHaveLength(1)
+    selected('Watch')
+
+    // 5 minutes after its last ad: the next Watch opens it again.
+    now += 3 * 60_000
+    await user.click(screen.getByRole('link', { name: /All football/ }))
+    await openMatch()
+    await user.click(screen.getByRole('tab', { name: 'Watch' }))
+    expect(adLinkClicks()).toEqual([AD_LINK, AD_LINK])
   })
 
   it('shows "watching now" on a live match from 3 viewers up', async () => {

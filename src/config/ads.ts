@@ -1,24 +1,26 @@
 /**
- * Master switch for every ad on the site: the Monetag tags (Vignette, In-Page
- * Push), the direct-link ad on cards and match tabs, the "ad break" overlays and
- * the TV ad slots. Ads are OFF for now.
- *
- * To turn them back on: set VITE_ADS_ENABLED=true in the Vercel project's
- * environment variables and redeploy (or in .env.local for a local build).
+ * Master switch for every ad on the site: the Monetag Multitag, the direct-link
+ * ad (src/ads/adManager.ts), the "ad break" overlays and the TV ad slots.
+ * Ads are ON. To switch them all off: set VITE_ADS_ENABLED=false in the Vercel
+ * project's environment variables and redeploy.
  * The Monetag site verification tag in index.html stays either way.
  */
-export const ADS_ENABLED: boolean = import.meta.env.VITE_ADS_ENABLED === 'true'
+export const ADS_ENABLED: boolean = import.meta.env.VITE_ADS_ENABLED !== 'false'
 
-export interface MonetagTag {
-  /** Monetag zone id. */
-  zone: string
-  /** The zone's script URL, from the zone's code in the Monetag dashboard. */
-  src: string
-}
+/** The site-wide Monetag Multitag (it includes the Vignette). Loaded by src/ads/monetag.ts. */
+export const MULTITAG = { zone: '302667', src: 'https://quge5.com/88/tag.min.js' } as const
 
-/** Site-wide Monetag tags, loaded by loadMonetagTags() only while ADS_ENABLED is true. */
-export const MONETAG_TAGS: readonly MonetagTag[] = [
-  { zone: '12033043', src: 'https://nap5k.com/tag.min.js' }, // In-Page Push
-  { zone: '12033047', src: 'https://n6wxm.com/vignette.min.js' }, // Vignette
-  { zone: '12038439', src: 'https://n6wxm.com/vignette.min.js' }, // Vignette
-]
+/** The direct-link ad, opened in a new tab by src/ads/adManager.ts. */
+export const DIRECT_LINK_URL = 'https://uplcm.com/4/12033849'
+
+/** When the direct-link ad may open (src/ads/adManager.ts). */
+export const AD_RULES = {
+  /** At least this long between any two direct-link ads. */
+  cooldownMs: 60_000,
+  /** At most this many per visitor per day (midnight to midnight, Lagos time). */
+  dailyCap: 8,
+  /** A football match's Watch tab opens the ad again only after this long. */
+  footballRepeatMs: 5 * 60_000,
+  /** Search opens the ad on the first submit, then at most this often. */
+  searchRepeatMs: 10 * 60_000,
+} as const

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAdOverlay } from './adManager'
 import { closeAdBreak, useAdBreak } from './adBreakStore'
 import { setAdStatus } from './adStatus'
 import { openAdFromAdBreak } from './directLink'
@@ -25,6 +26,7 @@ export function AdBreak({ adKey }: AdBreakProps) {
 }
 
 function AdBreakPanel({ onClose }: { onClose: () => void }) {
+  useAdOverlay()
   const [secondsLeft, setSecondsLeft] = useState(SKIP_AFTER_S)
   const panelRef = useRef<HTMLDivElement>(null)
   const continueRef = useRef<HTMLButtonElement>(null)

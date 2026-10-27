@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { holdAdsThisTap } from '../ads/adManager'
 
 /** The invite guide's open/closed state, shared by the header button, the popup and the banner. */
 
@@ -7,6 +8,8 @@ export const SHARE_TEXT = 'I watch movies, series & live football on NAIJA TR ðŸ
 let guideOpen = false
 const guideListeners = new Set<() => void>()
 export function openInviteGuide() {
+  // No ad on the tap that opens the guide.
+  holdAdsThisTap()
   guideOpen = true
   guideListeners.forEach((l) => l())
 }

@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 import { resetAdBreaks } from '../ads/adBreakStore'
+import { adClock, resetAdManager } from '../ads/adManager'
 import { adTiming } from '../ads/directLink'
 import { resetGate } from '../gate/gateStore'
 import { resetContinueWatching } from '../utils/continueWatching'
@@ -9,12 +10,17 @@ import { resetLiveHeartbeat } from '../live/heartbeat'
 import { resetInstallApp } from '../installAppStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 
+// The one-time "ads are back" card counts as seen, except in its own tests (AdsBackNotice.test.tsx).
+beforeEach(() => window.localStorage.setItem('naijatr.ads.backNotice', '1'))
+
 afterEach(() => {
   cleanup()
   window.history.replaceState(null, '', '/')
   window.localStorage.clear()
   window.sessionStorage.clear()
   resetAdBreaks()
+  resetAdManager()
+  adClock.now = () => Date.now()
   resetTvAdBreaks()
   resetGate()
   resetContinueWatching()

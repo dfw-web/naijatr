@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Menu, Search, X } from 'lucide-react'
+import { searchAd } from '../ads/adManager'
 import type { NavLink } from '../navigation'
 import { isTvMode } from '../tv/tvMode'
 import { InstallAppButton } from './InstallApp'
@@ -95,7 +96,11 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
         <form
           className="navbar__search"
           role="search"
-          onSubmit={(event) => event.preventDefault()}
+          onSubmit={(event) => {
+            event.preventDefault()
+            // Results show as you type; Enter may also open the ad (src/ads/adManager.ts).
+            if (query.trim()) searchAd(event.nativeEvent)
+          }}
         >
           <Search className="navbar__search-icon" aria-hidden="true" />
           <input

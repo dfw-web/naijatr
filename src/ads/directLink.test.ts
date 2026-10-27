@@ -11,6 +11,15 @@ describe('adsDisabled', () => {
     expect(adsDisabled('https://www.naijatr.com/?noads=0')).toBe(false)
     expect(adsDisabled('https://www.naijatr.com/')).toBe(false)
   })
+
+  it('is off on the admin pages, the contest rules and the claim form', () => {
+    for (const path of ['/admin/live', '/admin/', '/admin', '/challenge/rules', '/challenge/claim/']) {
+      expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(true)
+    }
+    for (const path of ['/', '/football', '/challenge', '/administrator']) {
+      expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(false)
+    }
+  })
 })
 
 describe('openAd', () => {

@@ -23,6 +23,7 @@ import {
 } from './api'
 import { useReferralSession } from './session'
 import { closeInviteGuide, OPEN_GUIDE_KEY, openInviteGuide, SHARE_TEXT, useGuideOpen } from './guide'
+import { useAdOverlay } from '../ads/adManager'
 import { dismissInvitee, useInviteeDue } from './invitee'
 import './invite.css'
 
@@ -56,6 +57,8 @@ let ownBack = false
 
 /** Closes on Escape and on the phone's Back button (an extra history entry while open). */
 function useDismiss(open: boolean, onClose: () => void) {
+  // No ad (and no "ads are back" card) while a popup or the guide is open.
+  useAdOverlay(open)
   const closeRef = useRef(onClose)
   useEffect(() => {
     closeRef.current = onClose

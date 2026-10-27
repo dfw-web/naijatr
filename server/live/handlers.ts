@@ -12,6 +12,9 @@
  * - live:now      sorted set of "state|item|sid", scored by the last heartbeat (ms).
  * - live:m:<id>   sorted set of the sids watching football match <id>, for
  *                 "X watching now" on its page; expires when nobody is.
+ * - ads:<day>     hash of today's direct-link ads (Lagos date): opened by
+ *                 trigger (card, play, football, search) and held back by the
+ *                 cooldown or the daily cap (src/ads/adManager.ts). Kept 8 days.
  * A heartbeat is one Redis command (three or four on a football match page).
  *
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
@@ -30,6 +33,15 @@ const TOP_COUNT = 5
 
 const NOW_KEY = 'live:now'
 const matchKey = (id: string) => `live:m:${id}`
+
+const adsKey = (day: string) => `ads:${day}`
+const ADS_KEY_TTL_S = 8 * 24 * 60 * 60
+export const AD_EVENTS = ['card', 'play', 'football', 'search', 'cooldown', 'cap'] as const
+export type AdEvent = (typeof AD_EVENTS)[number]
+export type AdCounts = Record<AdEvent, number>
+
+/** The date in Lagos (UTC+1 all year), as the site's daily ad cap counts it. */
+export const lagosDay = (now: number) => new Date(now + 60 * 60_000).toISOString().slice(0, 10)
 
 const SID = /^[A-Za-z0-9_-]{16,64}$/
 const ITEM = /^(movie|tv|match):[1-9]\d{0,11}$/
@@ -84,11 +96,36 @@ export async function recordHeartbeat(
   return Number.isFinite(watching) ? { watching } : {}
 }
 
+/** A valid ad report ({ event }), or null. */
+export function parseAdEvent(body: unknown): AdEvent | null {
+  const event = (body as { event?: unknown } | null)?.event
+  return AD_EVENTS.includes(event as AdEvent) ? (event as AdEvent) : null
+}
+
+/** Counts one ad event for today. */
+export async function recordAdEvent(env: LiveEnv, event: AdEvent, now: number, fetchImpl: typeof fetch = fetch) {
+  const key = adsKey(lagosDay(now))
+  await redis(env, [['HINCRBY', key, event, 1], ['EXPIRE', key, ADS_KEY_TTL_S]], fetchImpl)
+}
+
+/** Redis's HGETALL answer ([field, value, ...]) as today's counts. */
+function adCounts(flat: unknown): AdCounts {
+  const counts = Object.fromEntries(AD_EVENTS.map((event) => [event, 0])) as AdCounts
+  if (!Array.isArray(flat)) return counts
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    const event = String(flat[i]) as AdEvent
+    if (AD_EVENTS.includes(event)) counts[event] = Number(flat[i + 1]) || 0
+  }
+  return counts
+}
+
 export interface LiveCount {
   watching: number
   browsing: number
   /** What's being watched, most viewers first. */
   top: { item: string; viewers: number }[]
+  /** Today's direct-link ads (Lagos date). */
+  ads: AdCounts
 }
 
 /** Everyone seen in the last WINDOW_MS, each counted once (their latest heartbeat). */
@@ -99,6 +136,7 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
     [
       ['ZREMRANGEBYSCORE', NOW_KEY, '-inf', `(${since}`],
       ['ZRANGE', NOW_KEY, since, '+inf', 'BYSCORE', 'WITHSCORES'],
+      ['HGETALL', adsKey(lagosDay(now))],
     ],
     fetchImpl,
   )
@@ -127,7 +165,7 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
     .map(([item, count]) => ({ item, viewers: count }))
     .sort((a, b) => b.viewers - a.viewers || a.item.localeCompare(b.item))
     .slice(0, TOP_COUNT)
-  return { watching, browsing, top }
+  return { watching, browsing, top, ads: adCounts(results?.[2]) }
 }
 
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -158,7 +196,7 @@ async function readJsonBody(req: IncomingMessage & { body?: unknown }): Promise<
   return JSON.parse(raw || 'null')
 }
 
-/** Serves POST /api/live/heartbeat and GET /api/live/count (admin only). */
+/** Serves POST /api/live/heartbeat, POST /api/live/ad and GET /api/live/count (admin only). */
 export async function handleLive(
   env: LiveEnv,
   action: string,
@@ -178,6 +216,19 @@ export async function handleLive(
     const beat = parseHeartbeat(body)
     if (!beat) return sendJson(res, 400, { error: 'bad-request' })
     return sendJson(res, 200, await recordHeartbeat(env, beat, now, fetchImpl))
+  }
+  if (action === 'ad') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return sendJson(res, 400, { error: 'bad-request' })
+    }
+    const event = parseAdEvent(body)
+    if (!event) return sendJson(res, 400, { error: 'bad-request' })
+    await recordAdEvent(env, event, now, fetchImpl)
+    return sendJson(res, 200, {})
   }
   if (action === 'count') {
     if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })

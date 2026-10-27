@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { adClock } from './ads/adManager'
 import { adTiming } from './ads/directLink'
 import { analyticsBeforeSend } from './analytics'
 import App from './App'
@@ -135,7 +136,9 @@ describe('details panel', () => {
 })
 
 describe('title ad', () => {
-  it('opens the ad once per title click, from cards and View Details, while the details still open', async () => {
+  it('opens the ad on the first click of each title, a minute apart at most, while the details still open', async () => {
+    let now = Date.UTC(2026, 9, 27, 12)
+    adClock.now = () => now
     const { user } = renderApp()
     await user.click(await screen.findByRole('button', { name: 'View Details' }))
     expect(adLinkClicks()).toEqual([AD_LINK])
@@ -145,10 +148,23 @@ describe('title ad', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Close details' }))
     expect(adLinkClicks()).toHaveLength(1)
 
+    // Within a minute of the last ad: the details open, the ad waits.
     const series = screen.getByRole('region', { name: 'Popular Series' })
     const [first, second] = within(series).getAllByRole('button', { name: /^View details for / })
     await user.click(first)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(adLinkClicks()).toHaveLength(1)
+    await user.keyboard('{Escape}')
+
+    // A minute later, that title's next click opens it.
+    now += 60_000
+    await user.click(first)
+    expect(adLinkClicks()).toHaveLength(2)
+    await user.keyboard('{Escape}')
+
+    // Once per title: the first title's card ad is used up.
+    now += 60_000
+    await user.click(screen.getByRole('button', { name: 'View Details' }))
     expect(adLinkClicks()).toHaveLength(2)
     await user.keyboard('{Escape}')
     await user.click(second)

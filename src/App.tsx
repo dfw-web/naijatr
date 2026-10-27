@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Analytics } from '@vercel/analytics/react'
+import { AdsBackNotice } from './ads/AdsBackNotice'
 import { rememberNoAdsFlag } from './ads/directLink'
+import { useMultitag } from './ads/monetag'
 import { analyticsBeforeSend } from './analytics'
 import { BrowseView } from './components/BrowseView'
 import { DetailsModal } from './components/DetailsModal'
@@ -61,6 +63,8 @@ function forgetTitleLink() {
 function App() {
   // Before useFilterParams rewrites the query string.
   useState(() => rememberNoAdsFlag())
+  // The Monetag Multitag, once (after the ?noads= check above).
+  useMultitag()
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MediaItem | null>(titleFromUrl)
@@ -172,6 +176,7 @@ function App() {
       )}
       <TvAdBreakHost />
       <TelegramGateHost />
+      <AdsBackNotice />
       <InstallAppHost />
       <FeedbackHost />
 
