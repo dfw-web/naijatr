@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { AD_RULES } from '../config/ads'
+import { AD_RULES, AD_SECTIONS } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { adsDisabled, isDevHost, openAd } from './directLink'
 
@@ -17,6 +17,8 @@ import { adsDisabled, isDevHost, openAd } from './directLink'
  * Telegram gate, the invite guide or a contest popup is open, and nothing on
  * the tap that opens or closes one of those. A tap that's held back keeps its
  * turn: the next eligible tap opens the ad instead.
+ *
+ * Cards, Play and search are the movie section's: off while AD_SECTIONS.movies is false.
  */
 
 export type AdTrigger = 'card' | 'play' | 'football' | 'search'
@@ -142,6 +144,7 @@ export const isPlaybackOpen = () => document.querySelector(PLAYER_SELECTOR) !== 
  */
 function tryAd(trigger: AdTrigger, adKey: string, due: (visit: Visit, now: number) => boolean, opened: (visit: Visit, now: number) => void, event?: Event): boolean {
   if (adsDisabled() || isTvMode()) return false
+  if (!AD_SECTIONS[trigger === 'football' ? 'football' : 'movies']) return false
   const tap = event ?? window.event
   if (!tap || !TAP_TYPES.has(tap.type) || heldTaps.has(tap)) return false
   if (overlays > 0 || isPlaybackOpen()) return false

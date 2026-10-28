@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { openAd } from '../ads/directLink'
+import { AD_SECTIONS } from '../config/ads'
 import { analyticsBeforeSend } from '../analytics'
 import { PlayerPanel } from '../components/PlayerPanel'
 import type { MediaItem } from '../types/media'
@@ -11,7 +12,11 @@ import { TvAdBreakHost } from './TvAdBreak'
 import { playAfterAdBreak } from './tvAdBreakStore'
 import { phoneLink } from './tvMode'
 
-const tvOn = () => document.documentElement.classList.add('tv-mode')
+const tvOn = () => {
+  document.documentElement.classList.add('tv-mode')
+  // These test the title ad break, which runs while the movie section has ads.
+  AD_SECTIONS.movies = true
+}
 
 /** Runs the ad break's countdown, one second (and one render) at a time. */
 const countDown = () => {

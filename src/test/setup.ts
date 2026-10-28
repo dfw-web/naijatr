@@ -4,6 +4,7 @@ import { afterEach, beforeEach, vi } from 'vitest'
 import { resetAdBreaks } from '../ads/adBreakStore'
 import { adClock, resetAdManager } from '../ads/adManager'
 import { adTiming } from '../ads/directLink'
+import { AD_SECTIONS } from '../config/ads'
 import { resetGate } from '../gate/gateStore'
 import { resetContinueWatching } from '../utils/continueWatching'
 import { resetLiveHeartbeat } from '../live/heartbeat'
@@ -29,6 +30,8 @@ afterEach(() => {
   document.cookie = 'naijatr_gate_joined=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
+  // The movie section's ads are off (src/config/ads.ts); tests of those ads switch them on.
+  AD_SECTIONS.movies = false
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()
 })
 

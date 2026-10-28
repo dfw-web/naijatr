@@ -7,6 +7,14 @@
  */
 export const ADS_ENABLED: boolean = import.meta.env.VITE_ADS_ENABLED !== 'false'
 
+/**
+ * Which sections show ads. The movie section (the home page, movies, series,
+ * search and the player) is off: no Multitag, no direct-link ad on a card,
+ * Play or search, no TV ad break before a title. Football keeps all of them.
+ * Set `movies` to true to bring them back. (Tests switch it.)
+ */
+export const AD_SECTIONS = { movies: false, football: true }
+
 /** The site-wide Monetag Multitag (it includes the Vignette). Loaded by src/ads/monetag.ts. */
 export const MULTITAG = { zone: '302667', src: 'https://quge5.com/88/tag.min.js' } as const
 

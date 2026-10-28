@@ -25,9 +25,9 @@ export function loadMultitag(): boolean {
   return true
 }
 
-/** Loads the Multitag once from a root component (App, Football, Challenge). */
-export function useMultitag() {
+/** Loads the Multitag once from a root component (App, Football, Challenge), unless `enabled` is false. */
+export function useMultitag(enabled = true) {
   useEffect(() => {
-    loadMultitag()
-  }, [])
+    if (enabled) loadMultitag()
+  }, [enabled])
 }

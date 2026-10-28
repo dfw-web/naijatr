@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { playbackAd } from '../ads/adManager'
-import { ADS_ENABLED } from '../config/ads'
+import { AD_SECTIONS, ADS_ENABLED } from '../config/ads'
 import { isTvMode } from './tvMode'
 
 /**
@@ -29,7 +29,8 @@ const emit = () => listeners.forEach((listener) => listener())
  */
 export function playAfterAdBreak(key: string, action: () => void, phoneUrl?: string) {
   if (!isTvMode()) playbackAd(key)
-  if (!ADS_ENABLED || !isTvMode() || shown.has(key)) return action()
+  const sectionAds = AD_SECTIONS[key.startsWith('match:') ? 'football' : 'movies']
+  if (!ADS_ENABLED || !sectionAds || !isTvMode() || shown.has(key)) return action()
   shown.add(key)
   pending = { key, action, phoneUrl }
   emit()

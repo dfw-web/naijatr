@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MULTITAG } from '../config/ads'
+import { AD_SECTIONS, MULTITAG } from '../config/ads'
 import { playAfterGate } from '../gate/gateStore'
 import { TelegramGateHost } from '../gate/TelegramGate'
 import { openInviteGuide } from '../referral/guide'
@@ -32,6 +32,8 @@ const ads = () => adLinkClicks().length
 const reported = () => beacons.map((body) => (body as { event: string }).event)
 
 beforeEach(() => {
+  // The rules as they apply when the movie section has ads (it's off: see the end of this file).
+  AD_SECTIONS.movies = true
   now = Date.UTC(2026, 9, 27, 11)
   adClock.now = () => now
   beacons = []
@@ -214,6 +216,19 @@ describe('no ads with the popups', () => {
     expect(started).toHaveBeenCalledTimes(2)
     expect(ads()).toBe(1)
     vi.unstubAllEnvs()
+  })
+})
+
+describe('the movie section without ads', () => {
+  it('opens nothing on a card, Play or search, while football still opens it', async () => {
+    AD_SECTIONS.movies = false
+    card('a')
+    play('a')
+    search()
+    expect(ads()).toBe(0)
+    watch('1')
+    expect(ads()).toBe(1)
+    await vi.waitFor(() => expect(reported()).toEqual(['football']))
   })
 })
 

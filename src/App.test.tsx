@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { adClock } from './ads/adManager'
 import { adTiming } from './ads/directLink'
 import { analyticsBeforeSend } from './analytics'
@@ -8,6 +8,7 @@ import App from './App'
 import { MediaImage } from './components/MediaImage'
 import { createFallbackProvider } from './data/fallbackProvider'
 import { createLocalProvider } from './data/localProvider'
+import { AD_SECTIONS, MULTITAG } from './config/ads'
 import { CatalogProviderContext } from './data/provider'
 import { AD_LINK, adLinkClicks } from './test/ads'
 import type { CatalogProvider } from './types/media'
@@ -135,7 +136,24 @@ describe('details panel', () => {
   })
 })
 
+describe('the movie section without ads', () => {
+  it('loads no Multitag and opens no ad on a card or a search', async () => {
+    const { user } = renderApp()
+    await user.click(await screen.findByRole('button', { name: 'View Details' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'hollow{Enter}')
+    expect(adLinkClicks()).toHaveLength(0)
+    expect(document.querySelector(`script[data-zone="${MULTITAG.zone}"]`)).toBeNull()
+  })
+})
+
 describe('title ad', () => {
+  // As it runs while the movie section has ads.
+  beforeEach(() => {
+    AD_SECTIONS.movies = true
+  })
+
   it('opens the ad on the first click of each title, a minute apart at most, while the details still open', async () => {
     let now = Date.UTC(2026, 9, 27, 12)
     adClock.now = () => now
@@ -348,6 +366,7 @@ describe('Movies and Series navigation', () => {
   })
 
   it('filters a text search when filters are active, and cards still open the ad', async () => {
+    AD_SECTIONS.movies = true
     const { user } = renderApp()
     await user.click(within(primaryNav()).getByRole('button', { name: 'Movies' }))
     const genres = await openFilters(user)
