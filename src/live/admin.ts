@@ -24,7 +24,7 @@ const AD_ROWS: { event: AdEvent; label: string }[] = [
   { event: 'play', label: 'Opened: Play' },
   { event: 'football', label: 'Opened: football Watch' },
   { event: 'search', label: 'Opened: search' },
-  { event: 'cooldown', label: 'Held back: cooldown (off)' },
+  { event: 'cooldown', label: 'Held back: 60-second cooldown' },
   { event: 'cap', label: 'Held back: daily cap (8)' },
 ]
 

@@ -12,7 +12,7 @@ import { adsDisabled, isDevHost, openAd } from './directLink'
  * - football: the first Watch of a match, again only 5+ minutes after its last ad;
  * - search:   the first search submitted this visit, then at most every 10 minutes.
  *
- * And for all of them: the cooldown between two ads (AD_RULES.cooldownMs, now off), at most 8 a day
+ * And for all of them: at least a minute between two ads, at most 8 a day
  * (midnight Lagos time), nothing while a player is open, nothing while the
  * Telegram gate, the invite guide or a contest popup is open, and nothing on
  * the tap that opens or closes one of those. A tap that's held back keeps its

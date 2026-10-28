@@ -15,8 +15,8 @@ export const DIRECT_LINK_URL = 'https://uplcm.com/4/12033849'
 
 /** When the direct-link ad may open (src/ads/adManager.ts). */
 export const AD_RULES = {
-  /** At least this long between any two direct-link ads (0: off, they can open back to back). */
-  cooldownMs: 0,
+  /** At least this long between any two direct-link ads. */
+  cooldownMs: 60_000,
   /** At most this many per visitor per day (midnight to midnight, Lagos time). */
   dailyCap: 8,
   /** A football match's Watch tab opens the ad again only after this long. */
