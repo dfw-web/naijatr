@@ -82,6 +82,10 @@ export const PLAYER_LOAD_TIMEOUT_MS = 20000
  * `{ source: 'embedmaster_player', event, info }` to the top window and takes
  * `{ source: 'embedmaster_player_command', command, value }` back.
  */
+/** The "how to download with Abyss" walkthrough, opened from the hint under the player. */
+const HOW_TO_DOWNLOAD_VIDEO = '/videos/how-to-download.mp4'
+const HOW_TO_DOWNLOAD_POSTER = '/videos/how-to-download.jpg'
+
 const PLAYER_EVENTS = 'embedmaster_player'
 const PLAYER_COMMANDS = 'embedmaster_player_command'
 
@@ -292,6 +296,7 @@ export function PlayerPanel({
   const sectionRef = useRef<HTMLElement>(null)
   const frameBoxRef = useRef<HTMLDivElement>(null)
   const [paused, setPaused] = useState(false)
+  const [howToOpen, setHowToOpen] = useState(false)
   const pausedRef = useRef(false)
   const controllable =
     tv && (active?.state.status === 'loading' || active?.state.status === 'playing') && active.choice !== 'trailer'
@@ -749,6 +754,33 @@ export function PlayerPanel({
           <Captions aria-hidden="true" />
           Subtitles: tap the CC button in the player to choose a language.
         </p>
+      )}
+      {active.choice === 'stream' && !tv && (
+        <p className="player__hint">
+          <Download aria-hidden="true" />
+          <span>
+            Download: pick the <strong>Abyss</strong> server, then tap ⬇ in the player.{' '}
+            <button
+              type="button"
+              className="player__hint-link"
+              onClick={() => setHowToOpen((open) => !open)}
+              aria-expanded={howToOpen}
+            >
+              {howToOpen ? 'Hide video' : 'Watch how'}
+            </button>
+          </span>
+        </p>
+      )}
+      {active.choice === 'stream' && !tv && howToOpen && (
+        <video
+          className="player__howto"
+          src={HOW_TO_DOWNLOAD_VIDEO}
+          poster={HOW_TO_DOWNLOAD_POSTER}
+          controls
+          playsInline
+          preload="none"
+          aria-label="How to download a movie with the Abyss server"
+        />
       )}
     </section>
   )

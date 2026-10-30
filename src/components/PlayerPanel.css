@@ -57,6 +57,26 @@
   height: 18px;
 }
 
+.player__hint-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Inline, below the player: never covers it. */
+.player__howto {
+  display: block;
+  width: min(100%, 320px);
+  aspect-ratio: 9 / 16;
+  border-radius: var(--radius);
+  background: #000;
+}
+
 .player__bar {
   display: flex;
   flex-wrap: wrap;
@@ -93,7 +113,9 @@
 /* In fullscreen only the video and its buttons: the pickers and hint stay in the page. */
 .player--fill .player__pickers,
 .player--fill .player__hint,
-.player:fullscreen .player__hint {
+.player:fullscreen .player__hint,
+.player--fill .player__howto,
+.player:fullscreen .player__howto {
   display: none;
 }
 

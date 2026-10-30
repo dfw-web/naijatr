@@ -123,6 +123,21 @@ describe('PlayerPanel', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
+  it('shows the Abyss download walkthrough only when asked, below the player', async () => {
+    render(<PlayerPanel item={base} availability={on} fetchImpl={reply({ available: true })} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await screen.findByTitle('Fight Club player')
+    expect(screen.getByText(/pick the/)).toHaveTextContent('Download: pick the Abyss server, then tap ⬇ in the player.')
+    expect(screen.queryByLabelText(/How to download/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Watch how' }))
+    const video = screen.getByLabelText(/How to download/)
+    expect(video).toHaveAttribute('src', '/videos/how-to-download.mp4')
+    expect(video).toHaveAttribute('preload', 'none')
+    expect(video).not.toHaveAttribute('autoplay')
+    await userEvent.click(screen.getByRole('button', { name: 'Hide video' }))
+    expect(screen.queryByLabelText(/How to download/)).not.toBeInTheDocument()
+  })
+
   it('streams the chosen season and episode of a series', async () => {
     const fetchImpl = reply({ available: true })
     const withSeasons: MediaItem = {
