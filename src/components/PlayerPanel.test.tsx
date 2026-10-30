@@ -123,10 +123,9 @@ describe('PlayerPanel', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('shows the Abyss download walkthrough only when asked, below the player', async () => {
+  it('shows how to download before and after Play, with the walkthrough video only when asked', async () => {
     render(<PlayerPanel item={base} availability={on} fetchImpl={reply({ available: true })} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    await screen.findByTitle('Fight Club player')
+    // Before Play.
     expect(screen.getByText(/pick the/)).toHaveTextContent('Download: pick the Abyss server, then tap ⬇ in the player.')
     expect(screen.queryByLabelText(/How to download/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Watch how' }))
@@ -136,6 +135,17 @@ describe('PlayerPanel', () => {
     expect(video).not.toHaveAttribute('autoplay')
     await userEvent.click(screen.getByRole('button', { name: 'Hide video' }))
     expect(screen.queryByLabelText(/How to download/)).not.toBeInTheDocument()
+
+    // And still there once the movie plays.
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await screen.findByTitle('Fight Club player')
+    expect(screen.getByText(/pick the/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Watch how' })).toBeInTheDocument()
+  })
+
+  it('has no download hint for titles that only have a trailer', () => {
+    render(<PlayerPanel item={withTrailer} availability={off} />)
+    expect(screen.queryByText(/pick the/)).not.toBeInTheDocument()
   })
 
   it('streams the chosen season and episode of a series', async () => {

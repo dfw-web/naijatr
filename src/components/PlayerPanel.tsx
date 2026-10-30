@@ -617,6 +617,38 @@ export function PlayerPanel({
     </div>
   )
 
+  // How to download (Abyss server, then ⬇), with a walkthrough video that opens
+  // inline on request. Before Play too, so people know before they start.
+  const howTo = streamSrc && !tv && (
+    <>
+      <p className="player__hint">
+        <Download aria-hidden="true" />
+        <span>
+          Download: pick the <strong>Abyss</strong> server, then tap ⬇ in the player.{' '}
+          <button
+            type="button"
+            className="player__hint-link"
+            onClick={() => setHowToOpen((open) => !open)}
+            aria-expanded={howToOpen}
+          >
+            {howToOpen ? 'Hide video' : 'Watch how'}
+          </button>
+        </span>
+      </p>
+      {howToOpen && (
+        <video
+          className="player__howto"
+          src={HOW_TO_DOWNLOAD_VIDEO}
+          poster={HOW_TO_DOWNLOAD_POSTER}
+          controls
+          playsInline
+          preload="none"
+          aria-label="How to download a movie with the Abyss server"
+        />
+      )}
+    </>
+  )
+
   if (
     !active ||
     (active.state.status === 'checking' && !active.keepPlayer) ||
@@ -640,6 +672,7 @@ export function PlayerPanel({
           </p>
         )}
         {actions}
+        {howTo}
       </section>
     )
   }
@@ -755,33 +788,7 @@ export function PlayerPanel({
           Subtitles: tap the CC button in the player to choose a language.
         </p>
       )}
-      {active.choice === 'stream' && !tv && (
-        <p className="player__hint">
-          <Download aria-hidden="true" />
-          <span>
-            Download: pick the <strong>Abyss</strong> server, then tap ⬇ in the player.{' '}
-            <button
-              type="button"
-              className="player__hint-link"
-              onClick={() => setHowToOpen((open) => !open)}
-              aria-expanded={howToOpen}
-            >
-              {howToOpen ? 'Hide video' : 'Watch how'}
-            </button>
-          </span>
-        </p>
-      )}
-      {active.choice === 'stream' && !tv && howToOpen && (
-        <video
-          className="player__howto"
-          src={HOW_TO_DOWNLOAD_VIDEO}
-          poster={HOW_TO_DOWNLOAD_POSTER}
-          controls
-          playsInline
-          preload="none"
-          aria-label="How to download a movie with the Abyss server"
-        />
-      )}
+      {active.choice === 'stream' && howTo}
     </section>
   )
 }
