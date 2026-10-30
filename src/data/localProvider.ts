@@ -1,6 +1,7 @@
 import { GENRES, type DiscoverFilters } from '../config/discoverFilters'
 import type { CatalogProvider, MediaItem } from '../types/media'
 import { matchesQuery, sortItems } from '../utils/media'
+import { entryFromItem } from '../search/titleIndex'
 import { sampleItems } from './sampleData'
 
 const SECTION_SIZE = 12
@@ -104,6 +105,10 @@ export function createLocalProvider({
       // Sample items already carry everything we have.
       await delay(Math.min(latencyMs, 150), signal)
       return item
+    },
+
+    async searchIndex() {
+      return items.map(entryFromItem)
     },
 
     async search(query, signal) {

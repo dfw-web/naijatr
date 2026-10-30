@@ -1,5 +1,7 @@
 import { useCallback } from 'react'
 import { useCatalogProvider } from '../data/provider'
+import { titleIndexSoon } from '../search/indexStore'
+import { smartSearch, type SmartResult } from '../search/smartSearch'
 import type { MediaItem, MediaType } from '../types/media'
 import { useAsync } from './useAsync'
 import { useDebouncedValue } from './useDebouncedValue'
@@ -30,6 +32,29 @@ export function useSearch(query: string) {
   )
   const result = useAsync(debounced ? load : null)
   // While the user is still typing, report loading rather than stale results.
+  const isPending = query.trim() !== debounced
+  return { ...result, isPending, debouncedQuery: debounced }
+}
+
+/**
+ * Typo-tolerant search (src/search/smartSearch.ts), debounced. `strict`
+ * searches only for exactly what was typed ("Search instead for …").
+ */
+export function useSmartSearch(query: string, strict = false) {
+  const provider = useCatalogProvider()
+  const debounced = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
+  const load = useCallback(
+    async (signal: AbortSignal): Promise<SmartResult> => {
+      const search = (q: string, s?: AbortSignal) => provider.search(q, s)
+      if (strict) {
+        const items = await search(debounced, signal)
+        return { items, exactCount: items.length, showingFor: null }
+      }
+      return smartSearch(search, debounced, () => titleIndexSoon(provider, signal), signal)
+    },
+    [provider, debounced, strict],
+  )
+  const result = useAsync(debounced ? load : null)
   const isPending = query.trim() !== debounced
   return { ...result, isPending, debouncedQuery: debounced }
 }

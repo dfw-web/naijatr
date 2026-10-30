@@ -1,0 +1,62 @@
+/* Under the search box, only while typing in it: never over the page otherwise. */
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: min(60vh, 440px);
+  margin: 0;
+  padding: 0.35rem;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+
+.search-suggestions__item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.search-suggestions__item:hover,
+.search-suggestions__item:focus-visible,
+.search-suggestions__item--active {
+  outline: none;
+  background: var(--surface-2);
+}
+
+.search-suggestions__poster {
+  flex: none;
+  width: 34px;
+  height: 51px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.search-suggestions__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.search-suggestions__title {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-suggestions__meta {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}

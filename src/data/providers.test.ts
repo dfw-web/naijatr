@@ -7,6 +7,7 @@ import { sampleItems } from './sampleData'
 import {
   CatalogRequestError,
   createTmdbProvider,
+  SEARCH_INDEX_STORAGE_KEY,
   mapTmdbResult,
   mergeTmdbDetails,
   pickTrailer,
@@ -159,6 +160,29 @@ describe('TMDB provider', () => {
     await first
     expect(error).toBeInstanceOf(CatalogRequestError)
     expect((error as Error).message).toMatch(/credentials were rejected/)
+  })
+
+  it('loads the search index once a day, keeping it in the browser', async () => {
+    localStorage.removeItem(SEARCH_INDEX_STORAGE_KEY)
+    const rows = [[93405, 's', 'Squid Game', '오징어 게임', 2021, '/sg.jpg', 99, 79], ['bad row']]
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ builtAt: 1, rows })))
+    const provider = createTmdbProvider(fetchMock as unknown as typeof fetch)
+
+    const entries = await provider.searchIndex!()
+    expect(fetchMock).toHaveBeenCalledWith('/api/search-index', expect.anything())
+    expect(entries).toEqual([
+      expect.objectContaining({ id: 'tmdb-series-93405', tmdbId: 93405, type: 'series', title: 'Squid Game', originalTitle: '오징어 게임', year: 2021, score: 7.9 }),
+    ])
+    // A new page load: straight from storage, no request.
+    await createTmdbProvider(fetchMock as unknown as typeof fetch).searchIndex!()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // A day later it's fetched again.
+    const saved = JSON.parse(localStorage.getItem(SEARCH_INDEX_STORAGE_KEY)!)
+    localStorage.setItem(SEARCH_INDEX_STORAGE_KEY, JSON.stringify({ ...saved, at: Date.now() - 25 * 60 * 60 * 1000 }))
+    await createTmdbProvider(fetchMock as unknown as typeof fetch).searchIndex!()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    localStorage.removeItem(SEARCH_INDEX_STORAGE_KEY)
   })
 
   it('turns a 401 into a readable error', async () => {
@@ -355,6 +379,12 @@ describe('fallback provider', () => {
     expect(provider.fallback!.getStatus().active).toBe(true)
     up = true
     await provider.getHome()
+    expect(provider.fallback!.getStatus().active).toBe(false)
+  })
+
+  it('uses the fallback search index when the primary has none, without a notice', async () => {
+    const provider = createFallbackProvider({ ...failing, searchIndex: async () => { throw new Error('down') } }, local)
+    expect((await provider.searchIndex!()).length).toBeGreaterThan(0)
     expect(provider.fallback!.getStatus().active).toBe(false)
   })
 

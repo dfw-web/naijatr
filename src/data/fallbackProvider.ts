@@ -42,6 +42,15 @@ export function createFallbackProvider(
     getHome: (signal) => withFallback((p) => p.getHome(signal), signal),
     getByType: (type, signal) => withFallback((p) => p.getByType(type, signal), signal),
     search: (query, signal) => withFallback((p) => p.search(query, signal), signal),
+    // The index only helps search; no fallback notice over it.
+    searchIndex: async (signal) => {
+      try {
+        if (primary.searchIndex) return await primary.searchIndex(signal)
+      } catch (error) {
+        if (signal?.aborted) throw error
+      }
+      return fallback.searchIndex ? fallback.searchIndex(signal) : []
+    },
     discover: (request, signal) => withFallback((p) => p.discover(request, signal), signal),
     // Details only enrich an item we already show; a failure is reported in the panel.
     getDetails: (item, signal) => primary.getDetails(item, signal),

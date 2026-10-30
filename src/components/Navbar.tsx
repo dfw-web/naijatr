@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Menu, Search, X } from 'lucide-react'
 import { searchAd } from '../ads/adManager'
 import type { NavLink } from '../navigation'
+import type { MediaItem } from '../types/media'
 import { isTvMode } from '../tv/tvMode'
 import { InstallAppButton } from './InstallApp'
+import { SearchSuggestions } from './SearchSuggestions'
+import { SUGGESTIONS_ID, suggestionId, useSuggestions } from '../search/useSuggestions'
 import { TelegramHeaderLink, TelegramMenuLink } from './Telegram'
 import { InviteButton } from '../referral/Invite'
 import './Navbar.css'
@@ -15,9 +18,11 @@ interface NavbarProps {
   query: string
   onQueryChange: (query: string) => void
   onNavigate: (link: NavLink) => void
+  /** A title picked from the search suggestions. Without it (the football page), no suggestions. */
+  onSelect?: (item: MediaItem) => void
 }
 
-export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: NavbarProps) {
+export function Navbar({ links, activeId, query, onQueryChange, onNavigate, onSelect }: NavbarProps) {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   // TV: moving onto the search box mustn't pop up the on-screen keyboard, so
@@ -26,6 +31,17 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
   const [typing, setTyping] = useState(false)
   const refocusing = useRef(false)
   const headerRef = useRef<HTMLElement>(null)
+  // Suggestions: shown while the search box (or a suggestion, on TV) has focus.
+  const [searchUsed, setSearchUsed] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const suggestions = useSuggestions(query, searchUsed && Boolean(onSelect))
+  const showSuggestions = suggesting && suggestions.length > 0
+  const pick = (item: MediaItem) => {
+    setSuggesting(false)
+    setActiveIndex(-1)
+    onSelect?.(item)
+  }
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 24)
@@ -98,8 +114,17 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
           role="search"
           onSubmit={(event) => {
             event.preventDefault()
+            setSuggesting(false)
             // Results show as you type; Enter may also open the ad (src/ads/adManager.ts).
             if (query.trim()) searchAd(event.nativeEvent)
+          }}
+          onFocus={() => {
+            setSearchUsed(true)
+            setSuggesting(true)
+          }}
+          onBlur={(event) => {
+            // Moving between the box and its suggestions (TV remote) keeps them open.
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSuggesting(false)
           }}
         >
           <Search className="navbar__search-icon" aria-hidden="true" />
@@ -108,12 +133,36 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
             value={query}
             placeholder={tv ? 'Search: press OK to type' : 'Search titles, genres, years'}
             aria-label="Search titles"
+            aria-controls={showSuggestions ? SUGGESTIONS_ID : undefined}
+            aria-activedescendant={showSuggestions && activeIndex >= 0 ? suggestionId(activeIndex) : undefined}
+            autoComplete="off"
             readOnly={tv && !typing}
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={(event) => {
+              setSuggesting(true)
+              setActiveIndex(-1)
+              onQueryChange(event.target.value)
+            }}
             onClick={() => tv && setTyping(true)}
             onBlur={() => !refocusing.current && setTyping(false)}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') onQueryChange('')
+              // TV: the remote moves focus onto the suggestions itself (src/tv/remote.ts).
+              if (showSuggestions && !tv && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                event.preventDefault()
+                const step = event.key === 'ArrowDown' ? 1 : -1
+                // -1 (the box itself), 0 … n-1, then round again.
+                const stops = suggestions.length + 1
+                setActiveIndex((i) => ((i + 1 + step + stops) % stops) - 1)
+                return
+              }
+              if (showSuggestions && event.key === 'Enter' && activeIndex >= 0 && activeIndex < suggestions.length) {
+                event.preventDefault()
+                pick(suggestions[activeIndex])
+                return
+              }
+              if (event.key === 'Escape') {
+                setSuggesting(false)
+                onQueryChange('')
+              }
               if (tv && event.key === 'Enter' && !typing) {
                 event.preventDefault()
                 setTyping(true)
@@ -138,6 +187,7 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate }: Na
               <X aria-hidden="true" />
             </button>
           )}
+          {showSuggestions && <SearchSuggestions items={suggestions} activeIndex={activeIndex} onPick={pick} />}
         </form>
 
         <InviteButton />

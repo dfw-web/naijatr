@@ -1,3 +1,4 @@
+import type { IndexEntry } from '../search/titleIndex'
 import type { DiscoverFilters, TypeFilter } from '../config/discoverFilters'
 
 export type MediaType = 'movie' | 'series'
@@ -105,6 +106,8 @@ export interface CatalogProvider {
   getHome(signal?: AbortSignal): Promise<HomeCatalog>
   getByType(type: MediaType, signal?: AbortSignal): Promise<MediaItem[]>
   search(query: string, signal?: AbortSignal): Promise<MediaItem[]>
+  /** Titles for typo-tolerant search and instant suggestions (see src/search). */
+  searchIndex?(signal?: AbortSignal): Promise<IndexEntry[]>
   /**
    * One page of titles matching the Browse filters (`type` already resolved).
    * With a text `query`, searches by title and applies the filters client-side.

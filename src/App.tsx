@@ -12,7 +12,7 @@ import { Footer } from './components/Footer'
 import { HomeView } from './components/HomeView'
 import { Navbar } from './components/Navbar'
 import { SearchResults } from './components/SearchResults'
-import { hasNarrowingFilters } from './config/discoverFilters'
+import { DEFAULT_FILTERS, hasNarrowingFilters } from './config/discoverFilters'
 import { useFilterParams } from './hooks/useFilterParams'
 import { TvAdBreakHost } from './tv/TvAdBreak'
 import { TelegramGateHost } from './gate/TelegramGate'
@@ -114,6 +114,12 @@ function App() {
     setScrollRequest({ section: link.section ?? null })
   }
 
+  // From the search's empty state: Movies, filtered to that genre.
+  const browseGenre = (genreId: string) => {
+    handleNavigate(NAV_LINKS.find((link) => link.view === 'movies')!)
+    setFilters({ ...DEFAULT_FILTERS, genres: [genreId] })
+  }
+
   const handleQueryChange = (next: string) => {
     // Starting a new search: jump to the top so results are in view.
     if (!isSearching && next.trim()) window.scrollTo({ top: 0 })
@@ -137,6 +143,7 @@ function App() {
         query={query}
         onQueryChange={handleQueryChange}
         onNavigate={handleNavigate}
+        onSelect={setSelected}
       />
 
       <main className="app-main" key={refreshKey}>
@@ -148,6 +155,7 @@ function App() {
             onFiltersChange={setFilters}
             onSelect={setSelected}
             onClear={() => setQuery('')}
+            onBrowseGenre={browseGenre}
           />
         ) : view === 'home' ? (
           <HomeView onSelect={setSelected} onBrowseTrending={() => handleNavigate(TRENDING_LINK)} />

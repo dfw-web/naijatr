@@ -1,4 +1,5 @@
 import { MAX_PAGE } from '../config/discoverFilters'
+import { entryFromRow, isIndexRow, type IndexEntry } from '../search/titleIndex'
 import { isTvMode } from '../tv/tvMode'
 import type {
   CatalogProvider,
@@ -28,6 +29,10 @@ import {
  * (see vite.config.ts), so no key or token is ever shipped to the browser.
  */
 const API_BASE = '/api/tmdb'
+/** The search index (server/searchIndex.ts), kept in the browser for a day. */
+const SEARCH_INDEX_URL = '/api/search-index'
+export const SEARCH_INDEX_STORAGE_KEY = 'naijatr:searchIndex'
+const SEARCH_INDEX_TTL_MS = 24 * 60 * 60 * 1000
 const IMAGE_BASE = 'https://image.tmdb.org/t/p'
 
 /** Raw list result from TMDB's movie, tv, trending and search endpoints. */
@@ -375,6 +380,26 @@ export function mapTmdbResult(
   }
 }
 
+function readSavedIndex(): IndexEntry[] | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SEARCH_INDEX_STORAGE_KEY) ?? 'null') as { at?: number; rows?: unknown } | null
+    if (!saved || typeof saved.at !== 'number' || Date.now() - saved.at > SEARCH_INDEX_TTL_MS || !Array.isArray(saved.rows)) return null
+    const rows = saved.rows.filter(isIndexRow)
+    return rows.length ? rows.map(entryFromRow) : null
+  } catch {
+    return null
+  }
+}
+
+function saveIndex(rows: unknown[]) {
+  if (!rows.length) return
+  try {
+    localStorage.setItem(SEARCH_INDEX_STORAGE_KEY, JSON.stringify({ at: Date.now(), rows }))
+  } catch {
+    // Storage full or blocked: the index is simply fetched again next visit.
+  }
+}
+
 export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)): CatalogProvider {
   let genresPromise: Promise<{ lists: GenreLists; names: Map<number, string> }> | null = null
   const keywordPromises = new Map<string, Promise<number | null>>()
@@ -517,8 +542,24 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
       return page.results.flatMap((result) => mapTmdbResult(result, type, genres) ?? [])
     },
 
-    search(query, signal) {
-      return list('/search/multi', 'movie', signal, { query, include_adult: 'false' })
+    async search(query, signal) {
+      // Cached: suggestions, the results page and typo variants often ask the same thing.
+      const [genres, page] = await Promise.all([
+        loadGenres(),
+        cachedJson<TmdbPage>('/search/multi', { query, include_adult: 'false' }, signal),
+      ])
+      return page.results.flatMap((result) => mapTmdbResult(result, 'movie', genres) ?? [])
+    },
+
+    async searchIndex(signal) {
+      const saved = readSavedIndex()
+      if (saved) return saved
+      const response = await fetchImpl(SEARCH_INDEX_URL, { signal })
+      if (!response.ok) throw new CatalogRequestError(response.status, `Search index failed (${response.status}).`)
+      const body = (await response.json()) as { rows?: unknown }
+      const rows = Array.isArray(body.rows) ? body.rows.filter(isIndexRow) : []
+      saveIndex(rows)
+      return rows.map(entryFromRow)
     },
 
     async discover({ filters, type, query, page }, signal) {

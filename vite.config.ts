@@ -8,9 +8,10 @@ import {
   readNextStreamConfig,
   type NextStreamConfig,
 } from './server/nextstream.ts'
-import { handleDownload, handlePlay, splitApiUrl } from './server/handlers.ts'
+import { handleDownload, handlePlay, readTmdbCredentials, splitApiUrl } from './server/handlers.ts'
 import { createMovieboxDownloads, readMovieboxConfig, type MovieboxConfig } from './server/moviebox.ts'
 import { readRedisEnv } from './server/redis.ts'
+import { createIndexStore, handleSearchIndex } from './server/searchIndex.ts'
 import {
   createWorkerDownloads,
   readJsonBody,
@@ -79,6 +80,17 @@ function nextStreamPlayback(config: NextStreamConfig, movieboxConfig: MovieboxCo
   }
 }
 
+/** /api/search-index in dev and preview, like the Vercel function in api/search-index.ts. */
+function searchIndexApi(env: Record<string, string>): Plugin {
+  const store = createIndexStore(readRedisEnv(env))
+  const middleware = (_req: IncomingMessage, res: ServerResponse) => void handleSearchIndex(readTmdbCredentials(env), store, res)
+  return {
+    name: 'search-index',
+    configureServer: (server) => void server.middlewares.use('/api/search-index', middleware),
+    configurePreviewServer: (server) => void server.middlewares.use('/api/search-index', middleware),
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Load every variable (empty prefix) for use *here*, on the server only.
@@ -117,7 +129,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

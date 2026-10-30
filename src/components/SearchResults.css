@@ -15,3 +15,35 @@
 .search-results__count {
   color: var(--text-faint);
 }
+
+.search-results__corrected {
+  margin: -0.75rem 0 1.25rem;
+  color: var(--text-muted);
+}
+
+.search-results__corrected strong {
+  color: var(--text);
+}
+
+.search-results__instead {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-soft);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.search-empty__genres {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 1.25rem 0 2rem;
+}
+
+.search-empty__heading {
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+}

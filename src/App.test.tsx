@@ -470,11 +470,51 @@ describe('search', () => {
     const input = screen.getByRole('searchbox', { name: 'Search titles' })
     await user.type(input, 'zzzz nothing')
 
-    const empty = await screen.findByRole('status')
-    expect(empty).toHaveTextContent('No titles match your search')
+    const empty = await screen.findByRole('status', {}, SLOW)
+    expect(empty).toHaveTextContent('No results found')
+    expect(empty).toHaveTextContent('Check the spelling or try a shorter title.')
+    // Never a dead end: genres to browse and what's trending.
+    expect(screen.getByRole('navigation', { name: 'Browse by genre' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Trending now' })).toBeInTheDocument()
     await user.click(within(empty).getByRole('button', { name: 'Clear search' }))
     expect(input).toHaveValue('')
     expect(await screen.findByRole('heading', { name: 'Trending Now' })).toBeInTheDocument()
+  })
+
+  it('corrects a typo, and can search for exactly what was typed instead', async () => {
+    const { user } = renderApp()
+    await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'velvet hoor')
+    const corrected = await screen.findByText(/Showing results for/, {}, SLOW)
+    expect(corrected).toHaveTextContent('Showing results for Velvet Hour.')
+    expect(posterButtons().map((b) => b.getAttribute('aria-label')).join()).toMatch(/Velvet Hour/)
+
+    await user.click(within(corrected).getByRole('button', { name: 'Search instead for “velvet hoor”' }))
+    expect(await screen.findByRole('status', {}, SLOW)).toHaveTextContent('No results found')
+    expect(screen.queryByText(/Showing results for/)).not.toBeInTheDocument()
+  })
+
+  it('suggests titles while typing, typos and all, by keyboard or tap', async () => {
+    const { user } = renderApp()
+    const input = screen.getByRole('searchbox', { name: 'Search titles' })
+    await user.type(input, 'v')
+    // Not from one letter.
+    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).not.toBeInTheDocument()
+    await user.type(input, 'elvt')
+    const list = await screen.findByRole('listbox', { name: 'Suggestions' }, SLOW)
+    const first = within(list).getAllByRole('option')[0]
+    expect(first).toHaveTextContent('Velvet Hour')
+
+    await user.keyboard('{ArrowDown}')
+    expect(first).toHaveAttribute('aria-selected', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', first.id)
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('dialog', { name: 'Velvet Hour' })).toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).not.toBeInTheDocument()
+
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Close/ }))
+    await user.click(input)
+    await user.click(within(await screen.findByRole('listbox', { name: 'Suggestions' })).getAllByRole('option')[0])
+    expect(await screen.findByRole('dialog', { name: 'Velvet Hour' })).toBeInTheDocument()
   })
 
   it('shows an error state when search fails', async () => {
@@ -485,8 +525,9 @@ describe('search', () => {
       },
     }
     const { user } = renderApp(failing)
-    await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'orion')
-    expect(await screen.findByRole('alert')).toHaveTextContent('Search service timed out')
+    // Nothing in the local index looks like it either, so there's nothing to show.
+    await user.type(screen.getByRole('searchbox', { name: 'Search titles' }), 'qqzzxx')
+    expect(await screen.findByRole('alert', {}, SLOW)).toHaveTextContent('Search service timed out')
   })
 
   it('clears the search when a nav link is used', async () => {
