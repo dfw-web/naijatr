@@ -95,6 +95,51 @@ describe('Football Live Streaming API: the listing', () => {
     expect(findStreamingMatch(snapshot, 'Tottenham', 'Coventry', (KICKOFF_S + 86_400) * 1000)).toBeNull()
     expect(findStreamingMatch(snapshot, 'Arsenal', 'Chelsea', KICKOFF_S * 1000)).toBeNull()
   })
+
+  it('offers every listing of a match listed twice, the fullest first (Man City v Brighton, 31 Oct 2026)', () => {
+    const kickoff = 1_793_458_800_000
+    const hls = (url: string, label = '') => ({ label, url, kind: 'hls' as const })
+    const entry = (home: string, away: string, streams: ReturnType<typeof hls>[]) => ({
+      key: `Premier League|${home}|${away}|${kickoff}`,
+      home,
+      away,
+      league: 'Premier League',
+      kickoff,
+      live: true,
+      score: '0 - 0',
+      streams,
+    })
+    const snapshot = {
+      fetchedAt: kickoff,
+      matches: [
+        // Listed first, with names in Vietnamese and two servers that refuse to play.
+        entry('thành phố Manchester', 'Brighton & Hove Albion FC', [
+          hls('https://live.cds78y11d.org/live/hd-en-x.m3u8'),
+          hls('https://live.cds78y11d.org/live/sd-x.m3u8'),
+        ]),
+        entry('Manchester City', 'Brighton Hove Albion', [
+          hls('https://hls.lauthaitv.cc/live/mnc-bha-prem/index.m3u8'),
+          hls('https://live05.miekgo.app/live/14830711.m3u8'),
+          hls('https://live05.miekgo.app/live/08552895.m3u8'),
+          hls('https://playback.livetl002.com/live/6a9a.m3u8'),
+        ]),
+      ],
+    }
+    // Our fixture can carry either set of names.
+    for (const [home, away] of [['thành phố Manchester', 'Brighton & Hove Albion FC'], ['Manchester City', 'Brighton & Hove Albion']]) {
+      const match = findStreamingMatch(snapshot, home, away, kickoff)!
+      expect(match.home).toBe('Manchester City')
+      expect(match.streams.map((s) => new URL(s.url).host)).toEqual([
+        'hls.lauthaitv.cc',
+        'live05.miekgo.app',
+        'live05.miekgo.app',
+        'playback.livetl002.com',
+        'live.cds78y11d.org',
+        'live.cds78y11d.org',
+      ])
+      expect(match.streams.map((s) => s.label)).toEqual(['Server 1', 'Server 2', 'Server 3', 'Server 4', 'Server 5 (English)', 'Server 6'])
+    }
+  })
 })
 
 describe('Football Live Streaming API: requests', () => {

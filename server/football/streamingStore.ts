@@ -18,7 +18,7 @@
  */
 import { hasRedis, redis, type RedisEnv } from '../redis.js'
 import { nearTeam, sameName, sameTeam } from './stream.js'
-import { fetchStreamingLive, type StreamingMatch, type StreamingQuota } from './streaming.js'
+import { fetchStreamingLive, serverLabel, type StreamingMatch, type StreamingQuota } from './streaming.js'
 
 export const STREAMING_TTL_MS = 5 * 60_000
 /** A live match missing from the list is looked for again after this long (it may have just kicked off). */
@@ -241,19 +241,38 @@ export function withMissed(matches: StreamingMatch[], previous: StreamingSnapsho
 /** Kick-offs further apart than this are different matches between the same teams. */
 const SAME_MATCH_MS = 3 * 60 * 60_000
 
-/** Our match (by team names and kick-off) in the list, or null. */
-export function findStreamingMatch(snapshot: StreamingSnapshot | null, home: string, away: string, kickoff = 0) {
-  for (const match of snapshot?.matches ?? []) {
-    const pairs = (x: string, y: string) => (sameTeam(x, home) && nearTeam(y, away)) || (nearTeam(x, home) && sameTeam(y, away))
-    const close = Boolean(kickoff && match.kickoff) && Math.abs(kickoff - match.kickoff) <= SAME_MATCH_MS
-    // Or one team by the very same name around the same time: a team plays one match at a
-    // time, and the other name can be written quite differently ("RC Deportivo" / "Depotivo la Coruna").
-    const oneTeam = close && [match.home, match.away].some((x) => sameName(x, home) || sameName(x, away))
-    if (!pairs(match.home, match.away) && !pairs(match.away, match.home) && !oneTeam) continue
-    if (kickoff && match.kickoff && !close) continue
-    return match
-  }
-  return null
+/** Servers offered for one match, at most, when several listings of it are merged. */
+const MERGED_SERVERS = 8
+
+/** Whether a listing entry is our match (by team names and kick-off). */
+function isOurMatch(match: StreamingMatch, home: string, away: string, kickoff: number) {
+  const pairs = (x: string, y: string) => (sameTeam(x, home) && nearTeam(y, away)) || (nearTeam(x, home) && sameTeam(y, away))
+  const close = Boolean(kickoff && match.kickoff) && Math.abs(kickoff - match.kickoff) <= SAME_MATCH_MS
+  // Or one team by the very same name around the same time: a team plays one match at a
+  // time, and the other name can be written quite differently ("RC Deportivo" / "Depotivo la Coruna").
+  const oneTeam = close && [match.home, match.away].some((x) => sameName(x, home) || sameName(x, away))
+  if (!pairs(match.home, match.away) && !pairs(match.away, match.home) && !oneTeam) return false
+  return !(kickoff && match.kickoff && !close)
+}
+
+/**
+ * Our match in the list, or null. The API sometimes lists one match twice,
+ * e.g. "Manchester City v Brighton Hove Albion" with 20+ servers and
+ * "thành phố Manchester v Brighton & Hove Albion FC" with 2 others: every
+ * listing's servers are offered, the fullest listing's first (its names and
+ * score are used too).
+ */
+export function findStreamingMatch(snapshot: StreamingSnapshot | null, home: string, away: string, kickoff = 0): StreamingMatch | null {
+  const found = (snapshot?.matches ?? []).filter((match) => isOurMatch(match, home, away, kickoff))
+  if (found.length <= 1) return found[0] ?? null
+  const [fullest, ...others] = [...found].sort((a, b) => b.streams.length - a.streams.length)
+  const seen = new Set<string>()
+  const streams = [fullest, ...others]
+    .flatMap((match) => match.streams)
+    .filter((stream) => !seen.has(stream.url) && Boolean(seen.add(stream.url)))
+    .slice(0, MERGED_SERVERS)
+    .map((stream, i) => ({ ...stream, label: serverLabel(stream.url, i) }))
+  return { ...fullest, streams }
 }
 
 /**
