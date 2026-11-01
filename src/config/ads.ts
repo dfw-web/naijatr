@@ -1,11 +1,12 @@
 /**
  * Master switch for every ad on the site: the Monetag Multitag, the direct-link
  * ad (src/ads/adManager.ts), the "ad break" overlays and the TV ad slots.
- * Ads are ON. To switch them all off: set VITE_ADS_ENABLED=false in the Vercel
- * project's environment variables and redeploy.
+ * Ads are OFF, on the movie pages and football alike. To bring them back:
+ * set VITE_ADS_ENABLED=true in the Vercel project's environment variables and
+ * redeploy (AD_SECTIONS below then picks which sections get them).
  * The Monetag site verification tag in index.html stays either way.
  */
-export const ADS_ENABLED: boolean = import.meta.env.VITE_ADS_ENABLED !== 'false'
+export const ADS_ENABLED: boolean = import.meta.env.VITE_ADS_ENABLED === 'true'
 
 /**
  * Which sections show ads. The movie section (the home page, movies, series,
