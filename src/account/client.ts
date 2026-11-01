@@ -40,11 +40,14 @@ export function hasStoredSession(): boolean {
 export interface AuthRedirect {
   accessToken?: string
   refreshToken?: string
+  /** "recovery" for a password-reset link; "magiclink" / "signup" for a confirmation link. */
+  type?: string
   error?: string
 }
 
 /**
- * Back from the email link: https://www.naijatr.com/#access_token=…&refresh_token=…
+ * Back from an email link (confirm, reset password):
+ * https://www.naijatr.com/auth/confirm#access_token=…&refresh_token=…&type=magiclink
  * (or #error_description=… for an expired link). Takes the tokens out of the
  * address straight away, so they're never shared or bookmarked.
  */
@@ -55,7 +58,11 @@ export function takeAuthRedirect(location: Location = window.location): AuthRedi
   window.history.replaceState(window.history.state, '', location.pathname + location.search)
   const error = params.get('error_description')
   if (error) return { error: error.replace(/\+/g, ' ') }
-  return { accessToken: params.get('access_token') ?? undefined, refreshToken: params.get('refresh_token') ?? undefined }
+  return {
+    accessToken: params.get('access_token') ?? undefined,
+    refreshToken: params.get('refresh_token') ?? undefined,
+    type: params.get('type') ?? undefined,
+  }
 }
 
 /** Test helper. */

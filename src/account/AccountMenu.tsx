@@ -34,7 +34,7 @@ export function AccountMenu() {
   if (status === 'disabled' || isTvMode()) return null
   if (status === 'signedOut') {
     return (
-      <button type="button" className="account-signin" onClick={openSignIn}>
+      <button type="button" className="account-signin" onClick={() => openSignIn()}>
         Sign in to sync
       </button>
     )

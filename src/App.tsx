@@ -22,10 +22,10 @@ import { FeedbackHost } from './feedback/Feedback'
 import { ContestHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
-import { AccountPage, MyListPage, PrivacyPage } from './account/AccountPages'
+import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } from './account/AccountPages'
 import { pageFromPath, type Page } from './account/pages'
 import { SignInHost } from './account/SignInSheet'
-import { SyncPromptHost } from './account/SyncPrompt'
+import { PasswordReminderHost, SyncPromptHost } from './account/SyncPrompt'
 import './App.css'
 
 const TRENDING_LINK: NavLink = { ...NAV_LINKS[0], section: 'trending' }
@@ -173,6 +173,10 @@ function App() {
           <AccountPage />
         ) : page === 'privacy' ? (
           <PrivacyPage />
+        ) : page === 'auth/confirm' ? (
+          <AuthConfirmPage />
+        ) : page === 'auth/reset' ? (
+          <AuthResetPage />
         ) : view === 'home' ? (
           <HomeView onSelect={setSelected} onBrowseTrending={() => handleNavigate(TRENDING_LINK)} />
         ) : (
@@ -206,9 +210,10 @@ function App() {
       <GreetingHost />
       <InstallAppHost />
       <FeedbackHost />
-      {/* Optional accounts: the sign-in sheet, and the gentle "Sign in to keep your progress" card. */}
+      {/* Optional accounts: the sign-in sheet, and the gentle reminders (at most weekly, never forced). */}
       <SignInHost />
       <SyncPromptHost />
+      <PasswordReminderHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

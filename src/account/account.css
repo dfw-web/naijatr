@@ -483,3 +483,201 @@
   border-color: var(--gold);
   color: var(--gold);
 }
+
+/* ---- Email + password ---- */
+.account-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.account-tabs button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-tabs button[aria-selected='true'] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.account-sheet__panel-body {
+  display: grid;
+  gap: 0.85rem;
+  width: 100%;
+}
+
+.account-sheet__panel {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.account-benefits {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  text-align: left;
+}
+
+.account-benefits__title {
+  margin: 0 0 0.4rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.account-benefits__list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.account-benefits--compact {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.account-benefits--compact .account-benefits__title {
+  font-size: 0.9rem;
+}
+
+.account-benefits--compact .account-benefits__list {
+  font-size: 0.85rem;
+}
+
+.account-password {
+  position: relative;
+}
+
+.account-password .account-sheet__input {
+  padding-right: 3rem;
+}
+
+.account-password__toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.15rem;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.account-password__toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.account-strength {
+  margin: -0.15rem 0 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.account-strength--1 {
+  color: var(--accent-soft);
+}
+
+.account-strength--2 {
+  color: var(--gold);
+}
+
+.account-strength--3 {
+  color: #2ecc71;
+}
+
+.account-sheet__forgot {
+  justify-self: end;
+  min-height: 44px;
+  font-size: 0.85rem;
+}
+
+.account-sheet__error p {
+  margin: 0;
+}
+
+.account-sheet__inline {
+  min-height: 44px;
+  margin-top: 0.35rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.account-sheet__inline:disabled,
+.account-sheet__secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.account-sheet__hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.account-sheet__notnow {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-sheet__link {
+  min-height: 44px;
+}
+
+.account-page--narrow {
+  max-width: 28rem;
+}
+
+.account-page--narrow .account-sheet__form {
+  margin-bottom: 1rem;
+}
+
+.account-page__skip {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.sync-prompt__body {
+  grid-column: 1 / -1;
+}

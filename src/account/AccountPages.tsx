@@ -1,10 +1,13 @@
-import { useState } from 'react'
-import { Bookmark, Download, LogOut, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Bookmark, Download, KeyRound, LogOut, RefreshCw, Send, Trash2 } from 'lucide-react'
 import { TitleGrid } from '../components/TitleGrid'
 import { TelegramLogin } from '../referral/Invite'
 import type { MediaItem } from '../types/media'
 import { savedItem, useWatchLater } from '../utils/watchLater'
-import { deleteAccount, downloadMyData, openSignIn, signOut, useAccount, useTelegramLink } from './account'
+import { deleteAccount, downloadMyData, openSignIn, setPassword, signOut, useAccount, useTelegramLink } from './account'
+import { PasswordForm } from './authParts'
+import { goHome } from './pages'
+import { snooze } from './reminders'
 import { refreshSync, useSyncState } from './sync'
 import './account.css'
 
@@ -22,7 +25,7 @@ export function MyListPage({ onSelect }: { onSelect: (item: MediaItem) => void }
           ? 'Saved to your account: the same list on all your devices.'
           : 'Saved on this device.'}{' '}
         {status === 'signedOut' && (
-          <button type="button" className="account-page__link" onClick={openSignIn}>
+          <button type="button" className="account-page__link" onClick={() => openSignIn()}>
             Sign in to sync it
           </button>
         )}
@@ -65,7 +68,7 @@ export function AccountPage() {
               Signing in is optional. It keeps your Continue Watching, My List and recommendations in sync on all your
               devices.
             </p>
-            <button type="button" className="account-page__primary" onClick={openSignIn}>
+            <button type="button" className="account-page__primary" onClick={() => openSignIn()}>
               Sign in
             </button>
           </>
@@ -126,6 +129,8 @@ export function AccountPage() {
           </button>
         </div>
       </div>
+
+      <ChangePassword hasPassword={user.passwordSet} />
 
       <div className="account-card">
         <h2 className="account-card__title">Telegram</h2>
@@ -232,5 +237,172 @@ export function PrivacyPage() {
         .
       </p>
     </article>
+  )
+}
+
+/** Account page: change the password (or set one, for an account made by email link). */
+function ChangePassword({ hasPassword }: { hasPassword: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [done, setDone] = useState(false)
+  return (
+    <div className="account-card">
+      <h2 className="account-card__title">{hasPassword ? 'Change password' : 'Set a password'}</h2>
+      {done ? (
+        <p className="account-card__value" role="status">
+          Password updated ✅
+        </p>
+      ) : open ? (
+        <PasswordForm
+          label="New password"
+          submitLabel="Save password"
+          onSubmit={async (password) => {
+            const result = await setPassword(password)
+            if (result.ok) setDone(true)
+            return result.ok ? null : result.message
+          }}
+        />
+      ) : (
+        <>
+          <p className="account-card__muted">
+            {hasPassword ? 'Choose a new password for logging in on your devices.' : 'Set a password to log in on your other devices.'}
+          </p>
+          <div className="account-card__actions">
+            <button type="button" className="account-page__ghost" onClick={() => setOpen(true)}>
+              <KeyRound aria-hidden="true" /> {hasPassword ? 'Change password' : 'Set a password'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * /auth/confirm: where the "confirm your address" email lands. They're signed
+ * in; now they choose a password, or skip it for now (a reminder comes back
+ * at most once a week). Their device's data is merged in by sync meanwhile.
+ */
+export function AuthConfirmPage() {
+  const { status, user } = useAccount()
+  const [done, setDone] = useState(false)
+  return (
+    <section className="account-page account-page--narrow" aria-labelledby="confirm-title">
+      {status === 'checking' ? (
+        <>
+          <h1 id="confirm-title" className="account-page__title">
+            Signing you in…
+          </h1>
+          <p className="account-page__lead" role="status">
+            One moment.
+          </p>
+        </>
+      ) : status !== 'signedIn' || !user ? (
+        <>
+          <h1 id="confirm-title" className="account-page__title">
+            That link has expired
+          </h1>
+          <p className="account-page__lead">Links work once, for a limited time. Ask for a new one, or log in if you already have a password.</p>
+          <button type="button" className="account-page__primary" onClick={() => openSignIn('create')}>
+            Send a new link
+          </button>
+        </>
+      ) : done || user.passwordSet ? (
+        <>
+          <h1 id="confirm-title" className="account-page__title">
+            You’re all set ✅
+          </h1>
+          <p className="account-page__lead">
+            Signed in as <strong>{user.email}</strong>. Your Continue Watching and My List now sync across your devices.
+          </p>
+          <button type="button" className="account-page__primary" onClick={goHome}>
+            Start watching
+          </button>
+        </>
+      ) : (
+        <>
+          <h1 id="confirm-title" className="account-page__title">
+            Create your password
+          </h1>
+          <p className="account-page__lead">
+            Email confirmed: you’re signed in as <strong>{user.email}</strong>. Choose a password to log in on your other devices.
+          </p>
+          <PasswordForm
+            submitLabel="Save password"
+            onSubmit={async (password) => {
+              const result = await setPassword(password)
+              if (result.ok) setDone(true)
+              return result.ok ? null : result.message
+            }}
+          />
+          <button
+            type="button"
+            className="account-page__skip"
+            onClick={() => {
+              snooze('password')
+              goHome()
+            }}
+          >
+            Skip for now
+          </button>
+        </>
+      )}
+    </section>
+  )
+}
+
+/** After "Password updated", the home page follows by itself. */
+const RESET_HOME_AFTER_MS = 2000
+
+/** /auth/reset: where the reset email lands, signed in by the link: choose a new password. */
+export function AuthResetPage() {
+  const { status } = useAccount()
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    if (!done) return
+    const timer = window.setTimeout(goHome, RESET_HOME_AFTER_MS)
+    return () => window.clearTimeout(timer)
+  }, [done])
+  return (
+    <section className="account-page account-page--narrow" aria-labelledby="reset-title">
+      {done ? (
+        <>
+          <h1 id="reset-title" className="account-page__title">
+            Password updated
+          </h1>
+          <p className="account-page__lead" role="status">
+            You’re signed in. Taking you to the home page…
+          </p>
+        </>
+      ) : status === 'checking' ? (
+        <h1 id="reset-title" className="account-page__title">
+          One moment…
+        </h1>
+      ) : status !== 'signedIn' ? (
+        <>
+          <h1 id="reset-title" className="account-page__title">
+            That reset link has expired
+          </h1>
+          <p className="account-page__lead">Reset links work once, for a limited time. Ask for a new one.</p>
+          <button type="button" className="account-page__primary" onClick={() => openSignIn('login')}>
+            Log in or reset again
+          </button>
+        </>
+      ) : (
+        <>
+          <h1 id="reset-title" className="account-page__title">
+            Choose a new password
+          </h1>
+          <PasswordForm
+            label="New password"
+            submitLabel="Update password"
+            onSubmit={async (password) => {
+              const result = await setPassword(password)
+              if (result.ok) setDone(true)
+              return result.ok ? null : result.message
+            }}
+          />
+        </>
+      )}
+    </section>
   )
 }

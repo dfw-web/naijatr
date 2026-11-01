@@ -11,9 +11,15 @@ import { forgetSyncedAccount, requestSyncNow, startSync, stopSync } from './sync
 
 /**
  * The optional account: signed out (everything stays on this device, as
- * always), or signed in with an email link (synced: src/account/sync.ts).
- * "disabled" while Supabase isn't configured: then nothing account-related
- * shows anywhere.
+ * always), or signed in (synced: src/account/sync.ts). Never needed to browse
+ * or watch. "disabled" while Supabase isn't configured: then nothing
+ * account-related shows anywhere.
+ *
+ * - Create account: an email link (signInWithOtp) to /auth/confirm, where the
+ *   new user is signed in and may set a password (or skip it for now).
+ * - Log in: email + password (signInWithPassword).
+ * - Forgot password: a reset link (resetPasswordForEmail) to /auth/reset.
+ * Whether a password is set lives in the user's metadata (password_set).
  */
 
 export type AccountStatus = 'disabled' | 'signedOut' | 'checking' | 'signedIn'
@@ -21,6 +27,8 @@ export type AccountStatus = 'disabled' | 'signedOut' | 'checking' | 'signedIn'
 export interface AccountUser {
   id: string
   email: string
+  /** Has a password (else signed in by email link only, on this device). */
+  passwordSet: boolean
 }
 
 interface AccountState {
@@ -28,10 +36,14 @@ interface AccountState {
   user: AccountUser | null
   /** An email link that didn't work (expired, already used). */
   linkError: string | null
+  /** Signed in by a password-reset link: /auth/reset asks for the new password. */
+  recovery: boolean
 }
 
-let state: AccountState = { status: 'disabled', user: null, linkError: null }
-let sheetOpen = false
+export type SheetTab = 'login' | 'create'
+
+let state: AccountState = { status: 'disabled', user: null, linkError: null, recovery: false }
+let sheet: SheetTab | null = null
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((listener) => listener())
 const set = (next: Partial<AccountState>) => {
@@ -42,7 +54,11 @@ const set = (next: Partial<AccountState>) => {
 /** Shows in Vercel Analytics as a page view, e.g. /go/account?event=signed-in. */
 const track = (event: string) => pageview({ route: '/go/account', path: `/go/account?event=${event}` })
 
-const asUser = (user: User): AccountUser => ({ id: user.id, email: user.email ?? '' })
+const asUser = (user: User): AccountUser => ({
+  id: user.id,
+  email: user.email ?? '',
+  passwordSet: user.user_metadata?.password_set === true,
+})
 
 let started = false
 
@@ -59,18 +75,19 @@ export function initAccount(): void {
   set({ status: 'checking' })
   if (redirect?.error) {
     set({ linkError: redirect.error })
-    sheetOpen = true
+    sheet = 'login'
   }
+  if (redirect?.type === 'recovery') set({ recovery: true })
   void getClient()
     .then(async (client) => {
       listen(client)
       if (redirect?.accessToken && redirect.refreshToken) {
         const { error } = await client.auth.setSession({ access_token: redirect.accessToken, refresh_token: redirect.refreshToken })
         if (error) {
-          set({ linkError: 'That sign-in link didn’t work. Please ask for a new one.' })
-          sheetOpen = true
+          set({ linkError: 'That link didn’t work. Please ask for a new one.' })
+          sheet = 'login'
         } else {
-          track('signed-in')
+          track(redirect.type === 'recovery' ? 'reset-link' : 'confirmed')
         }
       }
       const { data } = await client.auth.getSession()
@@ -87,6 +104,7 @@ function listen(client: SupabaseClient) {
   client.auth.onAuthStateChange((event, session) => {
     // Out of the callback: Supabase asks for no awaits inside it.
     window.setTimeout(() => {
+      if (event === 'PASSWORD_RECOVERY') set({ recovery: true })
       if (session?.user) signedIn(client, session.user)
       else if (event === 'SIGNED_OUT') signedOutHere()
     })
@@ -96,10 +114,10 @@ function listen(client: SupabaseClient) {
 function signedIn(client: SupabaseClient, user: User) {
   const next = asUser(user)
   if (state.status === 'signedIn' && state.user?.id === next.id) {
-    if (state.user.email !== next.email) set({ user: next })
+    if (state.user.email !== next.email || state.user.passwordSet !== next.passwordSet) set({ user: next })
     return
   }
-  sheetOpen = false
+  sheet = null
   set({ status: 'signedIn', user: next, linkError: null })
   void startSync(next.id, supabaseBackend(client, next.id))
   void saveTelegramLink(client, next.id)
@@ -110,20 +128,108 @@ function signedOutHere() {
   set({ status: 'signedOut', user: null })
 }
 
-/** Sends the sign-in link. Comes back to the page it was asked from. */
-export async function sendMagicLink(email: string): Promise<{ ok: true } | { ok: false; message: string }> {
+// ---- Email links: one at a time, then 60 seconds' wait (Supabase limits how many it sends). ----
+
+export const EMAIL_COOLDOWN_MS = 60_000
+let cooldownUntil = 0
+
+/** Seconds until another email may be sent (0: now). */
+export const emailCooldownLeft = (now = Date.now()) => Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
+
+const startCooldown = () => {
+  cooldownUntil = Date.now() + EMAIL_COOLDOWN_MS
+  emit()
+}
+
+const authUrl = (page: 'confirm' | 'reset') => `${window.location.origin}/auth/${page}`
+
+const isRateLimit = (error: { status?: number; code?: string; message: string }) =>
+  error.status === 429 || error.code === 'over_email_send_rate_limit' || /rate limit|security purposes|seconds/i.test(error.message)
+
+export type EmailResult = { ok: true } | { ok: false; message: string }
+
+/**
+ * Create account (also "Resend confirmation", and finishing setup for an
+ * account without a password): a link to /auth/confirm, where they're signed
+ * in and can set a password.
+ */
+export async function sendConfirmLink(email: string): Promise<EmailResult> {
+  if (emailCooldownLeft() > 0) return { ok: false, message: `Please wait ${emailCooldownLeft()} seconds before asking again.` }
   try {
     const client = await getClient()
     listen(client)
     const { error } = await client.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}`, shouldCreateUser: true },
+      options: { emailRedirectTo: authUrl('confirm'), shouldCreateUser: true },
     })
     if (error) {
-      const tooMany = error.status === 429 || /rate|seconds/i.test(error.message)
-      return { ok: false, message: tooMany ? 'Too many tries. Please wait a minute and try again.' : 'We couldn’t send the link. Check the email address and try again.' }
+      if (isRateLimit(error)) {
+        startCooldown()
+        return { ok: false, message: 'Too many emails. Please wait a minute and try again.' }
+      }
+      return { ok: false, message: 'We couldn’t send the email. Check the address and try again.' }
     }
-    track('link-sent')
+    startCooldown()
+    track('confirm-sent')
+    return { ok: true }
+  } catch {
+    return { ok: false, message: 'No connection. Please try again.' }
+  }
+}
+
+export type LogInResult = { ok: true } | { ok: false; reason: 'wrong' | 'unconfirmed' | 'rate' | 'offline' | 'other' }
+
+/** Log in with email and password. */
+export async function logIn(email: string, password: string): Promise<LogInResult> {
+  try {
+    const client = await getClient()
+    listen(client)
+    const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password })
+    if (error) {
+      if (error.code === 'email_not_confirmed' || /not confirmed/i.test(error.message)) return { ok: false, reason: 'unconfirmed' }
+      if (error.code === 'invalid_credentials' || /invalid login credentials/i.test(error.message)) return { ok: false, reason: 'wrong' }
+      if (isRateLimit(error)) return { ok: false, reason: 'rate' }
+      return { ok: false, reason: 'other' }
+    }
+    if (data.user) signedIn(client, data.user)
+    track('logged-in')
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: 'offline' }
+  }
+}
+
+/**
+ * Forgot password: a reset link to /auth/reset. Says the same whether or not
+ * the email has an account (only a lost connection is reported).
+ */
+export async function sendPasswordReset(email: string): Promise<EmailResult> {
+  if (emailCooldownLeft() > 0) return { ok: false, message: `Please wait ${emailCooldownLeft()} seconds before asking again.` }
+  try {
+    const client = await getClient()
+    listen(client)
+    await client.auth.resetPasswordForEmail(email.trim(), { redirectTo: authUrl('reset') })
+    startCooldown()
+    track('reset-sent')
+    return { ok: true }
+  } catch {
+    return { ok: false, message: 'No connection. Please try again.' }
+  }
+}
+
+/** Sets (or changes) the signed-in user's password, and notes that one is set. */
+export async function setPassword(password: string): Promise<EmailResult> {
+  try {
+    const client = await getClient()
+    const { data, error } = await client.auth.updateUser({ password, data: { password_set: true } })
+    if (error) {
+      if (error.code === 'same_password') return { ok: false, message: 'That’s already your password. Choose a new one.' }
+      if (error.code === 'weak_password') return { ok: false, message: 'That password is too weak. Try a longer one, with numbers or symbols.' }
+      if (error.code === 'reauthentication_needed') return { ok: false, message: 'For your security, please log in again, then change your password.' }
+      return { ok: false, message: 'We couldn’t save your password. Please try again.' }
+    }
+    if (data.user) set({ user: asUser(data.user), recovery: false })
+    track('password-set')
     return { ok: true }
   } catch {
     return { ok: false, message: 'No connection. Please try again.' }
@@ -146,7 +252,7 @@ export async function signOut(): Promise<void> {
   } catch {
     // Signed out here anyway.
   }
-  set({ status: 'signedOut', user: null })
+  set({ status: 'signedOut', user: null, recovery: false })
   track('signed-out')
 }
 
@@ -271,14 +377,21 @@ async function saveTelegramLink(client: SupabaseClient, userId: string) {
 
 // ---- The sign-in sheet. ----
 
-export function openSignIn(): void {
-  sheetOpen = true
+/** Opens the sheet on "Create account", or "Log in" for someone who's had an account on this device. */
+export function openSignIn(tab?: SheetTab): void {
+  let known = false
+  try {
+    known = localStorage.getItem('naijatr.sync.user') !== null
+  } catch {
+    // New here, as far as we know.
+  }
+  sheet = tab ?? (known ? 'login' : 'create')
   track('sheet')
   emit()
 }
 
 export function closeSignIn(): void {
-  sheetOpen = false
+  sheet = null
   if (state.linkError) state = { ...state, linkError: null }
   emit()
 }
@@ -291,7 +404,10 @@ const subscribe = (listener: () => void) => {
 }
 
 export const useAccount = () => useSyncExternalStore(subscribe, () => state, () => state)
-export const useSignInOpen = () => useSyncExternalStore(subscribe, () => sheetOpen, () => false)
+/** The sheet's tab, or null while it's closed. */
+export const useSignInSheet = () => useSyncExternalStore(subscribe, () => sheet, () => null)
+/** When another email may be sent (the component ticks its own countdown). */
+export const useEmailCooldownUntil = () => useSyncExternalStore(subscribe, () => cooldownUntil, () => 0)
 export const useTelegramLink = () => useSyncExternalStore(subscribe, readTelegramLinkCached, () => null)
 
 let telegramCache: { raw: string | null; link: TelegramLink | null } = { raw: null, link: null }
@@ -313,7 +429,8 @@ export function setAccountForTests(next: Partial<AccountState>) {
 export function resetAccount() {
   started = false
   listening = false
-  sheetOpen = false
-  state = { status: 'disabled', user: null, linkError: null }
+  sheet = null
+  cooldownUntil = 0
+  state = { status: 'disabled', user: null, linkError: null, recovery: false }
   emit()
 }
