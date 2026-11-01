@@ -7,16 +7,16 @@ import { adsDisabled, isDevHost, openAd } from './directLink'
  * The direct-link ad's one set of rules. It opens in a new tab, inside the tap
  * (Safari only allows that), and the tap's own action carries on as normal:
  *
- * - cards:    the first click on a title's card (or View Details) this visit;
- * - play:     the first Play of that title this visit (so up to 2 per title);
- * - football: the first Watch of a match, again only 5+ minutes after its last ad;
- * - search:   the first search submitted this visit, then at most every 10 minutes.
+ * - cards:    a click on a title's card (or View Details);
+ * - play:     a Play of a title;
+ * - football: a match's Watch;
+ * - search:   a search submitted.
  *
- * And for all of them: at least a minute between two ads, at most 8 a day
- * (midnight Lagos time), nothing while a player is open, nothing while the
+ * How often is set in AD_RULES (src/config/ads.ts): now every time, with no gap
+ * and no daily cap. Always: nothing while a player is open, nothing while the
  * Telegram gate, the invite guide or a contest popup is open, and nothing on
- * the tap that opens or closes one of those. A tap that's held back keeps its
- * turn: the next eligible tap opens the ad instead.
+ * the tap that opens or closes one of those. With limits set, a tap that's held
+ * back keeps its turn: the next eligible tap opens the ad instead.
  *
  * Cards, Play and search are the movie section's: off while AD_SECTIONS.movies is false.
  */
@@ -178,7 +178,7 @@ export function cardAd(event: Event | undefined, item: { id: string }): boolean 
   return tryAd(
     'card',
     titleAdKey(item),
-    (visit) => !visit.cards.includes(item.id),
+    (visit) => !AD_RULES.oncePerTitle || !visit.cards.includes(item.id),
     (visit) => void visit.cards.push(item.id),
     event,
   )
@@ -204,7 +204,7 @@ export function playbackAd(key: string): boolean {
   return tryAd(
     'play',
     key,
-    (visit) => !visit.plays.includes(id),
+    (visit) => !AD_RULES.oncePerTitle || !visit.plays.includes(id),
     (visit) => void visit.plays.push(id),
   )
 }

@@ -10,7 +10,7 @@ import { createFallbackProvider } from './data/fallbackProvider'
 import { createLocalProvider } from './data/localProvider'
 import { AD_SECTIONS, MULTITAG } from './config/ads'
 import { CatalogProviderContext } from './data/provider'
-import { AD_LINK, adLinkClicks } from './test/ads'
+import { AD_LINK, adLinkClicks, useLimitedAdRules } from './test/ads'
 import type { CatalogProvider } from './types/media'
 
 const fastProvider = createLocalProvider({ latencyMs: 0 })
@@ -137,6 +137,12 @@ describe('details panel', () => {
 })
 
 describe('the movie section without ads', () => {
+  beforeEach(() => {
+    AD_SECTIONS.movies = false
+    // An earlier test's Multitag stays on the page.
+    document.querySelector(`script[data-zone="${MULTITAG.zone}"]`)?.remove()
+  })
+
   it('loads no Multitag and opens no ad on a card or a search', async () => {
     const { user } = renderApp()
     await user.click(await screen.findByRole('button', { name: 'View Details' }))
@@ -149,10 +155,8 @@ describe('the movie section without ads', () => {
 })
 
 describe('title ad', () => {
-  // As it runs while the movie section has ads.
-  beforeEach(() => {
-    AD_SECTIONS.movies = true
-  })
+  // With the limits it used to have (once per title, a minute apart).
+  beforeEach(useLimitedAdRules)
 
   it('opens the ad on the first click of each title, a minute apart at most, while the details still open', async () => {
     let now = Date.UTC(2026, 9, 27, 12)

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { adClock } from '../ads/adManager'
-import { AD_LINK, adLinkClicks } from '../test/ads'
+import { AD_LINK, adLinkClicks, useLimitedAdRules } from '../test/ads'
 import App from '../App'
 import FootballApp from './FootballApp'
 import { startLiveHeartbeat } from '../live/heartbeat'
@@ -270,6 +270,7 @@ describe('Football page', () => {
   })
 
   it('opens the ad on the first Watch of a match, then again only 5+ minutes after its last ad', async () => {
+    useLimitedAdRules()
     mockApi({
       live: { body: { data: [LIVE] } },
       fixtures: { body: { data: [] } },

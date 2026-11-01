@@ -5,7 +5,7 @@ import { AD_SECTIONS, MULTITAG } from '../config/ads'
 import { playAfterGate } from '../gate/gateStore'
 import { TelegramGateHost } from '../gate/TelegramGate'
 import { openInviteGuide } from '../referral/guide'
-import { AD_LINK, adLinkClicks } from '../test/ads'
+import { AD_LINK, adLinkClicks, useLimitedAdRules } from '../test/ads'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { adClock, cardAd, holdAdsThisTap, lagosDay, playbackAd, searchAd, useAdOverlay } from './adManager'
 import { loadMultitag } from './monetag'
@@ -32,8 +32,6 @@ const ads = () => adLinkClicks().length
 const reported = () => beacons.map((body) => (body as { event: string }).event)
 
 beforeEach(() => {
-  // The rules as they apply when the movie section has ads (it's off: see the end of this file).
-  AD_SECTIONS.movies = true
   now = Date.UTC(2026, 9, 27, 11)
   adClock.now = () => now
   beacons = []
@@ -48,7 +46,40 @@ afterEach(() => {
   document.querySelectorAll('.player__frame, .fb-stream__player, script[data-zone]').forEach((node) => node.remove())
 })
 
+describe('as shipped: no limits', () => {
+  it('opens on every card tap, Play, search and football Watch, back to back', async () => {
+    card('dune')
+    card('dune')
+    play('dune')
+    play('dune')
+    search()
+    search()
+    watch('1')
+    watch('1')
+    expect(ads()).toBe(8)
+    await vi.waitFor(() => expect(reported()).toHaveLength(8))
+    expect(reported()).not.toContain('cooldown')
+  })
+
+  it('has no daily maximum', () => {
+    for (let i = 0; i < 30; i++) card('dune')
+    expect(ads()).toBe(30)
+  })
+
+  it('still opens nothing while a player is open', () => {
+    const frame = document.createElement('div')
+    frame.className = 'player__frame'
+    document.body.append(frame)
+    card('dune')
+    play('dune')
+    search()
+    expect(ads()).toBe(0)
+  })
+})
+
 describe('the shared limits', () => {
+  beforeEach(useLimitedAdRules)
+
   it('leaves at least a minute between two ads', async () => {
     card('a')
     now += 30_000
@@ -93,6 +124,8 @@ describe('the shared limits', () => {
 })
 
 describe('when each ad opens', () => {
+  beforeEach(useLimitedAdRules)
+
   it('opens up to 2 per title: its first card click and its first Play', () => {
     card('dune')
     now += MINUTE

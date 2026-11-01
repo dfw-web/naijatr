@@ -4,13 +4,15 @@ import { afterEach, beforeEach, vi } from 'vitest'
 import { resetAdBreaks } from '../ads/adBreakStore'
 import { adClock, resetAdManager } from '../ads/adManager'
 import { adTiming } from '../ads/directLink'
-import { AD_SECTIONS } from '../config/ads'
+import { AD_RULES, AD_SECTIONS } from '../config/ads'
 import { GREETINGS } from '../config/greetings'
 import { resetGate } from '../gate/gateStore'
 import { resetContinueWatching } from '../utils/continueWatching'
 import { resetLiveHeartbeat } from '../live/heartbeat'
 import { resetInstallApp } from '../installAppStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
+
+const SHIPPED_AD_RULES = { ...AD_RULES }
 
 // The one-time "ads are back" card counts as seen, except in its own tests (AdsBackNotice.test.tsx).
 // Same for the seasonal greetings, so a test run on their dates isn't affected (except Greeting.test.tsx).
@@ -35,8 +37,9 @@ afterEach(() => {
   document.cookie = 'naijatr_gate_joined=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
-  // The movie section's ads are off (src/config/ads.ts); tests of those ads switch them on.
-  AD_SECTIONS.movies = false
+  // Back to the shipped ad settings (src/config/ads.ts): both sections, no limits.
+  AD_SECTIONS.movies = true
+  Object.assign(AD_RULES, SHIPPED_AD_RULES)
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()
 })
 
