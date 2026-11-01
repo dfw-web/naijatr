@@ -1,0 +1,156 @@
+/* A card at the bottom of the screen: the page above stays usable. */
+.greeting {
+  position: fixed;
+  left: 50%;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  z-index: 96;
+  width: min(calc(100% - 1.5rem), 400px);
+  max-height: calc(100dvh - 6rem);
+  overflow: hidden auto;
+  padding: 1.25rem 1.25rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid rgba(245, 197, 24, 0.45);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(229, 9, 20, 0.28), transparent 60%),
+    linear-gradient(180deg, #17080b, #0b0b10);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(229, 9, 20, 0.25);
+  text-align: center;
+  animation: greeting-in 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes greeting-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 24px) scale(0.96);
+  }
+}
+
+.greeting__sparkles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.greeting__sparkles span {
+  position: absolute;
+  top: -10px;
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--gold);
+  opacity: 0.8;
+  animation: greeting-confetti 3.2s linear infinite;
+}
+
+.greeting__sparkles span:nth-child(3n) {
+  background: var(--accent);
+}
+
+.greeting__sparkles span:nth-child(3n + 1) {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+@keyframes greeting-confetti {
+  to {
+    transform: translateY(420px) rotate(540deg);
+    opacity: 0;
+  }
+}
+
+.greeting__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.greeting__close:hover,
+.greeting__close:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.greeting__close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.greeting__logo {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 0.6rem;
+}
+
+.greeting__title {
+  position: relative;
+  margin-bottom: 0.6rem;
+  font-size: 1.2rem;
+  line-height: 1.3;
+  color: var(--gold);
+}
+
+.greeting__text {
+  position: relative;
+  margin-bottom: 0.5rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.greeting__signature {
+  position: relative;
+  margin: 0.25rem 0 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-soft);
+}
+
+.greeting__thanks {
+  position: relative;
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 8px 22px rgba(229, 9, 20, 0.4);
+}
+
+.greeting__thanks:hover,
+.greeting__thanks:focus-visible {
+  background: #ff1f2b;
+}
+
+.greeting__telegram {
+  position: relative;
+  display: block;
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.greeting__telegram:hover {
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .greeting {
+    animation: none;
+  }
+
+  .greeting__sparkles {
+    display: none;
+  }
+}

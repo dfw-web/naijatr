@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ADS_ENABLED } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
+import { useHoldNotices } from '../ui/noticeQueue'
 import { useOverlayOpen } from './adManager'
 import { adsDisabled } from './directLink'
 import './AdsBackNotice.css'
@@ -38,6 +39,8 @@ export function AdsBackNotice() {
   const [ready, setReady] = useState(false)
   const overlayOpen = useOverlayOpen()
   const visible = due && ready && !overlayOpen
+  // Later cards (the monthly greeting) wait until this one is done.
+  useHoldNotices(due)
 
   useEffect(() => {
     if (!due) return

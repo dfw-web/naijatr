@@ -16,6 +16,7 @@ import { DEFAULT_FILTERS, hasNarrowingFilters } from './config/discoverFilters'
 import { useFilterParams } from './hooks/useFilterParams'
 import { TvAdBreakHost } from './tv/TvAdBreak'
 import { TelegramGateHost } from './gate/TelegramGate'
+import { GreetingHost } from './components/Greeting'
 import { InstallAppHost } from './components/InstallApp'
 import { FeedbackHost } from './feedback/Feedback'
 import { ContestHost } from './referral/Invite'
@@ -186,6 +187,8 @@ function App() {
       <TvAdBreakHost />
       <TelegramGateHost />
       {AD_SECTIONS.movies && <AdsBackNotice />}
+      {/* The seasonal greeting (src/config/greetings.ts), after any other popup. */}
+      <GreetingHost />
       <InstallAppHost />
       <FeedbackHost />
 

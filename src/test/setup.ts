@@ -5,6 +5,7 @@ import { resetAdBreaks } from '../ads/adBreakStore'
 import { adClock, resetAdManager } from '../ads/adManager'
 import { adTiming } from '../ads/directLink'
 import { AD_SECTIONS } from '../config/ads'
+import { GREETINGS } from '../config/greetings'
 import { resetGate } from '../gate/gateStore'
 import { resetContinueWatching } from '../utils/continueWatching'
 import { resetLiveHeartbeat } from '../live/heartbeat'
@@ -12,7 +13,11 @@ import { resetInstallApp } from '../installAppStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 
 // The one-time "ads are back" card counts as seen, except in its own tests (AdsBackNotice.test.tsx).
-beforeEach(() => window.localStorage.setItem('naijatr.ads.backNotice', '1'))
+// Same for the seasonal greetings, so a test run on their dates isn't affected (except Greeting.test.tsx).
+beforeEach(() => {
+  window.localStorage.setItem('naijatr.ads.backNotice', '1')
+  for (const greeting of GREETINGS) window.localStorage.setItem(`naijatr.greeting.${greeting.id}`, '1')
+})
 
 afterEach(() => {
   cleanup()

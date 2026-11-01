@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Footer } from '../components/Footer'
+import { GreetingHost } from '../components/Greeting'
 import { Navbar } from '../components/Navbar'
 import { hashForView, NAV_LINKS, type NavLink } from '../navigation'
 import { FOOTBALL_PATH, pathForMatch, routeFromPath } from './format'
@@ -69,6 +70,7 @@ export default function FootballApp() {
         onNavigate={handleNavigate}
         onBackToTop={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
       />
+      <GreetingHost />
     </>
   )
 }

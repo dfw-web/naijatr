@@ -121,16 +121,18 @@ export function useAdOverlay(open = true): void {
   }, [open])
 }
 
+const subscribeOverlays = (listener: () => void) => {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
 /** True while one of those popups is open. */
-export const useOverlayOpen = () =>
-  useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => overlays > 0,
-    () => false,
-  )
+export const useOverlayOpen = () => useSyncExternalStore(subscribeOverlays, () => overlays > 0, () => false)
+
+/** How many of those popups are open (a popup subtracts itself to see the others). */
+export const useOverlayCount = () => useSyncExternalStore(subscribeOverlays, () => overlays, () => 0)
 
 // Events a person makes: a new tab may open in them. (A resumed title starts its player from an effect, with none.)
 const TAP_TYPES = new Set(['click', 'keydown', 'keyup', 'pointerup', 'mouseup', 'touchend', 'submit'])
