@@ -18,6 +18,8 @@ interface MediaRowProps {
   onNotInterested?: (item: MediaItem) => void
   /** Cards of another kind (e.g. Continue watching), shown instead of posters for `items`. */
   children?: ReactNode
+  /** A link beside the title, e.g. My List's "See all". */
+  action?: ReactNode
 }
 
 const SKELETON_COUNT = 7
@@ -32,6 +34,7 @@ export function MediaRow({
   onSelect,
   onNotInterested,
   children,
+  action,
 }: MediaRowProps) {
   const isRanked = variant === 'ranked'
   const trackRef = useRef<HTMLDivElement>(null)
@@ -70,6 +73,7 @@ export function MediaRow({
             {title}
           </h2>
           {subtitle && <p className="media-row__subtitle">{subtitle}</p>}
+          {action}
         </div>
         <div className="media-row__controls">
           <button

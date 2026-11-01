@@ -258,6 +258,10 @@ const subscribe = (listener: () => void) => {
   }
 }
 
+/** For account sync (src/account/sync.ts): told of every change, and able to put the account's list in place. */
+export const subscribeContinueWatching = subscribe
+export const replaceContinueWatching = (list: ContinueEntry[]) => write(list)
+
 export const useContinueWatching = () => useSyncExternalStore(subscribe, readContinueWatching, () => [])
 
 /**

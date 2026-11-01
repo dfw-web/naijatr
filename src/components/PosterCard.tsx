@@ -4,6 +4,8 @@ import { cardAd } from '../ads/adManager'
 import type { MediaItem } from '../types/media'
 import { formatScore, formatVotes, formatYear, typeLabel } from '../utils/media'
 import { MediaImage } from './MediaImage'
+import { CardSaveButton } from './WatchLater'
+import '../account/account.css'
 import './PosterCard.css'
 
 interface PosterCardProps {
@@ -81,6 +83,7 @@ export function PosterCard({ item, onSelect, rank, onNotInterested }: PosterCard
           </p>
         </div>
       </button>
+      <CardSaveButton item={item} />
       {onNotInterested && <CardMenu title={item.title} onNotInterested={() => onNotInterested(item)} />}
     </article>
   )

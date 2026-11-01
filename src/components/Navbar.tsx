@@ -5,6 +5,7 @@ import type { NavLink } from '../navigation'
 import type { MediaItem } from '../types/media'
 import { isTvMode } from '../tv/tvMode'
 import { InstallAppButton } from './InstallApp'
+import { AccountMenu } from '../account/AccountMenu'
 import { SearchSuggestions } from './SearchSuggestions'
 import { SUGGESTIONS_ID, suggestionId, useSuggestions } from '../search/useSuggestions'
 import { TelegramHeaderLink, TelegramMenuLink } from './Telegram'
@@ -195,6 +196,7 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate, onSe
         <TelegramHeaderLink />
 
         <InstallAppButton className="navbar__install navbar__install--download" />
+        <AccountMenu />
       </div>
       {/* The contest bars (ContestHost) show here, under the header row, so they never cover the page. */}
       <div id="navbar-banner" />

@@ -265,12 +265,33 @@ export async function refresh(): Promise<boolean> {
       return true
     }
     error.hidden = true
-    await Promise.all([render((await response.json()) as LiveCount), loadStreams()])
+    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts()])
   } catch {
     error.textContent = "Couldn't load the numbers. Trying again shortly."
     error.hidden = false
   }
   return true
+}
+
+/** Registered users and today's sign-ups (/api/account/stats); needs SUPABASE_SERVICE_ROLE_KEY on the server. */
+async function loadAccounts() {
+  const note = $('acc-note')
+  try {
+    const response = await fetch('/api/account/stats', { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' })
+    const body = (await response.json().catch(() => ({}))) as { users?: number; today?: number; error?: string }
+    if (response.ok && typeof body.users === 'number') {
+      $('acc-users').textContent = body.users.toLocaleString()
+      $('acc-today').textContent = String(body.today ?? 0)
+      note.textContent = 'Optional sign-in (Supabase). Today: since midnight, Lagos time.'
+      return
+    }
+    note.textContent =
+      body.error === 'not-configured'
+        ? 'Needs SUPABASE_SERVICE_ROLE_KEY in Vercel’s environment variables (then redeploy).'
+        : 'Couldn’t load the account numbers.'
+  } catch {
+    note.textContent = 'Couldn’t load the account numbers.'
+  }
 }
 
 async function start() {

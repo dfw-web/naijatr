@@ -32,7 +32,8 @@ import { playerClosed } from '../referral/invitee'
 import { WatchLaterButton } from './WatchLater'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
-import { embedmasterUrl, SERVER_START_TIMEOUT_MS, type PlayerServerId } from '../config/players'
+import { requestSyncNow } from '../account/sync'
+import { embedmasterUrl, serverTiming, type PlayerServerId } from '../config/players'
 import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
 import './PlayerPanel.css'
 
@@ -85,9 +86,6 @@ const LEFT_EARLY_MS = 2 * 60 * 1000
 
 /** How long a player may take to load before we call it failed. */
 export const PLAYER_LOAD_TIMEOUT_MS = 20000
-
-/** How long a server may stay silent before the other one takes over (tests shorten it). */
-export const serverTiming = { startMs: SERVER_START_TIMEOUT_MS }
 
 /** The "how to download with Abyss" walkthrough, opened from the hint under the player. */
 const HOW_TO_DOWNLOAD_VIDEO = '/videos/how-to-download.mp4'
@@ -321,6 +319,11 @@ export function PlayerPanel({
         if (duration && position >= duration * HALF_WATCHED) markWatched()
         if (Date.now() - savedAt >= PROGRESS_SAVE_MS) save()
       }
+      // Paused: the position goes to the account now (signed in), not at the next 15-second sync.
+      if (data.event === 'pause') {
+        save()
+        void requestSyncNow()
+      }
       if (data.event === 'ended' && !finished) {
         finished = true
         markWatched()
@@ -330,8 +333,9 @@ export function PlayerPanel({
     window.addEventListener('message', onMessage)
     return () => {
       window.removeEventListener('message', onMessage)
-      // The last few seconds since the previous save.
+      // The last few seconds since the previous save, sent to the account at once.
       save()
+      void requestSyncNow()
       if (position !== null && !watched && Date.now() - startedAt < LEFT_EARLY_MS) recordTasteById(itemId, 'left')
     }
   }, [watchingSrc, itemId])

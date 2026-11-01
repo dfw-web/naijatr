@@ -15,3 +15,15 @@
 .modal__save {
   margin-top: 1rem;
 }
+
+.media-row__see-all {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}

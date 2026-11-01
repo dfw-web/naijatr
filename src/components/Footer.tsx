@@ -26,6 +26,9 @@ export function Footer({ links, onNavigate, onBackToTop }: FooterProps) {
           </p>
           <TelegramFooter />
           <ResetRecommendations />
+          <a className="footer__privacy" href="/privacy">
+            Privacy
+          </a>
         </div>
 
         <nav className="footer__nav" aria-label="Footer">

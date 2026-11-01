@@ -3,6 +3,7 @@ import { sessionId } from '../live/heartbeat'
 import { isContestPreview, readRef, saveRef } from './capture'
 import { markCounted, trackReport } from './invitee'
 import { readSession, saveSession, type ReferralUser } from './session'
+import { rememberTelegram } from '../account/account'
 
 /** The browser side of /api/referral/* (server/referral/handlers.ts). */
 
@@ -77,7 +78,11 @@ export function useContest(): ContestInfo | null {
 
 export async function login(auth: unknown): Promise<boolean> {
   const { data } = await call<{ token: string; user: ReferralUser }>('login', { body: { auth, device: sessionId() } })
-  if (data) saveSession(data)
+  if (data) {
+    saveSession(data)
+    // Linked to the optional account, so contest and referral data stay connected.
+    rememberTelegram(auth, data.user.code)
+  }
   return Boolean(data)
 }
 

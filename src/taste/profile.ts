@@ -282,5 +282,9 @@ const subscribe = (listener: () => void) => {
   }
 }
 
+/** For account sync (src/account/sync.ts): told of every change, and able to put the account's profile in place. */
+export const subscribeTaste = subscribe
+export const replaceTaste = (profile: TasteProfile) => writeTaste(profile)
+
 /** The live profile, re-rendering on every change (this tab or another). */
 export const useTaste = () => useSyncExternalStore(subscribe, readTaste, () => EMPTY)

@@ -15,9 +15,12 @@ import { installRemote } from './tv/remote'
 import { isTvMode } from './tv/tvMode'
 import { isChallengePath } from './referral/guide'
 import { ChallengeRoot } from './referral/ChallengeRoot'
+import { initAccount } from './account/account'
 
 listenForInstallPrompt()
 registerServiceWorker()
+// Optional accounts: signed in on this device before, or back from an email link? Then sync starts.
+initAccount()
 // Smart TVs (detected in index.html): arrow-key navigation and the Back key.
 if (isTvMode()) installRemote()
 

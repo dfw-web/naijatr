@@ -18,6 +18,9 @@ export const PLAYER_SERVERS: { id: PlayerServerId; enabled: boolean }[] = [
 /** A server that hasn't sent a single player event this long after it was opened is switched for the other. */
 export const SERVER_START_TIMEOUT_MS = 10_000
 
+/** The timeout in use (tests shorten it). */
+export const serverTiming = { startMs: SERVER_START_TIMEOUT_MS }
+
 export const EMBEDMASTER_ORIGIN = 'https://embedmaster.link'
 
 /** Options on every EmbedMaster player URL. */

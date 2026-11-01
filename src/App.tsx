@@ -22,6 +22,10 @@ import { FeedbackHost } from './feedback/Feedback'
 import { ContestHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
+import { AccountPage, MyListPage, PrivacyPage } from './account/AccountPages'
+import { pageFromPath, type Page } from './account/pages'
+import { SignInHost } from './account/SignInSheet'
+import { SyncPromptHost } from './account/SyncPrompt'
 import './App.css'
 
 const TRENDING_LINK: NavLink = { ...NAV_LINKS[0], section: 'trending' }
@@ -68,6 +72,8 @@ function App() {
   // The Monetag Multitag, once (after the ?noads= check above), while the movie section has ads.
   useMultitag(AD_SECTIONS.movies)
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
+  // /my-list, /account, /privacy: shown instead of the views.
+  const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname))
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MediaItem | null>(titleFromUrl)
   // Wrapped in an object so clicking the same link twice still scrolls.
@@ -85,6 +91,7 @@ function App() {
   useEffect(() => {
     const onPopState = () => {
       setView(viewFromHash(window.location.hash))
+      setPage(pageFromPath(window.location.pathname))
       setQuery('')
     }
     window.addEventListener('popstate', onPopState)
@@ -104,11 +111,13 @@ function App() {
 
   const handleNavigate = (link: NavLink) => {
     if (link.href) return window.location.assign(link.href)
-    // A new view starts unfiltered, so drop the filter query string too.
-    const url = window.location.pathname + hashForView(link.view)
-    if (window.location.hash !== hashForView(link.view) || window.location.search) {
+    // A new view starts unfiltered, so drop the filter query string too. From an account page: back to /.
+    const path = page ? '/' : window.location.pathname
+    const url = path + hashForView(link.view)
+    if (page || window.location.hash !== hashForView(link.view) || window.location.search) {
       window.history.pushState(null, '', url)
     }
+    setPage(null)
     setView(link.view)
     setQuery('')
     resetFilters()
@@ -132,7 +141,7 @@ function App() {
     setSelected(null)
   }, [])
 
-  const activeId = isSearching && !isFilteredSearch ? null : view
+  const activeId = isSearching && !isFilteredSearch ? null : page ? null : view
 
   return (
     <>
@@ -158,6 +167,12 @@ function App() {
             onClear={() => setQuery('')}
             onBrowseGenre={browseGenre}
           />
+        ) : page === 'my-list' ? (
+          <MyListPage onSelect={setSelected} />
+        ) : page === 'account' ? (
+          <AccountPage />
+        ) : page === 'privacy' ? (
+          <PrivacyPage />
         ) : view === 'home' ? (
           <HomeView onSelect={setSelected} onBrowseTrending={() => handleNavigate(TRENDING_LINK)} />
         ) : (
@@ -191,6 +206,9 @@ function App() {
       <GreetingHost />
       <InstallAppHost />
       <FeedbackHost />
+      {/* Optional accounts: the sign-in sheet, and the gentle "Sign in to keep your progress" card. */}
+      <SignInHost />
+      <SyncPromptHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />
