@@ -30,6 +30,43 @@
   font: inherit;
 }
 
+/* Server 1 / Server 2 */
+.player__servers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.player__server {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.player__server:hover,
+.player__server:focus-visible {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.player__server--on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.player__switched {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--gold);
+}
+
 .player__actions {
   display: flex;
   flex-wrap: wrap;

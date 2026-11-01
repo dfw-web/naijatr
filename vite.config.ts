@@ -150,7 +150,8 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/test/setup.ts'],
       // The ad tests need ads on; src/ads/adsOff.test.tsx checks the real default (off).
       // The Telegram gate would stop every Play: off, except in src/gate's own tests.
-      env: { VITE_ADS_ENABLED: 'true', VITE_TELEGRAM_GATE_ENABLED: 'false' },
+      // EmbedMaster (Server 2) is off whatever .env.local says; its tests set the player id.
+      env: { VITE_ADS_ENABLED: 'true', VITE_TELEGRAM_GATE_ENABLED: 'false', VITE_EMBEDMASTER_PLAYER_ID: '' },
       // The App tests click through whole pages: slow when every file runs in parallel.
       testTimeout: 15_000,
     },

@@ -32,6 +32,8 @@ import { playerClosed } from '../referral/invitee'
 import { WatchLaterButton } from './WatchLater'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
+import { embedmasterUrl, SERVER_START_TIMEOUT_MS, type PlayerServerId } from '../config/players'
+import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -61,8 +63,15 @@ type PlayerState =
 interface Run {
   itemId: string
   choice: Choice
-  /** NextStream URL the run belongs to; changing season or episode stops it. */
+  /**
+   * The movie or episode the run belongs to, as its /api/play path (the same
+   * on every server); changing season or episode stops it.
+   */
   streamSrc: string | null
+  /** The server playing a stream. */
+  server?: PlayerServerId
+  /** Moved here by itself after the other server failed: no second switch, and a "Switched to" note. */
+  autoSwitched?: boolean
   attempt: number
   state: PlayerState
   /** Moving on to the next episode: keep the player (and fullscreen) up while it's checked. */
@@ -77,17 +86,46 @@ const LEFT_EARLY_MS = 2 * 60 * 1000
 /** How long a player may take to load before we call it failed. */
 export const PLAYER_LOAD_TIMEOUT_MS = 20000
 
-/**
- * The stream player (embdmstrplayer.com, inside the NextStream page) posts
- * `{ source: 'embedmaster_player', event, info }` to the top window and takes
- * `{ source: 'embedmaster_player_command', command, value }` back.
- */
+/** How long a server may stay silent before the other one takes over (tests shorten it). */
+export const serverTiming = { startMs: SERVER_START_TIMEOUT_MS }
+
 /** The "how to download with Abyss" walkthrough, opened from the hint under the player. */
 const HOW_TO_DOWNLOAD_VIDEO = '/videos/how-to-download.mp4'
 const HOW_TO_DOWNLOAD_POSTER = '/videos/how-to-download.jpg'
 
+/**
+ * Both servers' players (embdmstrplayer.com inside the NextStream page, and
+ * embedmaster.link) post `{ source: 'embedmaster_player', event, info }` to the
+ * top window and take `{ source: 'embedmaster_player_command', command, value }`
+ * back: play, pause, seek (seconds), volume (0-100), mute, unmute, fullscreen.
+ */
 const PLAYER_EVENTS = 'embedmaster_player'
 const PLAYER_COMMANDS = 'embedmaster_player_command'
+
+/** Sends a command to the player window `ev` came from, at its own origin. */
+const command = (ev: MessageEvent, name: string, value?: number) =>
+  (ev.source as Window).postMessage(
+    { source: PLAYER_COMMANDS, command: name, value },
+    ev.origin && ev.origin !== 'null' ? ev.origin : '*',
+  )
+
+/**
+ * Logs each kind of player event once, in dev or with
+ * localStorage['naijatr.playerLog'] = '1' (to check the names a server sends).
+ */
+const loggedEvents = new Set<string>()
+function logPlayerEvent(ev: MessageEvent, event: unknown, info: unknown) {
+  let enabled = import.meta.env.DEV && import.meta.env.MODE !== 'test'
+  try {
+    enabled ||= localStorage.getItem('naijatr.playerLog') === '1'
+  } catch {
+    // Storage blocked: dev only.
+  }
+  const name = `${ev.origin} ${String(event)}`
+  if (!enabled || loggedEvents.has(name)) return
+  loggedEvents.add(name)
+  console.info('[player]', ev.origin, event, info)
+}
 
 /** True when `win` is `frame`'s window or one nested inside it. */
 const isInside = (win: MessageEventSource | null, frame: Window | null | undefined) => {
@@ -141,7 +179,12 @@ export function PlayerPanel({
   const season = validSeason ? selected.season : seasons[0].number
   const episode = validSeason ? selected.episode : 1
   const episodeCount = seasons.find((s) => s.number === season)?.episodeCount ?? 0
-  const streamEnabled = (isSeries ? availability.tv : availability.movie) && item.tmdbId !== undefined
+  // The servers that can play this title ("Server 1", "Server 2"…), and the one Play uses.
+  const servers = availableServers(isSeries ? availability.tv : availability.movie, item.tmdbId)
+  const [pickedServer, setPickedServer] = useState<PlayerServerId | null>(null)
+  const server = pickedServer && servers.includes(pickedServer) ? pickedServer : preferredServer(servers)
+  const otherServer = (current: PlayerServerId | undefined) => servers.find((id) => id !== current) ?? null
+  const streamEnabled = servers.length > 0
   const tvSrc = (s: number, e: number) => `/api/play/tv/${item.tmdbId}/${s}/${e}`
 
   // The episode this browser last played of this series, offered as "Continue" until
@@ -188,6 +231,8 @@ export function PlayerPanel({
 
   // One run per title (and per episode for streams); anything else resets the player.
   const [run, setRun] = useState<Run | null>(null)
+  // Counts every start, so a run started from an earlier render's callback still gets a new number.
+  const attemptRef = useRef(0)
   const active =
     run && run.itemId === item.id && (run.choice !== 'stream' || run.streamSrc === streamSrc)
       ? run
@@ -222,9 +267,8 @@ export function PlayerPanel({
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
       if (data.event === 'time' && typeof data.info === 'number') position = data.info
       if (data.event === 'ended') {
-        const player = ev.source as Window
-        player.postMessage({ source: PLAYER_COMMANDS, command: 'pause' }, '*')
-        player.postMessage({ source: PLAYER_COMMANDS, command: 'seek', value: Math.max(0, position - 2) }, '*')
+        command(ev, 'pause')
+        command(ev, 'seek', Math.max(0, position - 2))
       }
     }
     window.addEventListener('message', onMessage)
@@ -234,12 +278,13 @@ export function PlayerPanel({
   // Continue watching: save the position every 10s, resume a tapped card's
   // saved time once the player reports in, and move on when it's finished.
   const resumeAtRef = useRef<{ src: string; at: number } | null>(null)
+  // Where the stream is now, so a server switch carries on from there.
+  const positionRef = useRef<{ src: string; at: number } | null>(null)
   const itemId = item.id
   useEffect(() => {
     if (!watchingSrc) return
     const src = watchingSrc
     const ep = episodeOfSrc(src)
-    let player: Window | null = null
     let position: number | null = null
     let duration: number | null = null
     let savedAt = 0
@@ -260,15 +305,16 @@ export function PlayerPanel({
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
-      player = ev.source as Window
+      logPlayerEvent(ev, data.event, data.info)
       if (data.event === 'duration' && typeof data.info === 'number' && data.info > 0) duration = data.info
       if (data.event === 'time' && typeof data.info === 'number') {
         position = data.info
+        positionRef.current = { src, at: position }
         const resume = resumeAtRef.current
         if (resume?.src === src) {
           resumeAtRef.current = null
           if (resume.at > RESUME_MIN_S && position < resume.at - 5) {
-            player.postMessage({ source: PLAYER_COMMANDS, command: 'seek', value: resume.at }, '*')
+            command(ev, 'seek', resume.at)
             position = resume.at
           }
         }
@@ -290,6 +336,39 @@ export function PlayerPanel({
     }
   }, [watchingSrc, itemId])
 
+  // Auto-fallback: a server that hasn't sent a single player event within 10s
+  // (or whose check failed, see start) is switched for the other one, once.
+  // (`switchServer` is defined below the early return; the ref is set once it exists.)
+  const switchServerRef = useRef<((to: PlayerServerId, how: 'picked' | 'auto') => void) | null>(null)
+  const startingRun =
+    active?.choice === 'stream' &&
+    !active.autoSwitched &&
+    (active.state.status === 'loading' || active.state.status === 'playing') &&
+    otherServer(active.server) !== null
+      ? `${active.attempt}`
+      : null
+  const startingServer = active?.server
+  useEffect(() => {
+    if (!startingRun) return
+    const onMessage = (ev: MessageEvent) => {
+      const data = ev.data as { source?: unknown } | null
+      if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
+      window.clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
+    }
+    const timer = window.setTimeout(() => {
+      const to = servers.find((id) => id !== startingServer)
+      if (to) switchServerRef.current?.(to, 'auto')
+    }, serverTiming.startMs)
+    window.addEventListener('message', onMessage)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
+    }
+    // Once per run; the server list doesn't change while it plays.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startingRun])
+
   // TV: the remote plays and pauses the video (OK on the video, or the media
   // keys), and pausing shows a "watch on your phone" QR code.
   const tv = isTvMode()
@@ -305,7 +384,7 @@ export function PlayerPanel({
   useEffect(() => {
     if (!controllable) return
     frameBoxRef.current?.focus({ preventScroll: true })
-    let player: Window | null = null
+    let player: MessageEvent | null = null
     const show = (isPaused: boolean) => {
       pausedRef.current = isPaused
       setPaused(isPaused)
@@ -313,7 +392,7 @@ export function PlayerPanel({
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { source?: unknown; event?: unknown } | null
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
-      player = ev.source as Window
+      player = ev
       if (data.event === 'play') show(false)
       if (data.event === 'pause') show(true)
     }
@@ -326,7 +405,7 @@ export function PlayerPanel({
         else void video.play().catch(() => undefined)
       } else {
         // The stream player (embedmaster) takes play/pause commands like the others it gets here.
-        player?.postMessage({ source: PLAYER_COMMANDS, command: pause ? 'pause' : 'play' }, '*')
+        if (player) command(player, pause ? 'pause' : 'play')
       }
       show(pause)
     }
@@ -430,12 +509,19 @@ export function PlayerPanel({
   /**
    * Plays `choice`; for a series stream, `ep` picks the episode (default: the
    * selected one). `keepPlayer` keeps the player on screen while it's checked.
+   * A stream plays on `via.server` (default: the viewer's server); a switch
+   * between servers isn't a new play (no Continue watching or taste entry).
    */
-  const start = async (choice: Choice, ep: EpisodeRef = { season, episode }, keepPlayer = false) => {
-    const attempt = (run?.attempt ?? 0) + 1
+  const start = async (
+    choice: Choice,
+    ep: EpisodeRef = { season, episode },
+    keepPlayer = false,
+    via: { server: PlayerServerId; autoSwitched: boolean; switching?: boolean } | null = null,
+  ) => {
+    const attempt = (attemptRef.current = Math.max(attemptRef.current, run?.attempt ?? 0) + 1)
     pausedRef.current = false
     setPaused(false)
-    if (choice !== 'trailer') {
+    if (choice !== 'trailer' && !via?.switching) {
       recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
       recordTaste(item, 'play')
       // An invited friend counts once they play a movie or a series episode (not a trailer or a match).
@@ -446,9 +532,25 @@ export function PlayerPanel({
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
     }
-    if (!src) return
+    const onServer = via?.server ?? server
+    if (!src || !onServer) return
     dismissResume()
-    setRun({ itemId: item.id, choice, streamSrc: src, attempt, state: { status: 'checking' }, keepPlayer })
+    const autoSwitched = via?.autoSwitched ?? false
+    if (onServer === 'embedmaster') {
+      // Played straight from embedmaster.link: nothing to check first.
+      if (isSeries) saveLastEpisode(item.id, ep)
+      setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'loading' }, keepPlayer })
+      return
+    }
+    setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'checking' }, keepPlayer })
+    // This server can't play it: the other one tries, once.
+    const fallBack = () => {
+      const to = autoSwitched ? null : otherServer(onServer)
+      if (!to) return false
+      trackServerSwitch(to, 'auto')
+      void start(choice, ep, true, { server: to, autoSwitched: true, switching: true })
+      return true
+    }
     try {
       const response = await fetchImpl(`${src}?check=1`)
       const body = (await response.json().catch(() => ({}))) as {
@@ -456,6 +558,7 @@ export function PlayerPanel({
         reason?: string | null
       }
       if (body.available && isSeries) saveLastEpisode(item.id, ep)
+      if (!body.available && fallBack()) return
       update(
         attempt,
         body.available
@@ -466,9 +569,26 @@ export function PlayerPanel({
             },
       )
     } catch {
+      if (fallBack()) return
       update(attempt, { status: 'error', message: STREAM_MESSAGES.unreachable })
     }
   }
+
+  /** Plays the current movie or episode on `to`: picked by the viewer (and remembered), or after the other failed. */
+  const switchServer = (to: PlayerServerId, how: 'picked' | 'auto') => {
+    if (how === 'picked') {
+      savePreferredServer(to)
+      setPickedServer(to)
+    }
+    trackServerSwitch(to, how)
+    if (!active || active.choice !== 'stream' || !active.streamSrc) return
+    const now = positionRef.current
+    if (now?.src === active.streamSrc && now.at > RESUME_MIN_S) resumeAtRef.current = { src: now.src, at: now.at }
+    const ep = episodeOfSrc(active.streamSrc)
+    const at = ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined
+    void start('stream', at, true, { server: to, autoSwitched: how === 'auto', switching: true })
+  }
+  switchServerRef.current = switchServer
 
   /**
    * A Play button: the first play on a phone, tablet or TV asks to join the
@@ -548,6 +668,24 @@ export function PlayerPanel({
           />
         )}
       </label>
+    </div>
+  )
+
+  // Server 1 / Server 2: switches the playing stream (or picks the server Play uses), remembered on this device.
+  const playingServer = active?.choice === 'stream' ? (active.server ?? server) : server
+  const serverSwitch = streamSrc && servers.length > 1 && (
+    <div className="player__servers" role="group" aria-label="Server">
+      {servers.map((id) => (
+        <button
+          key={id}
+          type="button"
+          className={id === playingServer ? 'player__server player__server--on' : 'player__server'}
+          aria-pressed={id === playingServer}
+          onClick={() => id !== playingServer && switchServer(id, 'picked')}
+        >
+          {serverLabel(servers, id)}
+        </button>
+      ))}
     </div>
   )
 
@@ -658,6 +796,7 @@ export function PlayerPanel({
       <section ref={sectionRef} className={sectionClass} aria-label="Watch">
         {!active && resumePrompt}
         {pickers}
+        {serverSwitch}
         {active?.state.status === 'error' && (
           <p className="player__error" role="alert">
             <AlertTriangle aria-hidden="true" />
@@ -695,6 +834,12 @@ export function PlayerPanel({
   return (
     <section ref={sectionRef} className={sectionClass} aria-label="Watch">
       {active.choice === 'stream' && pickers}
+      {active.choice === 'stream' && serverSwitch}
+      {active.choice === 'stream' && active.autoSwitched && active.server && (
+        <p className="player__switched" role="status">
+          Switched to {serverLabel(servers, active.server)}
+        </p>
+      )}
       <div
         ref={frameBoxRef}
         className="player__frame"
@@ -716,7 +861,21 @@ export function PlayerPanel({
             {active.state.status === 'checking' ? `Loading S${season} E${episode}…` : 'Loading player…'}
           </div>
         )}
-        {active.state.status === 'checking' ? null : active.choice === 'stream' && active.streamSrc ? (
+        {active.state.status === 'checking' ? null : active.choice === 'stream' &&
+          active.streamSrc &&
+          active.server === 'embedmaster' &&
+          item.tmdbId !== undefined ? (
+          <iframe
+            key={key}
+            ref={frameRef}
+            src={embedmasterUrl(item.tmdbId, isSeries ? (episodeOfSrc(active.streamSrc) as EpisodeRef) : undefined)}
+            title={titles.stream}
+            // No sandbox: EmbedMaster's player breaks with one.
+            allow="autoplay *; fullscreen *; picture-in-picture *; encrypted-media *"
+            allowFullScreen
+            onLoad={loaded}
+          />
+        ) : active.choice === 'stream' && active.streamSrc ? (
           <iframe
             key={key}
             ref={frameRef}
