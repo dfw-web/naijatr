@@ -176,6 +176,26 @@ export function recordProgress(
   write(list.map((e) => (e.id === id ? { ...e, progressSeconds, durationSeconds: duration, lastWatchedAt: now } : e)))
 }
 
+/**
+ * Where the viewer stopped in this movie (or this episode of a series), on
+ * whichever server they watched it: progress belongs to the title and
+ * episode, never to a server. Null when nothing is saved for it.
+ */
+export function savedProgressOf(id: string, at: { season?: number | null; episode?: number | null } = {}): number | null {
+  const entry = readContinueWatching().find((e) => e.id === id)
+  if (!entry || entry.source !== 'stream' || !entry.progressSeconds) return null
+  if (entry.type === 'tv' && (entry.season !== (at.season ?? null) || entry.episode !== (at.episode ?? null))) return null
+  return entry.progressSeconds
+}
+
+/** The series episode the viewer is on, from Continue watching (moved on after a finished episode). */
+export function currentEpisodeOf(id: string): { season: number; episode: number } | null {
+  const entry = readContinueWatching().find((e) => e.id === id)
+  return entry?.type === 'tv' && entry.season !== null && entry.episode !== null
+    ? { season: entry.season, episode: entry.episode }
+    : null
+}
+
 /** The episode after `season`/`episode`, or null after the last one. Unknown season sizes: just the next number. */
 export function nextEpisodeOf(
   seasons: ContinueEntry['seasons'],

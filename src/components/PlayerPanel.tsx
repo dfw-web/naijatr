@@ -25,7 +25,14 @@ import { QrCode } from '../tv/QrCode'
 import { playAfterGate } from '../gate/gateStore'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
-import { finishEntry, recordPlay, recordProgress, takeResumeRequest } from '../utils/continueWatching'
+import {
+  currentEpisodeOf,
+  finishEntry,
+  recordPlay,
+  recordProgress,
+  savedProgressOf,
+  takeResumeRequest,
+} from '../utils/continueWatching'
 import { recordTaste, recordTasteById } from '../taste/profile'
 import { reportReferralPlay } from '../referral/api'
 import { playerClosed } from '../referral/invitee'
@@ -140,6 +147,14 @@ const isInside = (win: MessageEventSource | null, frame: Window | null | undefin
 const PROGRESS_SAVE_MS = 10_000
 /** Resume only past this point (earlier, starting over is no loss). */
 const RESUME_MIN_S = 10
+/** A player this close to our saved time is there. */
+const SEEK_TOLERANCE_S = 5
+/** Not there yet: the seek is sent again this often. */
+const SEEK_RETRY_MS = 1500
+/** A player that still isn't there after this won't seek: what it plays counts from then on. */
+const SEEK_GIVE_UP_MS = 20_000
+/** For this long after a player reaches our time, a smaller one from it isn't taken. */
+const EARLY_GUARD_MS = 10_000
 
 /** The episode a /api/play/tv/{id}/{season}/{episode} source plays. */
 const episodeOfSrc = (src: string) => {
@@ -187,12 +202,11 @@ export function PlayerPanel({
 
   // The episode this browser last played of this series, offered as "Continue" until
   // the viewer plays something or dismisses it.
-  const [resume, setResume] = useState(() => ({
-    itemId: item.id,
-    episode: isSeries ? readLastEpisode(item.id) : null,
-  }))
+  // Continue watching's episode first: it has moved on past a finished one.
+  const lastPlayed = () => (isSeries ? (currentEpisodeOf(item.id) ?? readLastEpisode(item.id)) : null)
+  const [resume, setResume] = useState(() => ({ itemId: item.id, episode: lastPlayed() }))
   if (resume.itemId !== item.id) {
-    setResume({ itemId: item.id, episode: isSeries ? readLastEpisode(item.id) : null })
+    setResume({ itemId: item.id, episode: lastPlayed() })
   }
   const lastEpisode = resume.itemId === item.id ? resume.episode : null
   const dismissResume = () => setResume({ itemId: item.id, episode: null })
@@ -273,12 +287,20 @@ export function PlayerPanel({
     return () => window.removeEventListener('message', onMessage)
   }, [watchingSrc])
 
-  // Continue watching: save the position every 10s, resume a tapped card's
-  // saved time once the player reports in, and move on when it's finished.
+  // Continue watching: save the position every 10s (and at once on pause, a
+  // server switch, hiding or leaving the page), resume the saved time on
+  // whichever server plays it, and move on when it's finished.
+  // Progress belongs to the movie or episode, never to a server.
   const resumeAtRef = useRef<{ src: string; at: number } | null>(null)
-  // Where the stream is now, so a server switch carries on from there.
+  // Where the stream is now (as last accepted), so a server switch carries on from there.
   const positionRef = useRef<{ src: string; at: number } | null>(null)
+  // Saves the playing position now: a server switch calls it before the other player loads.
+  const saveNowRef = useRef<(() => void) | null>(null)
+  // Leaving this player for the other server: not "left early" for taste.
+  const switchingRef = useRef(false)
   const itemId = item.id
+  // One run of the effect per player opened (a server switch opens a new one).
+  const watchingRun = watchingSrc && active ? `${active.attempt}` : null
   useEffect(() => {
     if (!watchingSrc) return
     const src = watchingSrc
@@ -287,6 +309,20 @@ export function PlayerPanel({
     let duration: number | null = null
     let savedAt = 0
     let finished = false
+    // Our saved time wins over wherever the new player starts (0, or its own
+    // remembered spot): it's sent once the player reports in and again until
+    // the player is there; until then its times are ignored.
+    const resumeAt = resumeAtRef.current?.src === src ? resumeAtRef.current.at : null
+    if (resumeAt !== null) resumeAtRef.current = null
+    let pendingSeek = resumeAt !== null && resumeAt > RESUME_MIN_S ? resumeAt : null
+    const floor = pendingSeek
+    let firstEventAt = 0
+    let settledAt = 0
+    let seekSentAt = 0
+    const seek = (ev: MessageEvent, to: number) => {
+      seekSentAt = Date.now()
+      command(ev, 'seek', to)
+    }
     // Taste: watched past half (or to the end), or left within 2 minutes.
     const startedAt = Date.now()
     let watched = false
@@ -300,45 +336,75 @@ export function PlayerPanel({
       savedAt = Date.now()
       recordProgress(itemId, ep, position, duration)
     }
+    const saveAndSync = () => {
+      save()
+      void requestSyncNow()
+    }
+    saveNowRef.current = saveAndSync
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
       logPlayerEvent(ev, data.event, data.info)
+      const now = Date.now()
+      if (!firstEventAt) {
+        firstEventAt = now
+        // Ready (its first event, usually the duration): go to our saved time.
+        if (pendingSeek !== null) seek(ev, pendingSeek)
+        else settledAt = now
+      }
       if (data.event === 'duration' && typeof data.info === 'number' && data.info > 0) duration = data.info
       if (data.event === 'time' && typeof data.info === 'number') {
-        position = data.info
-        positionRef.current = { src, at: position }
-        const resume = resumeAtRef.current
-        if (resume?.src === src) {
-          resumeAtRef.current = null
-          if (resume.at > RESUME_MIN_S && position < resume.at - 5) {
-            command(ev, 'seek', resume.at)
-            position = resume.at
+        const time = data.info
+        if (pendingSeek !== null) {
+          if (Math.abs(time - pendingSeek) <= SEEK_TOLERANCE_S || now - firstEventAt >= SEEK_GIVE_UP_MS) {
+            // There (or it won't seek: what it plays now counts).
+            pendingSeek = null
+            settledAt = now
+          } else {
+            if (now - seekSentAt >= SEEK_RETRY_MS) seek(ev, pendingSeek)
+            return
           }
         }
+        // Just loaded: a smaller time (the player jumping back to its own spot) neither
+        // replaces the saved one nor stays; it's sent back to ours.
+        if (floor !== null && time < floor - SEEK_TOLERANCE_S && now - settledAt < EARLY_GUARD_MS) {
+          if (now - seekSentAt >= SEEK_RETRY_MS) seek(ev, floor)
+          return
+        }
+        position = time
+        positionRef.current = { src, at: position }
         if (duration && position >= duration * HALF_WATCHED) markWatched()
-        if (Date.now() - savedAt >= PROGRESS_SAVE_MS) save()
+        if (now - savedAt >= PROGRESS_SAVE_MS) save()
       }
       // Paused: the position goes to the account now (signed in), not at the next 15-second sync.
-      if (data.event === 'pause') {
-        save()
-        void requestSyncNow()
-      }
-      if (data.event === 'ended' && !finished) {
+      if (data.event === 'pause') saveAndSync()
+      if (data.event === 'ended' && !finished && pendingSeek === null) {
         finished = true
         markWatched()
         finishEntry(itemId, ep)
       }
     }
+    // The tab hidden or the page closed: saved now.
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') saveAndSync()
+    }
     window.addEventListener('message', onMessage)
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', saveAndSync)
     return () => {
       window.removeEventListener('message', onMessage)
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', saveAndSync)
+      if (saveNowRef.current === saveAndSync) saveNowRef.current = null
       // The last few seconds since the previous save, sent to the account at once.
-      save()
-      void requestSyncNow()
-      if (position !== null && !watched && Date.now() - startedAt < LEFT_EARLY_MS) recordTasteById(itemId, 'left')
+      saveAndSync()
+      const switching = switchingRef.current
+      switchingRef.current = false
+      if (!switching && position !== null && !watched && Date.now() - startedAt < LEFT_EARLY_MS) recordTasteById(itemId, 'left')
     }
-  }, [watchingSrc, itemId])
+    // watchingRun: a new player (server switch, retry) starts over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchingSrc, watchingRun, itemId])
 
   // Auto-fallback: a server that hasn't sent a single player event within 10s
   // (or whose check failed, see start) is switched for the other one, once.
@@ -461,15 +527,10 @@ export function PlayerPanel({
     if (!request) return
     const ep = request.season !== null && request.episode !== null ? { season: request.season, episode: request.episode } : undefined
     if (ep) setSelected(ep)
+    // Its saved time is picked up by start(), like any play of that movie or episode.
     const choice = request.source === 'free' ? 'free' : 'stream'
-    if (choice === 'stream' && request.at !== null) {
-      const src = ep ? `/api/play/tv/${item.tmdbId}/${ep.season}/${ep.episode}` : `/api/play/movie/${item.tmdbId}`
-      resumeAtRef.current = { src, at: request.at }
-    }
     scrollToPlayerRef.current = true
     playRef.current?.(choice, ep)
-    // Once per title opened from a card; item.tmdbId doesn't change for it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId])
 
   // Bring the resumed player into view once it's on the page (the details above it may still be loading).
@@ -525,13 +586,19 @@ export function PlayerPanel({
     const attempt = (attemptRef.current = Math.max(attemptRef.current, run?.attempt ?? 0) + 1)
     pausedRef.current = false
     setPaused(false)
+    const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
+    // Playing a movie or episode again picks up where it was left, on any server
+    // (a switch has already set where to carry on from). Read before recordPlay moves it up.
+    if (choice === 'stream' && src && !via?.switching) {
+      const at = savedProgressOf(item.id, isSeries ? ep : {})
+      resumeAtRef.current = at !== null ? { src, at } : null
+    }
     if (choice !== 'trailer' && !via?.switching) {
       recordPlay(item, { ...(isSeries ? ep : {}), source: choice === 'free' ? 'free' : 'stream' })
       recordTaste(item, 'play')
       // An invited friend counts once they play a movie or a series episode (not a trailer or a match).
       void reportReferralPlay()
     }
-    const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
     if (choice !== 'stream') {
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
@@ -586,9 +653,16 @@ export function PlayerPanel({
     }
     trackServerSwitch(to, how)
     if (!active || active.choice !== 'stream' || !active.streamSrc) return
-    const now = positionRef.current
-    if (now?.src === active.streamSrc && now.at > RESUME_MIN_S) resumeAtRef.current = { src: now.src, at: now.at }
+    // Saved now, not at the next 10-second save, then the other server opens
+    // the same movie or episode at that point.
+    if (saveNowRef.current) {
+      switchingRef.current = true
+      saveNowRef.current()
+    }
     const ep = episodeOfSrc(active.streamSrc)
+    const now = positionRef.current
+    const from = now?.src === active.streamSrc ? now.at : savedProgressOf(item.id, ep)
+    resumeAtRef.current = from !== null && from > RESUME_MIN_S ? { src: active.streamSrc, at: from } : null
     const at = ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined
     void start('stream', at, true, { server: to, autoSwitched: how === 'auto', switching: true })
   }
