@@ -1,655 +1,406 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { ChevronLeft, ChevronRight, Copy, Gift, Share2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, Copy, Gift, Sparkles, X } from 'lucide-react'
+import { openSignIn, useAccount, useSignInSheet } from '../account/account'
+import { hasStoredSession } from '../account/client'
+import { goToPage } from '../account/pages'
+import { holdAdsThisTap, isPlaybackOpen, useAdOverlay, useOverlayOpen } from '../ads/adManager'
 import { isTvMode } from '../tv/tvMode'
-import { arrivedByInvite } from './capture'
-import {
-  contestOn,
-  countdownTarget,
-  endLabel,
-  fetchLeaderboard,
-  fetchMe,
-  login,
-  nairaShort,
-  naira,
-  topThreeLine,
-  updateProfile,
-  useContest,
-  useCountdown,
-  useNow,
-  type ContestInfo,
-  type Leaderboard,
-  type Me,
-} from './api'
-import { useReferralSession } from './session'
-import { closeInviteGuide, OPEN_GUIDE_KEY, openInviteGuide, SHARE_TEXT, useGuideOpen } from './guide'
-import { useDismiss } from '../ui/useDismiss'
-import { dismissInvitee, useInviteeDue } from './invitee'
-import './invite.css'
+import { useHoldNotices, useNoticesHeld } from '../ui/noticeQueue'
+import { readRef } from './capture'
+import { markPromoShown, progressText, promoShownToday, promoTiming, shareMessage } from './copy'
+import { dismissUnlock, goalNow, refreshReferralStatus, useAdFree, useReferralStatus, useUnlockDue, type ReferralStatus } from './status'
+import './referral.css'
 
 /**
- * The referral program on the movie pages: the "Invite friends 🎁" button,
- * and, only while the Invite & Win contest runs, a once-per-session popup,
- * a slim countdown banner and the 5-step guide, plus a "You can win too"
- * popup, once per device, for invited visitors when they close the player
- * after their watch counted for their friend. After the contest, a winners
- * banner for 3 days. Nothing here blocks browsing or watching, and every
- * piece closes with X, a tap outside, Escape or Back.
+ * The referral program's screens: /invite (link, share buttons, progress),
+ * /invite/rules, the header's "Go ad-free" button, the home page card, the
+ * daily popup, the unlock notice and the account page's ad-free card.
+ * Promotions never say how long ad-free lasts; only the account page shows
+ * the user's own end date. Everything promotional hides for ad-free accounts.
  */
 
-const STEP_KEY = 'naijatr.invite.step'
-const BOT_USERNAME = 'naijatr_bot'
+const weekText = (n: number) => `You've invited ${n} ${n === 1 ? 'person' : 'people'} this week`
 
-const session = {
-  get: (key: string) => {
+/** The referral screens show only where accounts exist (Supabase set up) and off TVs. */
+const useReferralsOn = () => useAccount().status !== 'disabled' && !isTvMode()
+
+const openInvite = () => {
+  holdAdsThisTap()
+  goToPage('invite')
+}
+
+export function ShareButtons({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false)
+  const text = shareMessage(link)
+  const copy = async () => {
+    holdAdsThisTap()
     try {
-      return window.sessionStorage.getItem(key)
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
     } catch {
-      return null
+      window.prompt('Copy your invite message:', text)
     }
-  },
-}
-
-const prizeLine = (prizes: number[]) => prizes.map((p, i) => `${['🥇', '🥈', '🥉'][i]}${nairaShort(p)}`).join(' · ')
-
-/** Mount once in App: popup, banners and the guide. */
-export function ContestHost() {
-  const contest = useContest()
-  const open = useGuideOpen()
-  const inviteeDue = useInviteeDue()
-  const signedIn = Boolean(useReferralSession())
-  // Every visit, until the contest ends (not when /challenge sent them here for the guide).
-  const [popup, setPopup] = useState(() => !session.get(OPEN_GUIDE_KEY))
-  // The bars go inside the fixed header (Navbar), which leaves room for them; without one, at the top of the page.
-  const [slot, setSlot] = useState<HTMLElement | null>(null)
-  useEffect(() => setSlot(document.getElementById('navbar-banner')), [])
-  // Came from /challenge's "Get my invite link".
-  useEffect(() => {
-    if (!session.get(OPEN_GUIDE_KEY)) return
-    try {
-      window.sessionStorage.removeItem(OPEN_GUIDE_KEY)
-    } catch {
-      // Opens once anyway.
-    }
-    openInviteGuide()
-  }, [])
-  if (isTvMode() || !contest) return null
-  const live = contestOn(contest)
-  const dismissPopup = () => setPopup(false)
-  return (
-    <>
-      {inSlot(slot, live && !popup && !open && <ContestBanner contest={contest} />)}
-      {inSlot(slot, contest.winners?.length === 3 && <WinnersBanner winners={contest.winners} />)}
-      {live && popup && !open && <ContestPopup contest={contest} onClose={dismissPopup} />}
-      {live && inviteeDue && !signedIn && !popup && !open && <InviteePopup contest={contest} onClose={dismissInvitee} />}
-      {open && <InviteGuide contest={contest} onClose={closeInviteGuide} />}
-    </>
-  )
-}
-
-const inSlot = (slot: HTMLElement | null, bar: ReactNode) => (slot && bar ? createPortal(bar, slot) : bar)
-
-/** "Starts in 1d 02h…" before the start, "Ends in …" after. */
-function useContestCountdown(contest: ContestInfo) {
-  const on = contestOn(contest)
-  const countdown = useCountdown(on ? countdownTarget(contest) : null)
-  return `${contest.phase === 'upcoming' ? 'Starts in' : 'Ends in'} ${countdown}`
-}
-
-/** "Starts Friday 6:00 PM · ends Sunday 11:59 PM." or "Ends Sunday 11:59 PM." */
-const whenLine = (contest: ContestInfo) =>
-  contest.phase === 'upcoming' && contest.start
-    ? `Starts ${endLabel(contest.start)} · ends ${endLabel(contest.end!)}.`
-    : `Ends ${endLabel(contest.end!)}.`
-
-function ContestPopup({ contest, onClose }: { contest: ContestInfo; onClose: () => void }) {
-  const countdown = useContestCountdown(contest)
-  useDismiss(true, onClose)
-  const prizes = contest.prizes!
-  return createPortal(
-    <div className="invite-popup" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="invite-popup__panel" role="dialog" aria-modal="true" aria-labelledby="invite-popup-title">
-        <button type="button" className="invite-close" aria-label="Close" onClick={onClose}>
-          <X aria-hidden="true" />
-        </button>
-        {contest.preview && <p className="invite-popup__preview">Preview: only you see this. The challenge isn’t running yet.</p>}
-        {arrivedByInvite() && <p className="invite-popup__invited">Your friend invited you 👋</p>}
-        <h2 id="invite-popup-title" className="invite-popup__title">
-          🎉 Invite friends &amp; win up to {naira(Math.max(...prizes))}!
-        </h2>
-        <p className="invite-popup__prizes">{prizeLine(prizes)}</p>
-        <p className="invite-popup__ends">{whenLine(contest)}</p>
-        <p className="invite-countdown">⏳ {countdown}</p>
-        <div className="invite-popup__actions">
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => {
-              onClose()
-              openInviteGuide()
-            }}
-          >
-            I&apos;m interested 👀
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            Maybe later
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-/** "Sunday 25 Oct, 11:59 PM", Lagos time. */
-const endDate = (end: number) => {
-  const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', ...options }).format(new Date(end))
-  const time = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(end))
-  return `${part({ weekday: 'long' })} ${part({ day: 'numeric' })} ${part({ month: 'short' })}, ${time}`
-}
-
-/** For a friend's invitee, after their watch counted: they can win too. */
-function InviteePopup({ contest, onClose }: { contest: ContestInfo & { end: number; prizes: number[] }; onClose: () => void }) {
-  const countdown = useContestCountdown(contest)
-  useDismiss(true, onClose)
-  // The contest ends while it's open: it goes away.
-  useEffect(() => {
-    const timer = window.setTimeout(onClose, Math.max(0, contest.end - Date.now()))
-    return () => window.clearTimeout(timer)
-  }, [contest.end, onClose])
-  return createPortal(
-    <div className="invite-popup" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="invite-popup__panel" role="dialog" aria-modal="true" aria-labelledby="invitee-popup-title">
-        <button type="button" className="invite-close" aria-label="Close" onClick={onClose}>
-          <X aria-hidden="true" />
-        </button>
-        <img src="/favicon.svg" alt="NAIJA TR" className="invite-popup__logo" />
-        <p className="invite-popup__invited">👋 Your friend invited you to NAIJA TR!</p>
-        <h2 id="invitee-popup-title" className="invite-popup__title">
-          🎁 You too can win cash prizes!
-        </h2>
-        <p className="invite-popup__prizes invite-popup__prizes--gold">
-          {contest.prizes.map((p, i) => `${['🥇', '🥈', '🥉'][i]} ${naira(p)}`).join(' · ')}
-        </p>
-        <p className="invite-popup__ends">Invite your own friends and climb the leaderboard. Ends {endDate(contest.end)}.</p>
-        <p className="invite-countdown">⏳ {countdown}</p>
-        <div className="invite-popup__actions">
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => {
-              onClose()
-              openInviteGuide()
-            }}
-          >
-            Yes, I&apos;m interested 👀
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            Maybe later
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-const HOUR = 3_600_000
-const MEDALS = ['🥇', '🥈', '🥉']
-
-/** The top 3 right now, refreshed every minute while the page is in view. */
-function useLiveTop(on: boolean) {
-  const [top, setTop] = useState<Leaderboard['top'] | null>(null)
-  useEffect(() => {
-    if (!on) return
-    let active = true
-    const load = () => {
-      if (document.hidden) return
-      void fetchLeaderboard().then((data) => {
-        // Can't load it: the usual invite message stays.
-        if (active && Array.isArray(data?.top)) setTop(data.top.slice(0, 3))
-      })
-    }
-    load()
-    const timer = window.setInterval(load, 60_000)
-    document.addEventListener('visibilitychange', load)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', load)
-    }
-  }, [on])
-  return top
-}
-
-/** A slim bar above the page (never over it): the live top 3 while the contest runs, more urgent toward the end. */
-function ContestBanner({ contest }: { contest: ContestInfo }) {
-  const countdown = useContestCountdown(contest)
-  const now = useNow()
-  const live = contest.phase === 'live'
-  const left = (contest.end ?? now) - now
-  const top = useLiveTop(live)
-  if (live && top) {
-    return (
-      <div className="invite-banner invite-banner--live" role="region" aria-label="Live leaderboard">
-        <a className="invite-banner__board" href="/challenge">
-          <span className="invite-banner__badge">
-            <span className="live-dot" aria-hidden="true" /> LIVE
-          </span>{' '}
-          {/* On phones, one line that scrolls by like a ticker. */}
-          <span className="invite-banner__ticker">
-            <span className="invite-banner__track">
-              <span className="invite-banner__title">Leaderboard:</span>{' '}
-              {top.length ? (
-                top.map((row) => (
-                  <span key={row.rank} className="invite-banner__player">
-                    {MEDALS[row.rank - 1]} <span className="invite-banner__name">{row.name}</span> <strong>{row.points} pts</strong>{' '}
-                  </span>
-                ))
-              ) : (
-                <span>No points yet: be the first!</span>
-              )}{' '}
-              <span className="invite-banner__time">⏳ {countdown}</span>
-            </span>
-          </span>
-        </a>{' '}
-        <button type="button" onClick={openInviteGuide}>
-          Join &amp; win
-        </button>
-      </div>
-    )
   }
-  const message =
-    live && left <= 6 * HOUR
-      ? '🔥 Final hours! The race for the top 3 is tight'
-      : live && left <= 24 * HOUR
-        ? `⏳ Last day to invite & win up to ${nairaShort(Math.max(...contest.prizes!))}`
-        : `🎁 Invite & win up to ${nairaShort(Math.max(...contest.prizes!))}`
+  const shares = [
+    { name: 'WhatsApp', href: `https://wa.me/?text=${encodeURIComponent(text)}`, className: 'invite-share--whatsapp' },
+    {
+      name: 'Telegram',
+      href: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text.replace(` ${link}`, ''))}`,
+      className: 'invite-share--telegram',
+    },
+    { name: 'X', href: `https://x.com/intent/post?text=${encodeURIComponent(text)}`, className: 'invite-share--x' },
+  ]
   return (
-    <div className={`invite-banner${live && left <= 24 * HOUR ? ' invite-banner--urgent' : ''}`} role="region" aria-label="Invite and win">
-      <span>
-        {message} · <span className="invite-banner__time">⏳ {countdown}</span>
-      </span>
-      <button type="button" onClick={openInviteGuide}>
-        I&apos;m interested
+    <div className="invite-share" role="group" aria-label="Share your invite link">
+      {shares.map((share) => (
+        <a key={share.name} className={`invite-share__button ${share.className}`} href={share.href} target="_blank" rel="noopener noreferrer" onClick={() => holdAdsThisTap()}>
+          {share.name}
+        </a>
+      ))}
+      <button type="button" className="invite-share__button invite-share--copy" onClick={() => void copy()}>
+        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />} {copied ? 'Copied!' : 'Copy'}
       </button>
     </div>
   )
 }
 
-function WinnersBanner({ winners }: { winners: string[] }) {
+function Progress({ status }: { status: ReferralStatus }) {
+  const goal = status.goal
+  const counted = status.counted ?? 0
+  const towards = counted % goal
   return (
-    <div className="invite-banner invite-banner--winners" role="region" aria-label="Challenge winners">
-      🏆 Challenge winners: 🥇{winners[0]} · 🥈{winners[1]} · 🥉{winners[2]}. Thanks to everyone who joined! 🙏
+    <div className="invite-progress">
+      <p className="invite-progress__text">{progressText(counted, goal)}</p>
+      <div className="invite-progress__bar" role="progressbar" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={towards}>
+        <span style={{ width: `${(towards / goal) * 100}%` }} />
+      </div>
     </div>
   )
 }
 
-/** The header's "Invite friends 🎁". */
-export function InviteButton({ className = '' }: { className?: string }) {
-  if (isTvMode()) return null
+/** /invite */
+export function InvitePage() {
+  const { status: account } = useAccount()
+  const status = useReferralStatus()
+  const adFree = useAdFree()
+  useEffect(() => {
+    if (account === 'signedIn') void refreshReferralStatus()
+  }, [account])
+  const goal = status?.goal ?? goalNow()
+
   return (
-    <button type="button" className={`invite-button ${className}`} onClick={openInviteGuide}>
-      <Gift aria-hidden="true" />
-      <span className="invite-button__long">Invite friends 🎁</span>
-      <span className="invite-button__short">Invite</span>
+    <section className="account-page invite-page" aria-labelledby="invite-title">
+      <h1 id="invite-title" className="account-page__title">
+        🎁 Go ad-free
+      </h1>
+      {adFree ? (
+        <p className="invite-page__badge">
+          <Sparkles aria-hidden="true" /> You're enjoying NAIJA TR ad-free. Keep inviting for the weekly mystery prize!
+        </p>
+      ) : (
+        <p className="account-page__lead">
+          Invite {goal} friends to NAIJA TR and get the ad-free version. 🏆 Bonus: invite the most people this week and win a
+          mystery prize 🎁
+        </p>
+      )}
+
+      {account === 'signedIn' ? (
+        status?.signedIn && status.link ? (
+          <>
+            <div className="account-card">
+              <h2 className="account-card__title">Your invite link</h2>
+              <input className="invite-page__link" readOnly value={status.link} aria-label="Your invite link" onFocus={(e) => e.currentTarget.select()} />
+              <ShareButtons link={status.link} />
+            </div>
+            <div className="account-card">
+              <h2 className="account-card__title">Your progress</h2>
+              <Progress status={status} />
+              <p className="account-card__muted">{weekText(status.weekCount ?? 0)}</p>
+              {(status.pending ?? 0) > 0 && (
+                <p className="account-card__muted">
+                  {status.pending} {status.pending === 1 ? 'friend has' : 'friends have'} signed up and will count once they confirm
+                  their email and watch something.
+                </p>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="account-page__lead" role="status">
+            Loading your invite link…
+          </p>
+        )
+      ) : account === 'checking' ? (
+        <p className="account-page__lead" role="status">
+          Signing you in…
+        </p>
+      ) : (
+        <div className="account-card">
+          <h2 className="account-card__title">Start inviting</h2>
+          <p className="account-card__muted">You need a free account to get your own invite link. Browsing and watching never need one.</p>
+          <div className="account-card__actions">
+            <button type="button" className="account-page__primary" onClick={() => openSignIn('create')}>
+              Create a free account to start inviting
+            </button>
+            <button type="button" className="account-page__ghost" onClick={() => openSignIn('login')}>
+              Log in
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="account-card">
+        <h2 className="account-card__title">How it works</h2>
+        <ol className="invite-steps">
+          <li>Share your link with friends.</li>
+          <li>They create a free NAIJA TR account with it and confirm their email.</li>
+          <li>They watch a movie, an episode or a match. That's it: they count!</li>
+        </ol>
+        <a href="/invite/rules" className="account-page__link" onClick={(e) => (e.preventDefault(), goToPage('invite/rules'))}>
+          Full rules
+        </a>
+      </div>
+    </section>
+  )
+}
+
+/** /invite/rules */
+export function InviteRulesPage() {
+  const goal = useReferralStatus()?.goal ?? goalNow()
+  return (
+    <article className="account-page account-page--text" aria-labelledby="rules-title">
+      <h1 id="rules-title" className="account-page__title">
+        Invite rules
+      </h1>
+      <h2>How counting works</h2>
+      <p>
+        Everyone with a free NAIJA TR account gets their own invite link. A friend counts for you when they open your link,
+        create a <strong>new</strong> NAIJA TR account within 7 days, confirm their email address, and watch a movie, an
+        episode or a football match.
+      </p>
+      <h2>What doesn't count</h2>
+      <ul>
+        <li>Inviting yourself, or making extra accounts for yourself.</li>
+        <li>
+          Accounts that already existed, or a second account for the same inbox (for Gmail, dots and “+” extras in the address
+          don't make a new inbox).
+        </li>
+        <li>Each new account counts once, for the first link it came by.</li>
+        <li>
+          Too many sign-ups from the same network in one day are held for review. We look out for suspicious patterns, and
+          referrals that break these rules are removed.
+        </li>
+      </ul>
+      <h2>The ad-free reward</h2>
+      <p>
+        Every {goal} friends who count unlock the ad-free version of NAIJA TR on every device you're signed in on. You can see
+        how long yours lasts on your Account page. Ad-free access duration may change; NAIJA TR will let you know before it
+        ends.
+      </p>
+      <h2>The weekly mystery prize</h2>
+      <p>
+        Each week (Monday 00:00 to Sunday 23:59, Lagos time), the person whose invites count the most wins a mystery prize. If
+        two people tie, the one who reached that number first wins. There's no public leaderboard: you only see your own
+        count. Winners are contacted by email at the address on their account.
+      </p>
+      <h2>Final say</h2>
+      <p>NAIJA TR may change these rules, and NAIJA TR's decision on referrals, rewards and prizes is final.</p>
+      <p>
+        <a href="/invite" className="account-page__link" onClick={(e) => (e.preventDefault(), goToPage('invite'))}>
+          ← Get your invite link
+        </a>
+      </p>
+    </article>
+  )
+}
+
+/** The header's "🎁 Go ad-free" (hidden for ad-free accounts). */
+export function GoAdFreeButton() {
+  const on = useReferralsOn()
+  const adFree = useAdFree()
+  if (!on || adFree) return null
+  return (
+    <button type="button" className="go-ad-free" onClick={openInvite}>
+      <span aria-hidden="true">🎁</span> Go ad-free
     </button>
   )
 }
 
-// ---- The guide ----
-
-const readStep = () => {
-  try {
-    return Math.min(4, Math.max(0, Number(window.localStorage.getItem(STEP_KEY)) || 0))
-  } catch {
-    return 0
-  }
+/** The home page's invite card (hidden for ad-free accounts). */
+export function InviteCard() {
+  const on = useReferralsOn()
+  const adFree = useAdFree()
+  const { status: account } = useAccount()
+  const status = useReferralStatus()
+  if (!on || adFree) return null
+  const invited = account !== 'signedIn' && readRef() !== null
+  return (
+    <aside className="invite-card" aria-label="Invite friends">
+      <Gift className="invite-card__icon" aria-hidden="true" />
+      <div className="invite-card__body">
+        <p className="invite-card__title">
+          {invited ? 'A friend invited you to NAIJA TR 🎉' : `Want NAIJA TR ad-free? Invite ${status?.goal ?? goalNow()} friends!`}
+        </p>
+        <p className="invite-card__text">
+          {account === 'signedIn' && status?.signedIn
+            ? progressText(status.counted ?? 0, status.goal)
+            : invited
+              ? 'Create a free account, then invite your own friends to go ad-free.'
+              : '🏆 Bonus: invite the most people this week and win a mystery prize 🎁'}
+        </p>
+      </div>
+      <button type="button" className="invite-card__button" onClick={account === 'signedIn' ? openInvite : () => openSignIn('create')}>
+        {account === 'signedIn' ? 'Invite friends' : 'Create a free account'}
+      </button>
+    </aside>
+  )
 }
-const saveStep = (step: number) => {
-  try {
-    window.localStorage.setItem(STEP_KEY, String(step))
-  } catch {
-    // Starts over next time.
-  }
-}
 
-function InviteGuide({ contest, onClose }: { contest: ContestInfo; onClose: () => void }) {
-  const signedIn = Boolean(useReferralSession())
-  const live = contestOn(contest)
-  // Joined already, or no contest: straight to the link.
-  const [step, setStep] = useState(() => (signedIn || !live ? 4 : readStep()))
-  const touch = useRef<number | null>(null)
-  useDismiss(true, onClose)
-  const go = (next: number) => {
-    const clamped = Math.min(4, Math.max(0, next))
-    setStep(clamped)
-    saveStep(clamped)
+// ---- The daily popup ----
+
+/** Another popup, sheet or the player is on screen: the promo waits. */
+const somethingOpen = () => isPlaybackOpen() || document.querySelector('[role="dialog"], [aria-modal="true"]') !== null
+
+/**
+ * At most once a day per device (signed in or not), after the page has been
+ * open a while, never during playback or over another popup, and never for
+ * ad-free accounts.
+ */
+export function DailyPromoHost() {
+  const on = useReferralsOn()
+  const adFree = useAdFree()
+  const { status: account } = useAccount()
+  const status = useReferralStatus()
+  const overlayOpen = useOverlayOpen()
+  const noticesHeld = useNoticesHeld()
+  const sheet = useSignInSheet()
+  const unlock = useUnlockDue()
+  const [waited, setWaited] = useState(false)
+  const [open, setOpen] = useState(false)
+  // A signed-in device waits for the server's ad-free answer first.
+  const known = !hasStoredSession() || status !== null || account === 'signedOut'
+  const onInvitePages = /^\/invite(\/|$)/.test(window.location.pathname)
+  const [alreadyToday] = useState(() => promoShownToday())
+  const due = on && !adFree && known && !onInvitePages && !alreadyToday
+
+  useEffect(() => {
+    if (!due) return
+    const timer = window.setTimeout(() => setWaited(true), promoTiming.delayMs)
+    return () => window.clearTimeout(timer)
+  }, [due])
+
+  const blocked = overlayOpen || noticesHeld || sheet !== null || unlock
+  useEffect(() => {
+    if (!due || !waited || blocked || open) return
+    const tryShow = () => {
+      if (somethingOpen() || promoShownToday()) return false
+      markPromoShown()
+      setOpen(true)
+      return true
+    }
+    if (tryShow()) return
+    const timer = window.setInterval(() => {
+      if (tryShow()) window.clearInterval(timer)
+    }, promoTiming.pollMs)
+    return () => window.clearInterval(timer)
+  }, [due, waited, blocked, open])
+
+  const visible = open && !adFree
+  useAdOverlay(visible)
+  useHoldNotices(visible)
+  if (!visible) return null
+
+  const close = () => {
+    holdAdsThisTap()
+    setOpen(false)
   }
-  const steps: { title: string; body: ReactNode }[] = live
-    ? [
-        { title: 'The Prizes 🏆', body: <PrizesStep contest={contest} /> },
-        { title: 'How it works 🔗', body: <HowStep /> },
-        { title: 'What counts (and what doesn’t) ✅❌', body: <CountsStep /> },
-        { title: 'The rules 📜', body: <RulesStep contest={contest} /> },
-        { title: 'Get started 🚀', body: <StartStep live preview={contest.preview} /> },
-      ]
-    : [{ title: 'Invite friends 🎁', body: <StartStep live={false} /> }]
-  const index = live ? step : 0
-  const current = steps[index]
-  return createPortal(
-    <div className="invite-guide" role="dialog" aria-modal="true" aria-labelledby="invite-guide-title">
-      <div
-        className="invite-guide__panel"
-        onTouchStart={(e) => (touch.current = e.touches[0].clientX)}
-        onTouchEnd={(e) => {
-          if (touch.current === null || !live) return
-          const dx = e.changedTouches[0].clientX - touch.current
-          touch.current = null
-          if (Math.abs(dx) > 60) go(step + (dx < 0 ? 1 : -1))
-        }}
-      >
-        <button type="button" className="invite-close" aria-label="Close" onClick={onClose}>
+  const signedIn = account === 'signedIn'
+  return (
+    <div className="promo" role="dialog" aria-modal="true" aria-labelledby="promo-title">
+      <div className="promo__panel">
+        <button type="button" className="promo__close" aria-label="Close" onClick={close}>
           <X aria-hidden="true" />
         </button>
-        {live && (
-          <div className="invite-guide__dots" aria-label={`Step ${index + 1} of ${steps.length}`}>
-            {steps.map((s, i) => (
-              <button key={s.title} type="button" aria-label={`Step ${i + 1}: ${s.title}`} aria-current={i === index} className="invite-guide__dot" onClick={() => go(i)} />
-            ))}
-          </div>
-        )}
-        <h2 id="invite-guide-title" className="invite-guide__title">
-          {current.title}
-        </h2>
-        <div className="invite-guide__body">{current.body}</div>
-        {live && (
-          <div className="invite-guide__nav">
-            <button type="button" className="btn btn--ghost" disabled={index === 0} onClick={() => go(step - 1)}>
-              <ChevronLeft aria-hidden="true" /> Back
-            </button>
-            {index < steps.length - 1 ? (
-              <button type="button" className="btn btn--primary" onClick={() => go(step + 1)}>
-                Next <ChevronRight aria-hidden="true" />
-              </button>
-            ) : (
-              <button type="button" className="btn btn--ghost" onClick={onClose}>
-                Done
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-function Countdown({ contest }: { contest: ContestInfo }) {
-  const countdown = useContestCountdown(contest)
-  return (
-    <>
-      <p className="invite-countdown">⏳ {countdown}</p>
-      {contest.phase === 'upcoming' && <p className="invite-note">Get your link now: points count from the start.</p>}
-    </>
-  )
-}
-
-const PRIZE_PLACES = ['🥇 1st', '🥈 2nd', '🥉 3rd']
-
-function PrizesStep({ contest }: { contest: ContestInfo }) {
-  return (
-    <>
-      <p className="invite-lead">Invite friends and win cash!</p>
-      <ul className="invite-prizes">
-        {contest.prizes!.map((p, i) => (
-          <li key={i}>
-            <span>{PRIZE_PLACES[i]}</span>
-            <strong>{naira(p)}</strong>
-          </li>
-        ))}
-      </ul>
-      <Countdown contest={contest} />
-    </>
-  )
-}
-
-function HowStep() {
-  return (
-    <ol className="invite-list">
-      <li>Get your personal invite link.</li>
-      <li>Share it with friends on WhatsApp, Telegram, X…</li>
-      <li>
-        Each friend who opens <strong>your unique link</strong> on a <strong>new phone</strong> AND then <strong>watches a movie, a series episode or a
-        live match</strong> on that same phone counts as 1 point for you.
-      </li>
-      <li>The top 3 with the most points win.</li>
-    </ol>
-  )
-}
-
-function CountsStep() {
-  return (
-    <div className="invite-counts">
-      <p className="invite-counts__head">✅ Counts</p>
-      <ul>
-        <li>New friends who open your unique link, then watch a movie, a series episode or a live football match on that same phone.</li>
-      </ul>
-      <p className="invite-counts__head">❌ Doesn’t count</p>
-      <ul>
-        <li>Friends who come to NAIJA TR without your link (typing the address, searching, someone else’s link).</li>
-        <li>Friends who open your link but watch on a different phone.</li>
-        <li>Friends who only open the link, browse, or watch a trailer.</li>
-        <li>Opening your own link.</li>
-        <li>The same phone twice.</li>
-        <li>Fake or bot visits (instant disqualification).</li>
-      </ul>
-    </div>
-  )
-}
-
-function RulesStep({ contest }: { contest: ContestInfo }) {
-  return (
-    <>
-      <ul className="invite-list invite-list--plain">
-        <li>Free to enter</li>
-        <li>A friend only counts after opening your unique link and then watching a movie, a series episode or a live match</li>
-        <li>One account per person</li>
-        <li>{whenLine(contest).replace(/\.$/, '')}</li>
-        <li>Fake/bot referrals are disqualified</li>
-        <li>Winners claim within 48h</li>
-        <li>Prizes paid by bank transfer within 3 working days</li>
-        <li>Prizes are paid to a Nigerian bank account (or a mobile money account in Nigeria)</li>
-      </ul>
-      <a className="invite-link" href="/challenge/rules" target="_blank" rel="noreferrer">
-        Read full rules
-      </a>
-    </>
-  )
-}
-
-/** Step 5: sign in with Telegram, then the link and share buttons. */
-const PREVIEW_LINK = 'https://www.naijatr.com/r/PREVIEW'
-
-function StartStep({ live, preview = false }: { live: boolean; preview?: boolean }) {
-  const current = useReferralSession()
-  if (!current) {
-    return (
-      <>
-        <p className="invite-lead">Join with Telegram to get your link.</p>
-        <TelegramLogin />
-        {preview && (
-          <div className="invite-share invite-share--preview">
-            <p className="invite-share__label">Preview: after joining, their own link goes here</p>
-            <p className="invite-share__link">{PREVIEW_LINK}</p>
-            <ShareButtons message={`${SHARE_TEXT} ${PREVIEW_LINK}`} link={PREVIEW_LINK} />
-          </div>
-        )}
-      </>
-    )
-  }
-  return <SharePanel live={live} />
-}
-
-/** The Telegram Login Widget for @naijatr_bot (it may message you, e.g. if you win). */
-export function TelegramLogin() {
-  const box = useRef<HTMLDivElement>(null)
-  const [error, setError] = useState(false)
-  useEffect(() => {
-    const holder = box.current
-    if (!holder) return
-    ;(window as unknown as { naijatrTelegramAuth: (user: unknown) => void }).naijatrTelegramAuth = (user) => {
-      void login(user).then((ok) => setError(!ok))
-    }
-    const script = document.createElement('script')
-    script.src = 'https://telegram.org/js/telegram-widget.js?22'
-    script.async = true
-    script.setAttribute('data-telegram-login', BOT_USERNAME)
-    script.setAttribute('data-size', 'large')
-    script.setAttribute('data-radius', '10')
-    script.setAttribute('data-onauth', 'naijatrTelegramAuth(user)')
-    script.setAttribute('data-request-access', 'write')
-    holder.replaceChildren(script)
-    return () => holder.replaceChildren()
-  }, [])
-  return (
-    <>
-      <div ref={box} className="invite-login" />
-      {error && (
-        <p className="invite-error" role="alert">
-          Couldn’t sign you in. Please try again.
+        <p id="promo-title" className="promo__title">
+          🚫 Want NAIJA TR ad-free?
         </p>
-      )}
-    </>
-  )
-}
-
-const onPhone = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-
-/** Each button opens that app's "send to…" screen with the message ready; on a computer, its web page. */
-const SHARE_TARGETS: { id: string; name: string; href: (message: string, link: string) => string }[] = [
-  {
-    id: 'wa',
-    name: 'WhatsApp',
-    href: (message) => `${onPhone() ? 'whatsapp://send' : 'https://wa.me/'}?text=${encodeURIComponent(message)}`,
-  },
-  {
-    id: 'tg',
-    name: 'Telegram',
-    href: (_message, link) =>
-      `${onPhone() ? 'tg://msg_url' : 'https://t.me/share/url'}?url=${encodeURIComponent(link)}&text=${encodeURIComponent(SHARE_TEXT)}`,
-  },
-  // x.com links open the X app on phones that have it.
-  { id: 'x', name: 'X', href: (message) => `https://x.com/intent/post?text=${encodeURIComponent(message)}` },
-]
-
-/** WhatsApp, Telegram, X, Copy and (on phones) the phone's own share menu. */
-function ShareButtons({ message, link }: { message: string; link: string }) {
-  const [copied, setCopied] = useState(false)
-  const canShare = typeof navigator.share === 'function'
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(message)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
-  return (
-    <div className="invite-share__buttons">
-      {SHARE_TARGETS.map((target) => {
-        const href = target.href(message, link)
-        // App links open in place; web links in a new tab.
-        const web = href.startsWith('http')
-        return (
-          <a
-            key={target.name}
-            className={`invite-share__btn invite-share__btn--${target.id}`}
-            href={href}
-            target={web ? '_blank' : undefined}
-            rel={web ? 'noreferrer' : undefined}
+        <p className="promo__text">
+          Invite {status?.goal ?? goalNow()} friends and get the ad-free version! 🏆 Bonus: invite the most people this week and
+          win a mystery prize 🎁
+        </p>
+        <div className="promo__actions">
+          <button
+            type="button"
+            className="promo__primary"
+            onClick={() => {
+              close()
+              if (signedIn) openInvite()
+              else openSignIn('create')
+            }}
           >
-            {target.name}
-          </a>
-        )
-      })}
-      <button type="button" className="invite-share__btn" onClick={() => void copy()}>
-        <Copy aria-hidden="true" /> {copied ? 'Copied!' : 'Copy'}
-      </button>
-      {canShare && (
-        <button
-          type="button"
-          className="invite-share__btn"
-          onClick={() => void navigator.share({ text: message }).catch(() => {})}
-        >
-          <Share2 aria-hidden="true" /> More apps…
-        </button>
-      )}
+            {signedIn ? 'Invite friends' : 'Create a free account to start inviting'}
+          </button>
+          <button type="button" className="promo__ghost" onClick={close}>
+            Not now
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
-export function SharePanel({ live }: { live: boolean }) {
-  const current = useReferralSession()
-  const [me, setMe] = useState<Me | null>(null)
-  const [nickname, setNickname] = useState(current?.user.nickname ?? '')
-  const [saved, setSaved] = useState<'idle' | 'saved' | 'bad'>('idle')
-  useEffect(() => {
-    let active = true
-    void fetchMe().then((data) => {
-      if (active) setMe(data)
-    })
-    return () => {
-      active = false
-    }
-  }, [])
-  if (!current) return null
-  const { link, hidden } = current.user
-  const message = `${SHARE_TEXT} ${link}`
+/** "🎉 You've unlocked NAIJA TR ad-free!" once, after an unlock. */
+export function UnlockNoticeHost() {
+  const due = useUnlockDue()
+  useAdOverlay(due)
+  if (!due) return null
   return (
-    <div className="invite-share">
-      <p className="invite-share__label">Your invite link</p>
-      <p className="invite-share__link">{link}</p>
-      <ShareButtons message={message} link={link} />
-      <p className="invite-share__message">{message}</p>
-      {live && (
-        <div className="invite-share__stats">
-          <p>
-            <strong>{me?.points ?? '–'}</strong> points
-          </p>
-          <p>
-            <strong>{me?.rank ? `#${me.rank}` : '–'}</strong> rank
-          </p>
-        </div>
-      )}
-      {live && me && typeof me.toTop3 === 'number' && topThreeLine(me.points, me.toTop3) && (
-        <p className="invite-share__gap">{topThreeLine(me.points, me.toTop3)}</p>
-      )}
-      {!live && me && <p className="invite-share__total">{me.total} friends joined with your link</p>}
-      {live && (
-        <a className="btn btn--primary invite-share__board" href="/challenge">
-          See leaderboard
-        </a>
-      )}
-      <details className="invite-share__name">
-        <summary>Your name on the leaderboard</summary>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            void updateProfile({ nickname }).then((status) => setSaved(status === 200 ? 'saved' : 'bad'))
-          }}
-        >
-          <input value={nickname} maxLength={24} aria-label="Nickname" onChange={(e) => setNickname(e.target.value)} />
-          <button type="submit" className="btn btn--ghost">
-            Save
+    <div className="promo" role="dialog" aria-modal="true" aria-labelledby="unlock-title">
+      <div className="promo__panel">
+        <p id="unlock-title" className="promo__title">
+          🎉 You've unlocked NAIJA TR ad-free!
+        </p>
+        <p className="promo__text">Your friends joined, so ads are off on every device you're signed in on. Thank you! ❤️</p>
+        <div className="promo__actions">
+          <button
+            type="button"
+            className="promo__primary"
+            onClick={() => {
+              holdAdsThisTap()
+              dismissUnlock()
+            }}
+          >
+            Enjoy 🍿
           </button>
-        </form>
-        {saved !== 'idle' && <p role="status">{saved === 'saved' ? 'Saved.' : 'Use 2–24 letters or numbers.'}</p>}
-        <label className="invite-share__hide">
-          <input type="checkbox" checked={hidden} onChange={(e) => void updateProfile({ hidden: e.target.checked })} /> Hide my name
-          on the leaderboard
-        </label>
-      </details>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The account page's ad-free card: the only place the end date shows. */
+export function AdFreeCard() {
+  const status = useReferralStatus()
+  useEffect(() => {
+    void refreshReferralStatus()
+  }, [])
+  if (!status?.signedIn) return null
+  const until = status.adFreeUntil ? new Date(status.adFreeUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' }) : null
+  return (
+    <div className="account-card">
+      <h2 className="account-card__title">Ad-free</h2>
+      {status.adFree ? (
+        <p className="account-card__value">
+          <Sparkles aria-hidden="true" /> {status.permanent || !until ? 'Ad-free on all your devices' : `Ad-free until ${until}`}
+        </p>
+      ) : (
+        <p className="account-card__muted">{progressText(status.counted ?? 0, status.goal)}</p>
+      )}
+      <div className="account-card__actions">
+        <button type="button" className="account-page__ghost" onClick={openInvite}>
+          <Gift aria-hidden="true" /> {status.adFree ? 'Keep inviting' : 'Invite friends'}
+        </button>
+      </div>
     </div>
   )
 }

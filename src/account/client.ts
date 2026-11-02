@@ -37,6 +37,17 @@ export function hasStoredSession(): boolean {
   }
 }
 
+/** The signed-in user's access token, for our own API (/api/referral); null when signed out. */
+export async function accessToken(): Promise<string | null> {
+  if (!hasStoredSession()) return null
+  try {
+    const { data } = await (await getClient()).auth.getSession()
+    return data.session?.access_token ?? null
+  } catch {
+    return null
+  }
+}
+
 export interface AuthRedirect {
   accessToken?: string
   refreshToken?: string

@@ -5,7 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { recordTaste } from '../taste/profile'
 import type { MediaItem } from '../types/media'
 import { saveForLater } from '../utils/watchLater'
-import { deleteAccount, initAccount, rememberTelegram, resetAccount, signOut, useAccount } from './account'
+import { deleteAccount, initAccount, resetAccount, signOut, useAccount } from './account'
 import { AccountMenu } from './AccountMenu'
 import { AuthConfirmPage, AuthResetPage } from './AccountPages'
 import { resetClient } from './client'
@@ -340,21 +340,6 @@ describe('accounts', () => {
     initAccount()
     render(<SignInHost />)
     expect(await screen.findByRole('alert')).toHaveTextContent('Email link is invalid or has expired')
-  })
-
-  it('links the Telegram login to the account’s profile', async () => {
-    fake.signedInAlready()
-    initAccount()
-    render(<Status />)
-    await vi.waitFor(() => expect(status()).toHaveTextContent('signedIn'))
-    rememberTelegram({ id: 4242, username: 'ada', first_name: 'Ada' }, 'ADA42')
-    await vi.waitFor(() =>
-      expect(fake.queries).toContainEqual({
-        table: 'profiles',
-        method: 'upsert',
-        args: [expect.objectContaining({ user_id: 'user-1', telegram_id: 4242, telegram_username: 'ada', referral_code: 'ADA42' }), { onConflict: 'user_id' }],
-      }),
-    )
   })
 
   it('deletes the account’s rows itself when the server has no service key', async () => {

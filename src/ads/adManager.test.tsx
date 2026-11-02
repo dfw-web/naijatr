@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AD_SECTIONS, MULTITAG } from '../config/ads'
 import { playAfterGate } from '../gate/gateStore'
 import { TelegramGateHost } from '../gate/TelegramGate'
-import { openInviteGuide } from '../referral/guide'
 import { AD_LINK, adLinkClicks, useLimitedAdRules } from '../test/ads'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { adClock, cardAd, holdAdsThisTap, lagosDay, playbackAd, searchAd, useAdOverlay } from './adManager'
@@ -208,14 +207,6 @@ describe('no ads with the popups', () => {
     expect(ads()).toBe(1)
   })
 
-  it('opens nothing on the tap that opens the invite guide', () => {
-    tap((event) => {
-      openInviteGuide()
-      cardAd(event, { id: 'a' })
-    })
-    expect(ads()).toBe(0)
-  })
-
   it('opens nothing on a tap that holds it back', () => {
     tap((event) => {
       holdAdsThisTap()
@@ -280,7 +271,7 @@ describe('the Multitag', () => {
   })
 
   it('is not added with ?noads=1, on the admin pages, the contest rules or the claim form', () => {
-    for (const path of ['/admin/live', '/challenge/rules', '/challenge/claim', '/?noads=1']) {
+    for (const path of ['/admin/live', '/invite/rules', '/?noads=1']) {
       window.history.replaceState(null, '', path)
       expect(loadMultitag()).toBe(false)
     }

@@ -7,6 +7,7 @@ import { readContinueWatching } from '../utils/continueWatching'
 import { readWatchLater } from '../utils/watchLater'
 import { supabaseBackend } from './backend'
 import { getClient, hasStoredSession, takeAuthRedirect } from './client'
+import { referralSignedIn, referralSignedOut } from '../referral/status'
 import { forgetSyncedAccount, requestSyncNow, startSync, stopSync } from './sync'
 
 /**
@@ -120,11 +121,13 @@ function signedIn(client: SupabaseClient, user: User) {
   sheet = null
   set({ status: 'signedIn', user: next, linkError: null })
   void startSync(next.id, supabaseBackend(client, next.id))
-  void saveTelegramLink(client, next.id)
+  // Ad-free status, and the invite link this device came by.
+  referralSignedIn()
 }
 
 function signedOutHere() {
   stopSync()
+  referralSignedOut()
   set({ status: 'signedOut', user: null })
 }
 
@@ -252,6 +255,7 @@ export async function signOut(): Promise<void> {
   } catch {
     // Signed out here anyway.
   }
+  referralSignedOut()
   set({ status: 'signedOut', user: null, recovery: false })
   track('signed-out')
 }
@@ -259,7 +263,7 @@ export async function signOut(): Promise<void> {
 /** Everything the account and this device hold, as a JSON file ("Download my data"). */
 export async function downloadMyData(): Promise<void> {
   const client = await getClient()
-  const { data: profile } = await client.from('profiles').select('telegram_id,telegram_username,telegram_name,referral_code,created_at').maybeSingle()
+  const { data: profile } = await client.from('profiles').select('invite_code,ad_free_until,created_at').maybeSingle()
   const data = {
     exportedAt: new Date().toISOString(),
     account: { email: state.user?.email ?? null, id: state.user?.id ?? null },
@@ -277,7 +281,7 @@ export async function downloadMyData(): Promise<void> {
 }
 
 /**
- * Deletes the account: its synced rows, its Telegram link and the login itself
+ * Deletes the account: its synced rows, its referrals and the login itself
  * (through /api/account/delete, which needs SUPABASE_SERVICE_ROLE_KEY on the
  * server). Without that key the rows are still deleted and the login stays,
  * with nothing in it; `loginDeleted` says which. This device keeps its own data.
@@ -304,75 +308,10 @@ export async function deleteAccount(): Promise<{ loginDeleted: boolean }> {
   }
   forgetSyncedAccount()
   await client.auth.signOut({ scope: 'local' }).catch(() => undefined)
+  referralSignedOut()
   set({ status: 'signedOut', user: null })
   track('deleted')
   return { loginDeleted }
-}
-
-// ---- Telegram: the referral/contest login, linked to the account. ----
-
-const TELEGRAM_KEY = 'naijatr.telegram.link'
-
-export interface TelegramLink {
-  id: number | null
-  username: string | null
-  name: string | null
-  code: string | null
-}
-
-export function readTelegramLink(): TelegramLink | null {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(TELEGRAM_KEY) ?? 'null') as TelegramLink | null
-    return parsed && typeof parsed === 'object' ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * The Telegram login (contest and referrals) succeeded: remember who it was
- * on this device and, when signed in, on the account's profile.
- */
-export function rememberTelegram(auth: unknown, code: string | null): void {
-  const user = (auth ?? {}) as { id?: unknown; username?: unknown; first_name?: unknown; last_name?: unknown }
-  const link: TelegramLink = {
-    id: typeof user.id === 'number' ? user.id : Number(user.id) || null,
-    username: typeof user.username === 'string' ? user.username : null,
-    name: [user.first_name, user.last_name].filter((part) => typeof part === 'string' && part).join(' ') || null,
-    code,
-  }
-  try {
-    localStorage.setItem(TELEGRAM_KEY, JSON.stringify(link))
-  } catch {
-    // Linked on the account only, if signed in.
-  }
-  emit()
-  if (state.status === 'signedIn' && state.user) {
-    const userId = state.user.id
-    void getClient().then((client) => saveTelegramLink(client, userId))
-  }
-}
-
-async function saveTelegramLink(client: SupabaseClient, userId: string) {
-  const link = readTelegramLink()
-  if (!link) return
-  await client
-    .from('profiles')
-    .upsert(
-      {
-        user_id: userId,
-        telegram_id: link.id,
-        telegram_username: link.username,
-        telegram_name: link.name,
-        referral_code: link.code,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
-    .then(
-      () => undefined,
-      () => undefined,
-    )
 }
 
 // ---- The sign-in sheet. ----
@@ -408,20 +347,6 @@ export const useAccount = () => useSyncExternalStore(subscribe, () => state, () 
 export const useSignInSheet = () => useSyncExternalStore(subscribe, () => sheet, () => null)
 /** When another email may be sent (the component ticks its own countdown). */
 export const useEmailCooldownUntil = () => useSyncExternalStore(subscribe, () => cooldownUntil, () => 0)
-export const useTelegramLink = () => useSyncExternalStore(subscribe, readTelegramLinkCached, () => null)
-
-let telegramCache: { raw: string | null; link: TelegramLink | null } = { raw: null, link: null }
-function readTelegramLinkCached(): TelegramLink | null {
-  let raw: string | null = null
-  try {
-    raw = localStorage.getItem(TELEGRAM_KEY)
-  } catch {
-    return null
-  }
-  if (raw !== telegramCache.raw) telegramCache = { raw, link: readTelegramLink() }
-  return telegramCache.link
-}
-
 /** Test helpers. */
 export function setAccountForTests(next: Partial<AccountState>) {
   set(next)

@@ -7,8 +7,8 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="theme-color" content="#050508" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Invite Challenge</title>
-    <!-- Private Invite Challenge admin (src/referral/admin.ts). Needs ADMIN_PASSWORD; no ads, no analytics. -->
+    <title>Referrals</title>
+    <!-- Private referrals admin (src/referral/admin.ts). Needs ADMIN_PASSWORD; no ads, no analytics. -->
     <style>
       :root {
         color-scheme: dark;
@@ -252,28 +252,34 @@
   <body>
     <main>
       <header>
-        <h1>Invite Challenge</h1>
+        <h1>Referrals</h1>
         <a href="/admin/live">Live viewers →</a>
       </header>
 
       <form id="login" hidden>
         <label class="muted" for="password">Admin password</label>
         <input id="password" type="password" autocomplete="current-password" required />
-        <button type="submit">Show challenge</button>
+        <button type="submit">Show referrals</button>
         <p class="error" id="login-error" role="alert" hidden></p>
       </form>
 
       <section id="panel" hidden>
-        <p class="muted" id="contest"></p>
-        <p class="muted" id="warnings"></p>
-        <h2>Winners</h2>
-        <p class="muted">Confirm 1st, then 2nd, then 3rd, once the challenge has ended. Each winner gets a private claim link from @naijatr_bot; you get a summary after 3rd.</p>
-        <ol id="confirmed"></ol>
+        <div class="stats" id="totals"></div>
+        <div class="filters">
+          <button type="button" class="ghost" id="prev">← Previous week</button>
+          <button type="button" class="ghost" id="next">Next week →</button>
+        </div>
+        <h2 id="week"></h2>
+        <p class="muted">
+          The weekly mystery prize: most counted referrals, Monday 00:00 → Sunday 23:59 (Lagos); a tie goes to whoever got
+          there first. Check the flags, then confirm the winner once the week is over and contact them by email.
+        </p>
         <h2>Top 10</h2>
         <ol id="top"></ol>
-        <p class="muted" id="top-empty" hidden>No points yet.</p>
-        <h2>Disqualified</h2>
-        <ol id="dq"></ol>
+        <p class="muted" id="top-empty" hidden>No counted referrals this week yet.</p>
+        <h2>Past winners</h2>
+        <ol id="winners"></ol>
+        <p class="muted" id="winners-empty" hidden>No winners confirmed yet.</p>
         <p class="error" id="panel-error" role="alert" hidden></p>
         <button type="button" class="ghost" id="sign-out">Sign out</button>
       </section>

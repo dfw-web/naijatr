@@ -1,49 +1,46 @@
 /**
- * /admin/challenge (admin/challenge/index.html): the Invite Challenge's final
- * top 10 with suspicious-activity flags, Confirm / Disqualify for the
- * winners, and each winner's claim details (decrypted on the server, shown
- * only here) with "Mark as paid", which deletes them for good. The password
- * is shared with /admin/live and /admin/feedback for this browser tab.
+ * /admin/referrals (admin/referrals/index.html): the week's top 10 referrers
+ * with their emails, counts and suspicious-activity flags, Confirm winner /
+ * Disqualify for the weekly mystery prize, past winners and totals. The
+ * password is shared with /admin/live and /admin/feedback for this browser tab.
  */
 
 const PASSWORD_KEY = 'naijatr.admin.password'
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 interface Row {
-  id: number
-  rank: number
-  points: number
-  nickname: string
-  username: string | null
-  hidden: boolean
+  userId: string
+  email: string | null
+  count: number
+  reachedAt: string
   flags: string[]
-}
-
-interface Confirmed {
-  id: number
-  place: number
-  amount: number
-  name: string
-  username: string | null
-  messaged: boolean
-  paid: boolean
-  claim: { accountName: string; provider: string; accountNumber: string; phone: string; at: number } | null
+  flagged: number
+  held: number
+  rejected: number
+  decision: 'winner' | 'disqualified' | null
 }
 
 interface View {
-  contest: { phase: string; start: number; end: number; prizes: number[] }
+  week: { key: string; start: string; end: string; current: boolean }
   top: Row[]
-  confirmed: Confirmed[]
-  disqualified: { id: number; nickname: string }[]
-  telegram: boolean
-  claimsReady: boolean
+  suggested: string | null
+  winners: { week: string; userId: string; email: string | null; referrals: number; decidedAt: string }[]
+  totals: Record<'pending' | 'counted' | 'held' | 'rejected', number>
+}
+
+const FLAG_NAMES: Record<string, string> = {
+  'ip-limit': 'over the daily limit for one network (held)',
+  'referrer-network': 'same network as the referrer',
+  'shared-network': 'several of their referrals share a network',
+  burst: '5+ sign-ups within an hour',
 }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
-const PLACES = ['🥇 1st', '🥈 2nd', '🥉 3rd']
-const naira = (n: number) => `₦${n.toLocaleString('en-NG')}`
-const lagos = (t: number) => new Date(t).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', dateStyle: 'medium', timeStyle: 'short' })
+const lagos = (t: string) => new Date(t).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', dateStyle: 'medium', timeStyle: 'short' })
+const lagosDate = (t: string | number) => new Date(t).toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', dateStyle: 'medium' })
 
 let password = ''
+let week: string | null = null
 
 const readPassword = () => {
   try {
@@ -82,147 +79,104 @@ function button(label: string, onClick: () => void, ghost = false) {
   return b
 }
 
-async function showClaimLink(id: number, li: HTMLElement) {
-  const response = await fetch('/api/referral/admin-claim-link', {
+async function decide(userId: string, decision: 'winner' | 'disqualified' | 'clear') {
+  const response = await fetch('/api/referral/decide', {
     method: 'POST',
     headers: { Authorization: `Bearer ${password}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  }).catch(() => null)
-  const data = ((await response?.json().catch(() => null)) ?? null) as { link?: string; expiresAt?: number } | null
-  li.querySelector('.claim-link')?.remove()
-  const box = el('div', '', 'claim-link')
-  if (!response?.ok || !data?.link) {
-    box.append(el('span', 'Couldn’t make a link. Please try again.', 'flag'))
-  } else {
-    const link = data.link
-    const input = el('input') as HTMLInputElement
-    input.readOnly = true
-    input.value = link
-    input.addEventListener('focus', () => input.select())
-    const copy = button('Copy', () => {
-      void navigator.clipboard?.writeText(link).then(
-        () => (copy.textContent = 'Copied ✓'),
-        () => input.select(),
-      )
-    })
-    box.append(input, copy, el('span', `Works until ${lagos(data.expiresAt!)} (Lagos). They open it signed in with the same Telegram.`, 'muted'))
-  }
-  li.append(box)
-}
-
-async function post(action: string, body: unknown) {
-  const response = await fetch(`/api/referral/${action}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${password}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ week, userId, decision }),
   }).catch(() => null)
   if (!response?.ok) {
-    const { error } = ((await response?.json().catch(() => ({}))) ?? {}) as { error?: string }
-    $('panel-error').textContent =
-      error === 'not-ended'
-        ? 'The challenge hasn’t ended yet.'
-        : error === 'confirm-in-order'
-          ? 'Confirm 1st, then 2nd, then 3rd.'
-          : error === 'already-confirmed'
-            ? 'A confirmed winner can’t be disqualified.'
-            : 'That didn’t work. Please try again.'
+    $('panel-error').textContent = response?.status === 409 ? 'This week already has a winner: undo it first.' : 'That didn’t work. Please try again.'
     $('panel-error').hidden = false
-    return false
+    return
   }
   $('panel-error').hidden = true
   await load()
-  return true
 }
 
 function render(view: View) {
-  const { contest } = view
-  $('contest').textContent = `${contest.phase.toUpperCase()} · ${lagos(contest.start)} → ${lagos(contest.end)} (Lagos) · prizes ${contest.prizes.map(naira).join(' / ')}`
-  const warnings = [
-    view.telegram ? '' : 'TELEGRAM_BOT_TOKEN is missing: winners can’t be messaged.',
-    view.claimsReady ? '' : 'CLAIM_ENCRYPTION_KEY is missing: winners can’t send their details.',
-  ].filter(Boolean)
-  $('warnings').textContent = warnings.join(' ')
-  $('warnings').hidden = !warnings.length
-
-  const next = view.confirmed.length + 1
-  $('confirmed').replaceChildren(
-    ...view.confirmed.map((c) => {
-      const li = el('li', '', 'row')
-      const line = el('div', '', 'line')
-      line.append(el('strong', `${PLACES[c.place - 1]} · ${c.name}${c.username ? ` (@${c.username})` : ''}`), el('span', naira(c.amount)))
-      li.append(line)
-      li.append(el('span', c.messaged ? 'Messaged on Telegram ✓' : 'Telegram message failed: ask them to /start @naijatr_bot, then message them yourself.', c.messaged ? 'muted' : 'flag'))
-      if (c.paid) li.append(el('span', 'Paid ✓ (details deleted)', 'muted'))
-      else if (c.claim) {
-        li.append(el('pre', `Name: ${c.claim.accountName}\nProvider: ${c.claim.provider}\nAccount: ${c.claim.accountNumber}\nPhone: ${c.claim.phone}\nSent: ${lagos(c.claim.at)}`, 'claim'))
-        const actions = el('div', '', 'actions')
-        actions.append(
-          button('Mark as paid (deletes these details)', () => {
-            if (window.confirm(`Paid ${c.name}? Their bank details are deleted for good.`)) void post('admin-paid', { id: c.id })
-          }),
-        )
-        li.append(actions)
-      } else {
-        li.append(el('span', 'Waiting for their claim (48h link).', 'muted'))
-        // A fresh link to send them yourself (their message failed, or the link ran out).
-        const actions = el('div', '', 'actions')
-        actions.append(button('Get a new claim link', () => void showClaimLink(c.id, li), true))
-        li.append(actions)
-      }
-      return li
+  week = view.week.key
+  const totals = [
+    ['Counted', view.totals.counted],
+    ['Waiting (not watched yet)', view.totals.pending],
+    ['Held for review', view.totals.held],
+    ['Rejected', view.totals.rejected],
+  ] as const
+  $('totals').replaceChildren(
+    ...totals.map(([label, n]) => {
+      const box = el('p', '', 'stat')
+      box.append(el('strong', String(n)), el('span', label))
+      return box
     }),
   )
+  $('week').textContent = `Week of ${lagosDate(`${view.week.key}T12:00:00Z`)} → ${lagosDate(Date.parse(view.week.end) - 1)}${view.week.current ? ' (this week, still running)' : ''}`
+  ;($('next') as HTMLButtonElement).disabled = view.week.current
 
+  const hasWinner = view.top.some((r) => r.decision === 'winner')
   $('top').replaceChildren(
-    ...view.top.map((row) => {
+    ...view.top.map((row, i) => {
       const li = el('li', '', 'row')
       const line = el('div', '', 'line')
-      line.append(
-        el('strong', `#${row.rank} · ${row.nickname}${row.username ? ` (@${row.username})` : ''}${row.hidden ? ' · name hidden' : ''}`),
-        el('span', `${row.points} pts · id ${row.id}`),
-      )
+      const tag = row.decision === 'winner' ? ' · 🏆 WINNER' : row.decision === 'disqualified' ? ' · disqualified' : row.userId === view.suggested ? ' · top (not confirmed)' : ''
+      line.append(el('strong', `#${i + 1} · ${row.email ?? row.userId}${tag}`), el('span', `${row.count} counted · reached ${lagos(row.reachedAt)}`))
       li.append(line)
-      for (const flag of row.flags) li.append(el('span', `⚠ ${flag}`, 'flag'))
-      const confirmed = view.confirmed.some((c) => c.id === row.id)
-      if (!confirmed && next <= 3) {
-        const actions = el('div', '', 'actions')
-        // The first unconfirmed person is the next place.
-        const isNext = view.top.filter((r) => !view.confirmed.some((c) => c.id === r.id))[0]?.id === row.id
-        if (isNext) actions.append(button(`Confirm ${PLACES[next - 1]} (${naira(contest.prizes[next - 1])})`, () => void post('admin-confirm', { place: next })))
+      if (row.flagged) li.append(el('span', `⚠ ${row.flagged} flagged this week: ${row.flags.map((f) => FLAG_NAMES[f] ?? f).join('; ')}`, 'flag'))
+      if (row.held) li.append(el('span', `⚠ ${row.held} held for review (over a network's daily limit)`, 'flag'))
+      if (row.rejected) li.append(el('span', `⚠ ${row.rejected} rejected (self-referral or duplicate inbox)`, 'flag'))
+      const actions = el('div', '', 'actions')
+      if (row.decision) {
+        actions.append(button(row.decision === 'winner' ? 'Undo winner' : 'Undo disqualify', () => void decide(row.userId, 'clear'), true))
+      } else {
+        if (!hasWinner) {
+          actions.append(
+            button('Confirm winner', () => {
+              if (view.week.current && !window.confirm('This week is still running. Confirm the winner anyway?')) return
+              void decide(row.userId, 'winner')
+            }),
+          )
+        }
         actions.append(
           button(
             'Disqualify',
             () => {
-              if (window.confirm(`Disqualify ${row.nickname}? Everyone below moves up.`)) void post('admin-dq', { id: row.id })
+              if (window.confirm(`Disqualify ${row.email ?? row.userId} for this week?`)) void decide(row.userId, 'disqualified')
             },
             true,
           ),
         )
-        li.append(actions)
       }
+      li.append(actions)
       return li
     }),
   )
   $('top-empty').hidden = view.top.length > 0
-  $('dq').replaceChildren(...view.disqualified.map((d) => el('li', `${d.nickname} (id ${d.id})`, 'muted')))
+  $('winners').replaceChildren(
+    ...view.winners.map((w) => el('li', `Week of ${lagosDate(`${w.week}T12:00:00Z`)} · ${w.email ?? w.userId} · ${w.referrals} referrals`, 'row')),
+  )
+  $('winners-empty').hidden = view.winners.length > 0
 }
 
 async function load(): Promise<boolean> {
-  const response = await fetch('/api/referral/admin', { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' }).catch(() => null)
+  const query = week ? `?week=${week}` : ''
+  const response = await fetch(`/api/referral/admin${query}`, { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' }).catch(() => null)
   if (response?.status === 401) {
     savePassword('')
     showLogin('Wrong password.')
     return false
   }
   if (!response?.ok) {
-    const { error } = ((await response?.json().catch(() => ({}))) ?? {}) as { error?: string }
-    $('panel-error').textContent =
-      error === 'no-contest' ? 'No contest is set: add CONTEST_START and CONTEST_END on Vercel.' : error === 'not-configured' ? 'Redis or a secret is missing on the server.' : 'Couldn’t load. Please reload.'
+    $('panel-error').textContent = response?.status === 503 ? 'Supabase isn’t set up on the server (SUPABASE_SERVICE_ROLE_KEY).' : 'Couldn’t load. Has the SQL migration been run?'
     $('panel-error').hidden = false
     return true
   }
   render((await response.json()) as View)
   return true
+}
+
+const shiftWeek = (by: number) => {
+  if (!week) return
+  week = new Date(Date.parse(`${week}T00:00:00Z`) + by * WEEK_MS).toISOString().slice(0, 10)
+  void load()
 }
 
 async function start() {
@@ -242,6 +196,8 @@ $('sign-out').addEventListener('click', () => {
   password = ''
   showLogin()
 })
+$('prev').addEventListener('click', () => shiftWeek(-1))
+$('next').addEventListener('click', () => shiftWeek(1))
 password = readPassword()
 if (password) void start()
 else showLogin()

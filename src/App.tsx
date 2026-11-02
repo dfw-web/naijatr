@@ -19,7 +19,7 @@ import { TelegramGateHost } from './gate/TelegramGate'
 import { GreetingHost } from './components/Greeting'
 import { InstallAppHost } from './components/InstallApp'
 import { FeedbackHost } from './feedback/Feedback'
-import { ContestHost } from './referral/Invite'
+import { DailyPromoHost, InvitePage, InviteRulesPage, UnlockNoticeHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } from './account/AccountPages'
@@ -145,8 +145,6 @@ function App() {
 
   return (
     <>
-      {/* The Invite & Win contest's popup and banners, and the invite guide. */}
-      <ContestHost />
       <Navbar
         links={NAV_LINKS}
         activeId={activeId}
@@ -177,6 +175,10 @@ function App() {
           <AuthConfirmPage />
         ) : page === 'auth/reset' ? (
           <AuthResetPage />
+        ) : page === 'invite' ? (
+          <InvitePage />
+        ) : page === 'invite/rules' ? (
+          <InviteRulesPage />
         ) : view === 'home' ? (
           <HomeView onSelect={setSelected} onBrowseTrending={() => handleNavigate(TRENDING_LINK)} />
         ) : (
@@ -214,6 +216,9 @@ function App() {
       <SignInHost />
       <SyncPromptHost />
       <PasswordReminderHost />
+      {/* Referrals: the daily "Go ad-free" popup (at most once a day) and the unlock notice. */}
+      <DailyPromoHost />
+      <UnlockNoticeHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

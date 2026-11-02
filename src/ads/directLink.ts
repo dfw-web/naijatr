@@ -2,6 +2,7 @@ import { ADS_ENABLED, DIRECT_LINK_URL } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { setAdStatus } from './adStatus'
 import { requestAdBreak } from './adBreakStore'
+import { isAdFreeNow } from '../referral/status'
 
 export const AD_URL = DIRECT_LINK_URL
 
@@ -15,8 +16,8 @@ export const adTiming = { blockCheckMs: 1000 }
 const NO_ADS_KEY = 'naijatr.noads'
 // Dev machines and phones on the home network (vite --host): never a real visit.
 const LOCAL_HOST = /^(localhost|127\.|0\.0\.0\.0$|\[::1\]$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.local$/
-// Pages that never show ads: the admin pages, the contest rules and the prize claim form.
-const NO_ADS_PATH = /^\/(admin(\/|$)|challenge\/(rules|claim)\/?$)/
+// Pages that never show ads: the admin pages and the invite rules.
+const NO_ADS_PATH = /^\/(admin(\/|$)|invite\/rules\/?$)/
 
 /** ?noads=1 (in the query or the #/route) turns ads off for the session; ?noads=0 turns them back on. */
 function noAdsFlag(url: URL): boolean {
@@ -42,10 +43,12 @@ export function rememberNoAdsFlag(href = window.location.href): void {
 /**
  * True while ads are switched off (ADS_ENABLED), for test visits (localhost,
  * the home network, ?noads=1), so no impressions are wasted, and on the pages
- * that never show ads (/admin, /challenge/rules, /challenge/claim).
+ * that never show ads (/admin, /invite/rules), and for ad-free accounts
+ * (checked by the server: src/referral/status.ts).
  */
 export function adsDisabled(href = window.location.href): boolean {
   if (!ADS_ENABLED) return true
+  if (isAdFreeNow()) return true
   const url = new URL(href)
   if (noAdsFlag(url)) return true
   if (NO_ADS_PATH.test(url.pathname)) return true
@@ -143,6 +146,6 @@ function blocked(adKey: string) {
 
 /** Opens the ad from the ad break's own button: a fresh tap, which Safari allows. */
 export function openAdFromAdBreak(): void {
-  if (!ADS_ENABLED) return
+  if (!ADS_ENABLED || isAdFreeNow()) return
   if (!clickAdLink()) windowOpenAd()
 }

@@ -1,5 +1,5 @@
 import './tv/polyfills'
-// Next, before anything writes to storage: tells a new device from a returning one, and handles /r/CODE invite links.
+// Next: keeps the code of a /r/CODE invite link (src/referral/capture.ts).
 import './referral/capture'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -13,8 +13,6 @@ import { isFootballPath } from './football/format'
 import { FootballRoot } from './football/FootballRoot'
 import { installRemote } from './tv/remote'
 import { isTvMode } from './tv/tvMode'
-import { isChallengePath } from './referral/guide'
-import { ChallengeRoot } from './referral/ChallengeRoot'
 import { initAccount } from './account/account'
 
 listenForInstallPrompt()
@@ -29,8 +27,6 @@ createRoot(document.getElementById('root')!).render(
     {/* The Football section (/football) is a separate root from the movie app. */}
     {isFootballPath(window.location.pathname) ? (
       <FootballRoot />
-    ) : isChallengePath(window.location.pathname) ? (
-      <ChallengeRoot />
     ) : (
       <App />
     )}

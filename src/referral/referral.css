@@ -1,0 +1,209 @@
+/* The referral program: /invite, the header button, the home card, the daily popup. */
+
+.go-ad-free {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  padding: 0 0.85rem;
+  border: 1px solid rgba(245, 197, 24, 0.45);
+  border-radius: 999px;
+  background: rgba(245, 197, 24, 0.1);
+  color: var(--gold);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.go-ad-free:hover,
+.go-ad-free:focus-visible {
+  background: rgba(245, 197, 24, 0.2);
+}
+
+.invite-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin: 1.5rem var(--gutter) 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(245, 197, 24, 0.3);
+  border-radius: 14px;
+  background: linear-gradient(120deg, rgba(245, 197, 24, 0.12), rgba(229, 9, 20, 0.1));
+}
+.invite-card__icon {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  color: var(--gold);
+}
+.invite-card__body {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.invite-card__title {
+  margin: 0;
+  font-weight: 700;
+}
+.invite-card__text {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.invite-card__button,
+.promo__primary {
+  min-height: 42px;
+  padding: 0 1.1rem;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.invite-card__button:hover,
+.promo__primary:hover {
+  background: var(--accent-hover);
+}
+
+.invite-page__badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+.invite-page__link {
+  width: 100%;
+  min-height: 44px;
+  margin: 0.5rem 0;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-family: ui-monospace, monospace;
+}
+.invite-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.invite-share__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 40px;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.invite-share__button svg {
+  width: 1rem;
+  height: 1rem;
+}
+.invite-share--whatsapp {
+  background: #1fa855;
+}
+.invite-share--telegram {
+  background: #229ed9;
+}
+.invite-share--x {
+  background: #000;
+  border: 1px solid var(--border-strong);
+}
+.invite-share--copy {
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+}
+.invite-progress__text {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+.invite-progress__bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.invite-progress__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gold), var(--accent));
+}
+.invite-steps {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.promo {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.65);
+}
+.promo__panel {
+  position: relative;
+  width: min(100%, 26rem);
+  padding: 1.5rem 1.25rem 1.25rem;
+  border: 1px solid rgba(245, 197, 24, 0.35);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.promo__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.promo__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+.promo__text {
+  margin: 0 0 1.25rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.promo__actions {
+  display: grid;
+  gap: 0.5rem;
+}
+.promo__ghost {
+  min-height: 40px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ads-back__link {
+  color: var(--gold);
+  font-weight: 600;
+}

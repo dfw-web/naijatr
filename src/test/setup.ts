@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { resetAdBreaks } from '../ads/adBreakStore'
-import { adClock, resetAdManager } from '../ads/adManager'
+import { adClock, lagosDay, resetAdManager } from '../ads/adManager'
 import { adTiming } from '../ads/directLink'
 import { AD_RULES, AD_SECTIONS } from '../config/ads'
 import { GREETINGS } from '../config/greetings'
@@ -11,6 +11,8 @@ import { resetContinueWatching } from '../utils/continueWatching'
 import { resetLiveHeartbeat } from '../live/heartbeat'
 import { resetInstallApp } from '../installAppStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
+import { resetReferralStatus } from '../referral/status'
+import { PROMO_DAY_KEY } from '../referral/copy'
 
 const SHIPPED_AD_RULES = { ...AD_RULES }
 
@@ -19,6 +21,8 @@ const SHIPPED_AD_RULES = { ...AD_RULES }
 beforeEach(() => {
   window.localStorage.setItem('naijatr.ads.backNotice', '1')
   for (const greeting of GREETINGS) window.localStorage.setItem(`naijatr.greeting.${greeting.id}`, '1')
+  // Same for the daily "Go ad-free" popup (except in referral.test.tsx).
+  window.localStorage.setItem(PROMO_DAY_KEY, lagosDay(Date.now()))
 })
 
 afterEach(() => {
@@ -34,7 +38,9 @@ afterEach(() => {
   resetContinueWatching()
   resetLiveHeartbeat()
   resetInstallApp()
+  resetReferralStatus()
   document.cookie = 'naijatr_gate_joined=; Path=/; Max-Age=0'
+  document.cookie = 'naijatr_ref=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
   // Back to the shipped ad settings (src/config/ads.ts): both sections, no limits.

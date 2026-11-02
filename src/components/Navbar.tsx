@@ -9,7 +9,7 @@ import { AccountMenu } from '../account/AccountMenu'
 import { SearchSuggestions } from './SearchSuggestions'
 import { SUGGESTIONS_ID, suggestionId, useSuggestions } from '../search/useSuggestions'
 import { TelegramHeaderLink, TelegramMenuLink } from './Telegram'
-import { InviteButton } from '../referral/Invite'
+import { GoAdFreeButton } from '../referral/Invite'
 import './Navbar.css'
 
 interface NavbarProps {
@@ -191,15 +191,13 @@ export function Navbar({ links, activeId, query, onQueryChange, onNavigate, onSe
           {showSuggestions && <SearchSuggestions items={suggestions} activeIndex={activeIndex} onPick={pick} />}
         </form>
 
-        <InviteButton />
+        <GoAdFreeButton />
 
         <TelegramHeaderLink />
 
         <InstallAppButton className="navbar__install navbar__install--download" />
         <AccountMenu />
       </div>
-      {/* The contest bars (ContestHost) show here, under the header row, so they never cover the page. */}
-      <div id="navbar-banner" />
     </header>
   )
 }

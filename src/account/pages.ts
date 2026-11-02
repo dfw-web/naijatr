@@ -1,10 +1,11 @@
 /**
  * The account's own pages, at their own paths (Vercel serves index.html for
- * them). auth/confirm and auth/reset are where the email links land.
+ * them). auth/confirm and auth/reset are where the email links land; invite
+ * and invite/rules are the referral program's (src/referral/Invite.tsx).
  */
-export type Page = 'my-list' | 'account' | 'privacy' | 'auth/confirm' | 'auth/reset'
+export type Page = 'my-list' | 'account' | 'privacy' | 'auth/confirm' | 'auth/reset' | 'invite' | 'invite/rules'
 
-const PAGES: Page[] = ['my-list', 'account', 'privacy', 'auth/confirm', 'auth/reset']
+const PAGES: Page[] = ['my-list', 'account', 'privacy', 'auth/confirm', 'auth/reset', 'invite', 'invite/rules']
 
 export const pageFromPath = (pathname: string): Page | null => {
   const name = pathname.replace(/^\/+|\/+$/g, '')

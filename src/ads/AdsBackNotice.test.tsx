@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAdOverlay } from './adManager'
 import { AdsBackNotice } from './AdsBackNotice'
 
-const TEXT = '📢 Ads are back on NAIJA TR. They help keep the site free for everyone 🙏 Thanks for your support! ❤️'
+const TEXT = '📢 Ads are back on NAIJA TR to keep it free. Want it ad-free? Invite 5 friends 👉 Learn more'
 
 function Popup() {
   useAdOverlay()
@@ -43,7 +43,7 @@ describe('"Ads are back"', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('waits until the contest or referral popup is closed', () => {
+  it('waits until another popup is closed', () => {
     const page = (popup: boolean) => (
       <>
         {popup && <Popup />}

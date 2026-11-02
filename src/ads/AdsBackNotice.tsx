@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react'
 import { ADS_ENABLED } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices } from '../ui/noticeQueue'
-import { useOverlayOpen } from './adManager'
+import { holdAdsThisTap, useOverlayOpen } from './adManager'
+import { goToPage } from '../account/pages'
+import { goalNow } from '../referral/status'
+import '../referral/referral.css'
 import { adsDisabled } from './directLink'
 import './AdsBackNotice.css'
 
 const SEEN_KEY = 'naijatr.ads.backNotice'
-/** Gives the contest popup a moment to open first; the card waits until it's closed. */
+/** Gives other popups a moment to open first; the card waits until they're closed. */
 const SHOW_AFTER_MS = 1500
 const VISIBLE_MS = 8000
 
@@ -31,8 +34,8 @@ const noticeDue = () => ADS_ENABLED && !adsDisabled() && !isTvMode() && !seen()
 
 /**
  * "Ads are back": a slim card at the bottom, once per device, on a visit with
- * ads. It waits while the Telegram gate, the invite guide or a contest popup is
- * open, and goes away after 8 seconds or on OK.
+ * ads (not for ad-free accounts). It waits while another popup is open, and
+ * goes away after 8 seconds or on OK. "Learn more" opens /invite.
  */
 export function AdsBackNotice() {
   const [due, setDue] = useState(noticeDue)
@@ -59,7 +62,19 @@ export function AdsBackNotice() {
   return (
     <div className="ads-back" role="status">
       <p className="ads-back__text">
-        📢 Ads are back on NAIJA TR. They help keep the site free for everyone 🙏 Thanks for your support! ❤️
+        📢 Ads are back on NAIJA TR to keep it free. Want it ad-free? Invite {goalNow()} friends 👉{' '}
+        <a
+          href="/invite"
+          className="ads-back__link"
+          onClick={(event) => {
+            event.preventDefault()
+            holdAdsThisTap()
+            setDue(false)
+            goToPage('invite')
+          }}
+        >
+          Learn more
+        </a>
       </p>
       <button type="button" className="ads-back__ok" onClick={() => setDue(false)}>
         OK 👍

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Bookmark, Download, KeyRound, LogOut, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { Bookmark, Download, KeyRound, LogOut, RefreshCw, Trash2 } from 'lucide-react'
 import { TitleGrid } from '../components/TitleGrid'
-import { TelegramLogin } from '../referral/Invite'
+import { AdFreeCard } from '../referral/Invite'
 import type { MediaItem } from '../types/media'
 import { savedItem, useWatchLater } from '../utils/watchLater'
-import { deleteAccount, downloadMyData, openSignIn, setPassword, signOut, useAccount, useTelegramLink } from './account'
+import { deleteAccount, downloadMyData, openSignIn, setPassword, signOut, useAccount } from './account'
 import { PasswordForm } from './authParts'
 import { goHome } from './pages'
 import { snooze } from './reminders'
@@ -43,11 +43,10 @@ export function MyListPage({ onSelect }: { onSelect: (item: MediaItem) => void }
 
 const syncLabels = { idle: 'Up to date', syncing: 'Syncing…', offline: 'Offline: saved here, will sync later', error: 'Couldn’t sync: will try again' }
 
-/** /account: who's signed in, sync, Telegram, your data. */
+/** /account: who's signed in, sync, ad-free, your data. */
 export function AccountPage() {
   const { status, user } = useAccount()
   const sync = useSyncState()
-  const telegram = useTelegramLink()
   const [busy, setBusy] = useState<'download' | 'delete' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -132,22 +131,7 @@ export function AccountPage() {
 
       <ChangePassword hasPassword={user.passwordSet} />
 
-      <div className="account-card">
-        <h2 className="account-card__title">Telegram</h2>
-        {telegram ? (
-          <p className="account-card__value">
-            <Send aria-hidden="true" /> Linked{telegram.username ? ` as @${telegram.username}` : telegram.name ? ` as ${telegram.name}` : ''}
-            {telegram.code ? ` · invite code ${telegram.code}` : ''}
-          </p>
-        ) : (
-          <>
-            <p className="account-card__muted">
-              Link your Telegram so your contest entries and invites stay with your account.
-            </p>
-            <TelegramLogin />
-          </>
-        )}
-      </div>
+      <AdFreeCard />
 
       <div className="account-card">
         <h2 className="account-card__title">Your data</h2>
@@ -168,7 +152,7 @@ export function AccountPage() {
       <div className="account-card account-card--danger">
         <h2 className="account-card__title">Delete my account</h2>
         <p className="account-card__muted">
-          Deletes your synced Continue Watching, My List, recommendations and Telegram link. This device keeps its own
+          Deletes your synced Continue Watching, My List, recommendations, invites and ad-free reward. This device keeps its own
           copy until you clear it.
         </p>
         {confirming ? (

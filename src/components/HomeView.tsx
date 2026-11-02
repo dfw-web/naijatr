@@ -11,10 +11,12 @@ import { Hero } from './Hero'
 import { MediaRow } from './MediaRow'
 import { StatusMessage } from './StatusMessage'
 import { TelegramBanner } from './Telegram'
+import { InviteCard } from '../referral/Invite'
 import { AdSlot } from '../tv/AdSlot'
 import { QrCode } from '../tv/QrCode'
 import { isTvMode } from '../tv/tvMode'
 import { useContinueWatching } from '../utils/continueWatching'
+import { useAdFree } from '../referral/status'
 import { dedupeRows, planPersonalHome } from '../taste/personalHome'
 import { isColdStart, readTaste, recordTaste, useTaste } from '../taste/profile'
 import { useNearScreen, usePersonalRows } from '../taste/usePersonalHome'
@@ -57,6 +59,7 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
   const personal = usePersonalRows(plan, useNearScreen(sentinel))
   const continuing = useContinueWatching()
+  const adFree = useAdFree()
 
   if (state.status === 'error') {
     return (
@@ -113,6 +116,8 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
         {/* Titles saved with "Watch later" (hidden while there are none). */}
         <WatchLaterRow onSelect={onSelect} />
         <TelegramBanner />
+        {/* "Go ad-free: invite friends" (hidden for ad-free accounts and on TVs). */}
+        <InviteCard />
         {/* The personal rows load when this comes near the screen. */}
         <div ref={setSentinel} aria-hidden="true" />
         {cold && !taste.asked && !tv && <TastePicker />}
@@ -137,7 +142,7 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
                 onNotInterested={notInterested}
               />
               {/* TV only: one ad between the first and second rows. */}
-              {tv && index === 0 && ADS_ENABLED && TV_BANNER_ZONE && <AdSlot zone={TV_BANNER_ZONE} className="tv-ad-slot--row" />}
+              {tv && index === 0 && ADS_ENABLED && !adFree && TV_BANNER_ZONE && <AdSlot zone={TV_BANNER_ZONE} className="tv-ad-slot--row" />}
             </Fragment>
           )
         })}

@@ -1,452 +1,282 @@
-import { createHash, createHmac } from 'node:crypto'
+import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { describe, expect, it } from 'vitest'
-import { fakeRedis } from '../testing/fakeRedis'
-import { contestPhase, parseLagosTime, readContest } from './contest'
-import { handleReferral, IP_DAILY_CAP, readReferralEnv, suspicionFlags, type ReferralRecord } from './handlers'
-import { createSession, decrypt, encrypt, readSession, verifyTelegramLogin } from './security'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { handleReferral, readReferralEnv } from './handlers'
+import { DAY_MS, normalizeEmail } from './rules'
+import type { AuthUser, Profile, Referral, ReferralStore, WeekDecision } from './store'
 
-const BOT = '123456:TEST-token'
-const HOUR = 3_600_000
-const START = parseLagosTime('2026-10-23 18:00')
-const END = parseLagosTime('2026-10-25 23:59') + 59_999
-const DURING = START + HOUR
-const AFTER = END + HOUR
-const BOARD_TIME = DURING
+const NOW = Date.UTC(2026, 10, 4, 12)
 
-const device = (n: number | string) => `device-${String(n).padStart(12, '0')}`
-
-/** What the Telegram Login Widget hands the page, signed for BOT. */
-function widget(id: number, username: string, at = DURING) {
-  const data: Record<string, string | number> = { id, first_name: username, username, auth_date: Math.floor(at / 1000) }
-  const check = Object.keys(data)
-    .sort()
-    .map((key) => `${key}=${data[key]}`)
-    .join('\n')
-  const hash = createHmac('sha256', createHash('sha256').update(BOT).digest()).update(check).digest('hex')
-  return { ...data, hash }
+/** Supabase, in memory. Tokens are "token-<userId>". */
+function fakeStore() {
+  const users = new Map<string, AuthUser>()
+  const profiles = new Map<string, Profile>()
+  const referrals: Referral[] = []
+  const decisions: WeekDecision[] = []
+  let nextId = 1
+  const store: ReferralStore = {
+    async userFromToken(token) {
+      return users.get(token.replace(/^token-/, '')) ?? null
+    },
+    async emailOf(userId) {
+      return users.get(userId)?.email ?? null
+    },
+    async getProfile(userId) {
+      return profiles.get(userId) ?? null
+    },
+    async profileByCode(code) {
+      return [...profiles.values()].find((p) => p.invite_code === code) ?? null
+    },
+    async saveProfile(userId, patch) {
+      if (patch.invite_code && [...profiles.values()].some((p) => p.invite_code === patch.invite_code && p.user_id !== userId)) throw new Error('taken')
+      const profile: Profile = { user_id: userId, invite_code: null, ad_free_until: null, rewards_granted: 0, email_normalized: null, last_ip_hash: null, ...profiles.get(userId), ...patch }
+      profiles.set(userId, profile)
+      return profile
+    },
+    async inboxTaken(email, except) {
+      return [...profiles.values()].some((p) => p.email_normalized === email && p.user_id !== except)
+    },
+    async grantReward(userId, expected, granted, until) {
+      const p = profiles.get(userId)
+      if (!p || p.rewards_granted !== expected) return false
+      profiles.set(userId, { ...p, rewards_granted: granted, ad_free_until: until })
+      return true
+    },
+    async referralOf(id) {
+      return referrals.find((r) => r.referred_user_id === id) ?? null
+    },
+    async insertReferral(row) {
+      if (referrals.some((r) => r.referred_user_id === row.referred_user_id)) return null
+      const referral: Referral = { id: nextId++, flags: [], created_at: new Date(clock.now).toISOString(), counted_at: null, ...row }
+      referrals.push(referral)
+      return referral
+    },
+    async updateReferral(id, from, patch) {
+      const r = referrals.find((x) => x.id === id)
+      if (!r || r.status !== from) return false
+      Object.assign(r, patch)
+      return true
+    },
+    async countedFromIp(ip, since) {
+      return referrals.filter((r) => r.ip_hash === ip && r.status === 'counted' && r.counted_at! >= since).length
+    },
+    async referralsOf(id) {
+      return referrals.filter((r) => r.referrer_id === id)
+    },
+    async countedBetween(from, to) {
+      return referrals.filter((r) => r.status === 'counted' && r.counted_at! >= from && r.counted_at! < to)
+    },
+    async totals() {
+      const n = (s: string) => referrals.filter((r) => r.status === s).length
+      return { pending: n('pending'), counted: n('counted'), held: n('held'), rejected: n('rejected') }
+    },
+    async decisions(week) {
+      return decisions.filter((d) => !week || d.week_start === week)
+    },
+    async setDecision(row) {
+      if (row.decision === 'winner' && decisions.some((d) => d.week_start === row.week_start && d.decision === 'winner' && d.user_id !== row.user_id)) return false
+      const i = decisions.findIndex((d) => d.week_start === row.week_start && d.user_id === row.user_id)
+      if (i >= 0) decisions.splice(i, 1)
+      decisions.push({ ...row, decided_at: new Date(clock.now).toISOString() })
+      return true
+    },
+    async clearDecision(week, userId) {
+      const i = decisions.findIndex((d) => d.week_start === week && d.user_id === userId)
+      if (i >= 0) decisions.splice(i, 1)
+    },
+  }
+  const clock = { now: NOW }
+  const addUser = (id: string, email: string, createdAt = clock.now - 60_000, emailConfirmed = true) => {
+    users.set(id, { id, email, createdAt, emailConfirmed })
+    return id
+  }
+  return { store, users, profiles, referrals, decisions, clock, addUser }
 }
 
-function setup(envOverrides: Record<string, string> = {}) {
-  let clock = DURING
-  const store = fakeRedis(() => clock)
-  const telegram: { chat_id: string | number; text: string }[] = []
-  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
-    if (String(url).startsWith('https://api.telegram.org/')) {
-      telegram.push(JSON.parse(String(init?.body)))
-      return Response.json({ ok: true })
-    }
-    return store.fetchImpl(url, init)
-  }) as typeof fetch
-  const env = readReferralEnv({
-    KV_REST_API_URL: 'https://redis.example',
-    KV_REST_API_TOKEN: 't',
-    TELEGRAM_BOT_TOKEN: BOT,
-    ADMIN_TELEGRAM_CHAT_ID: '999',
-    ADMIN_PASSWORD: 'admin-pass',
-    NAIJATR_GATE_SECRET: 'session-secret',
-    CLAIM_ENCRYPTION_KEY: 'claim-key',
-    CONTEST_ACTIVE: 'true',
-    CONTEST_START: '2026-10-23 18:00',
-    CONTEST_END: '2026-10-25 23:59',
-    ...envOverrides,
-  })
+const env = readReferralEnv({
+  SUPABASE_URL: 'https://x.supabase.co',
+  SUPABASE_SERVICE_ROLE_KEY: 'service',
+  ADMIN_PASSWORD: 'admin-pw',
+  AD_FREE_EMAILS: 'aaabswag@gmail.com,brunoeneh234@gmail.com',
+  AD_FREE_DAYS: '14',
+  REFERRAL_SALT: 'salt',
+})
 
-  async function call(
-    action: string,
-    { body, token, ip = '1.1.1.1', method = body ? 'POST' : 'GET', query = '' }: { body?: unknown; token?: string; ip?: string; method?: string; query?: string } = {},
-  ) {
-    const req = {
-      method,
-      url: `/api/referral/${action}${query}`,
-      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), 'x-forwarded-for': ip, 'user-agent': `agent-${ip}` },
-      body,
-    } as unknown as IncomingMessage
-    let raw = ''
-    const res = { statusCode: 200, setHeader() {}, end: (text: string) => (raw = text) } as unknown as ServerResponse
-    await handleReferral(env, action, req, res, fetchImpl, clock)
-    return { status: res.statusCode, body: JSON.parse(raw) as Record<string, unknown> & { [key: string]: never } }
+async function call(
+  fake: ReturnType<typeof fakeStore>,
+  action: string,
+  init: { method?: string; token?: string; body?: unknown; ip?: string; query?: string } = {},
+) {
+  const req = Readable.from(init.body === undefined ? [] : [Buffer.from(JSON.stringify(init.body))]) as unknown as IncomingMessage
+  req.method = init.method ?? (init.body === undefined ? 'GET' : 'POST')
+  req.url = `/api/referral/${action}${init.query ?? ''}`
+  req.headers = {
+    ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
+    'x-forwarded-for': init.ip ?? '1.2.3.4',
   }
-
-  async function join(id: number, name: string, onDevice = device(`own-${id}`)) {
-    const { body } = await call('login', { body: { auth: widget(id, name, clock), device: onDevice } })
-    return { token: body.token as string, code: (body.user as { code: string }).code }
-  }
-
-  /** A friend opens the link on a new device, then plays. */
-  async function refer(code: string, friend: string | number, { ip = `10.0.0.${friend}`, newDevice = true, token }: { ip?: string; newDevice?: boolean; token?: string } = {}) {
-    await call('arrive', { body: { code, device: device(friend), newDevice }, ip })
-    const { body } = await call('count', { body: { device: device(friend) }, ip, token })
-    return body.outcome
-  }
-
-  const admin = (action: string, body?: unknown) => call(action, { body, token: 'admin-pass' })
-  const setClock = (at: number) => (clock = at)
-  return { env, store, telegram, call, join, refer, admin, setClock }
+  let status = 0
+  let body = ''
+  const res = {
+    statusCode: 200,
+    setHeader() {},
+    end(text: string) {
+      status = this.statusCode
+      body = text
+    },
+  } as unknown as ServerResponse
+  await handleReferral(env, action, req, res, { store: fake.store, now: fake.clock.now })
+  return { status, json: JSON.parse(body) as Record<string, unknown> }
 }
 
-describe('contest settings', () => {
-  it('reads Lagos times and runs only between start and end', () => {
-    expect(new Date(START).toISOString()).toBe('2026-10-23T17:00:00.000Z')
-    const contest = readContest({ CONTEST_ACTIVE: 'true', CONTEST_START: '2026-10-23 18:00', CONTEST_END: '2026-10-25 23:59' })!
-    expect(contest.prizes).toEqual([30000, 20000, 10000])
-    expect(contestPhase(contest, START - 1)).toBe('upcoming')
-    expect(contestPhase(contest, START)).toBe('live')
-    expect(contestPhase(contest, parseLagosTime('2026-10-25 23:59') + 30_000)).toBe('live')
-    expect(contestPhase(contest, END + 1)).toBe('ended')
-    expect(contestPhase({ ...contest, active: false }, DURING)).toBe('off')
-    expect(readContest({ CONTEST_START: 'soon', CONTEST_END: '2026-10-25 23:59' })).toBeNull()
+let fake: ReturnType<typeof fakeStore>
+beforeEach(() => {
+  fake = fakeStore()
+})
+
+const codeOf = async (userId: string) => (await call(fake, 'status', { token: `token-${userId}` })).json.code as string
+
+/** A friend opens the link, signs up, confirms and watches, from their own network. */
+async function invite(code: string, n: number, opts: { ip?: string; confirmed?: boolean } = {}) {
+  const id = fake.addUser(`friend-${n}`, `friend${n}@gmail.com`, fake.clock.now - 60_000, opts.confirmed ?? true)
+  const ip = opts.ip ?? `10.0.0.${n}`
+  await call(fake, 'claim', { token: `token-${id}`, body: { code, openedAt: fake.clock.now - 3_600_000 }, ip })
+  return (await call(fake, 'watched', { token: `token-${id}`, body: {}, ip })).json.status
+}
+
+describe('/api/referral/status: the ad-free check', () => {
+  it('without a session: only the goal, never ad-free', async () => {
+    expect((await call(fake, 'status')).json).toEqual({ goal: 5, signedIn: false, adFree: false })
   })
 
-  it('shows prizes only while the contest runs', async () => {
-    const t = setup()
-    expect((await t.call('contest')).body).toMatchObject({ phase: 'live', prizes: [30000, 20000, 10000], end: END })
-    t.setClock(AFTER)
-    expect((await t.call('contest')).body).toMatchObject({ phase: 'ended', prizes: null, winners: null })
+  it('refuses a forged token', async () => {
+    expect((await call(fake, 'ad-free', { token: 'token-nobody' })).status).toBe(401)
+  })
+
+  it('is ad-free for the allowlisted accounts (from the server env only)', async () => {
+    fake.addUser('owner', 'aaabswag@gmail.com', NOW - 100 * DAY_MS)
+    fake.addUser('bruno', 'Bruno.Eneh234@gmail.com', NOW - 100 * DAY_MS)
+    fake.addUser('other', 'someone@gmail.com', NOW - 100 * DAY_MS)
+    expect((await call(fake, 'ad-free', { token: 'token-owner' })).json).toMatchObject({ signedIn: true, adFree: true, permanent: true })
+    expect((await call(fake, 'ad-free', { token: 'token-bruno' })).json).toMatchObject({ adFree: true, permanent: true })
+    expect((await call(fake, 'ad-free', { token: 'token-other' })).json).toMatchObject({ adFree: false, permanent: false })
+  })
+
+  it('gives every user an invite code and link', async () => {
+    fake.addUser('ada', 'ada@gmail.com')
+    const { json } = await call(fake, 'status', { token: 'token-ada' })
+    expect(json.code).toMatch(/^[A-Z2-9]{6}$/)
+    expect(json.link).toBe(`https://www.naijatr.com/r/${json.code}`)
+    expect(fake.profiles.get('ada')?.email_normalized).toBe('ada@gmail.com')
+    // The same code next time.
+    expect(await codeOf('ada')).toBe(json.code)
   })
 })
 
-describe('scoring window', () => {
-  it('counts referrals only between start and end, then freezes', async () => {
-    const t = setup()
-    t.setClock(START - HOUR)
-    const { token, code } = await t.join(1, 'bruno')
-    expect(await t.refer(code, 1)).toBe('counted')
-    t.setClock(DURING)
-    expect(await t.refer(code, 2)).toBe('counted')
-    t.setClock(AFTER)
-    expect(await t.refer(code, 3)).toBe('counted')
-    // All three are referrals; only the one in the window scored.
-    expect((await t.call('me', { token })).body).toMatchObject({ total: 3, points: 1, rank: 1 })
+describe('counting and the ad-free unlock', () => {
+  it('counts after sign-up, confirmation and a watch; unlocks ad-free at 5 and stacks at 10', async () => {
+    fake.addUser('ada', 'ada@gmail.com', NOW - 30 * DAY_MS)
+    const code = await codeOf('ada')
+    for (let n = 1; n <= 4; n++) expect(await invite(code, n)).toBe('counted')
+    let status = (await call(fake, 'status', { token: 'token-ada' })).json
+    expect(status).toMatchObject({ counted: 4, adFree: false, rewards: 0, weekCount: 4 })
+
+    expect(await invite(code, 5)).toBe('counted')
+    status = (await call(fake, 'status', { token: 'token-ada' })).json
+    expect(status).toMatchObject({ counted: 5, adFree: true, permanent: false, rewards: 1 })
+    expect(status.adFreeUntil).toBe(new Date(NOW + 14 * DAY_MS).toISOString())
+
+    // Three days later, five more: added to what's left.
+    fake.clock.now = NOW + 3 * DAY_MS
+    for (let n = 6; n <= 10; n++) await invite(code, n)
+    status = (await call(fake, 'status', { token: 'token-ada' })).json
+    expect(status).toMatchObject({ counted: 10, rewards: 2 })
+    expect(status.adFreeUntil).toBe(new Date(NOW + 28 * DAY_MS).toISOString())
+
+    // And it ends.
+    fake.clock.now = NOW + 29 * DAY_MS
+    expect((await call(fake, 'ad-free', { token: 'token-ada' })).json.adFree).toBe(false)
+  })
+
+  it('waits for the email to be confirmed, then counts on the next watch', async () => {
+    fake.addUser('ada', 'ada@gmail.com', NOW - DAY_MS)
+    const code = await codeOf('ada')
+    expect(await invite(code, 1, { confirmed: false })).toBe('pending')
+    fake.users.get('friend-1')!.emailConfirmed = true
+    expect((await call(fake, 'watched', { token: 'token-friend-1', body: {} })).json.status).toBe('counted')
+    // Each new account counts once.
+    expect((await call(fake, 'watched', { token: 'token-friend-1', body: {} })).json.status).toBe('counted')
+    expect(fake.referrals.filter((r) => r.status === 'counted')).toHaveLength(1)
+  })
+
+  it('refuses self-referrals, the same inbox, a second account for an inbox, and old accounts', async () => {
+    fake.addUser('ada', 'ada.obi@gmail.com', NOW - DAY_MS)
+    const code = await codeOf('ada')
+    // Ada's own second account for the same Gmail inbox.
+    fake.addUser('ada2', 'adaobi+2@gmail.com')
+    expect((await call(fake, 'claim', { token: 'token-ada2', body: { code } })).json).toMatchObject({ reason: 'same-inbox' })
+    // Ada's own code, signed in as Ada (her account isn't new for her own link either).
+    fake.users.get('ada')!.createdAt = NOW - 60_000
+    fake.referrals.length = 0
+    expect((await call(fake, 'claim', { token: 'token-ada', body: { code } })).json).toMatchObject({ reason: 'self' })
+    // An inbox that already has an account here.
+    fake.addUser('chi', 'chi@gmail.com', NOW - 60_000)
+    await codeOf('chi')
+    fake.addUser('chi2', 'c.h.i@gmail.com')
+    expect((await call(fake, 'claim', { token: 'token-chi2', body: { code } })).json).toMatchObject({ reason: 'duplicate-inbox' })
+    // An account made long before the link.
+    fake.addUser('old', 'old@gmail.com', NOW - 30 * DAY_MS)
+    expect((await call(fake, 'claim', { token: 'token-old', body: { code } })).json).toMatchObject({ reason: 'not-new' })
+    expect(fake.referrals.every((r) => r.status === 'rejected')).toBe(true)
+    expect(normalizeEmail('c.h.i@gmail.com')).toBe('chi@gmail.com')
+  })
+
+  it('holds referrals over the daily limit for one network, flagged for review', async () => {
+    fake.addUser('ada', 'ada@gmail.com', NOW - DAY_MS)
+    const code = await codeOf('ada')
+    const results = []
+    for (let n = 1; n <= 5; n++) results.push(await invite(code, n, { ip: '9.9.9.9' }))
+    expect(results).toEqual(['counted', 'counted', 'counted', 'held', 'held'])
+    expect(fake.referrals.find((r) => r.status === 'held')?.flags).toContain('ip-limit')
+    expect(fake.referrals.every((r) => r.ip_hash && !r.ip_hash.includes('9.9.9.9'))).toBe(true)
+    // No unlock from held referrals.
+    expect((await call(fake, 'status', { token: 'token-ada' })).json).toMatchObject({ counted: 3, pending: 2, adFree: false })
   })
 })
 
-describe('anti-cheat', () => {
-  it('needs a new device that arrived by a link', async () => {
-    const t = setup()
-    const { code } = await t.join(1, 'bruno')
-    expect(await t.refer(code, 1, { newDevice: false })).toBe('not-new')
-    expect((await t.call('count', { body: { device: device(2) } })).body.outcome).toBe('no-invite')
-    expect(await t.refer('NOPE99', 3)).toBe('unknown-code')
+describe('/admin/referrals', () => {
+  it('needs the admin password', async () => {
+    expect((await call(fake, 'admin')).status).toBe(401)
+    expect((await call(fake, 'admin', { token: 'wrong' })).status).toBe(401)
   })
 
-  it('refuses self-referrals by device and by Telegram id', async () => {
-    const t = setup()
-    const { token, code } = await t.join(1, 'bruno', device('mine'))
-    expect(await t.refer(code, 'mine')).toBe('self')
-    expect(await t.refer(code, 5, { token })).toBe('self')
-  })
-
-  it('counts each device once, ever', async () => {
-    const t = setup()
-    const a = await t.join(1, 'bruno')
-    const b = await t.join(2, 'ada')
-    expect(await t.refer(a.code, 7)).toBe('counted')
-    expect(await t.refer(a.code, 7)).toBe('already')
-    expect(await t.refer(b.code, 7)).toBe('already')
-  })
-
-  it('caps counted referrals per network per day, by a salted hash only', async () => {
-    const t = setup()
-    const { code } = await t.join(1, 'bruno')
-    for (let i = 0; i < IP_DAILY_CAP; i += 1) expect(await t.refer(code, 20 + i, { ip: '5.5.5.5' })).toBe('counted')
-    expect(await t.refer(code, 30, { ip: '5.5.5.5' })).toBe('ip-cap')
-    t.setClock(DURING + 24 * HOUR)
-    expect(await t.refer(code, 30, { ip: '5.5.5.5' })).toBe('counted')
-    // Raw IPs are never stored.
-    const everything = JSON.stringify([...t.store.strings, ...t.store.lists])
-    expect(everything).not.toContain('5.5.5.5')
-  })
-
-  it('flags many referrals from one network and very fast plays', () => {
-    const ref = (ip: string, delay: number, ua = 'u'): ReferralRecord => ({ at: 0, ip, ua, delay, contest: true })
-    expect(suspicionFlags([ref('a', 60), ref('b', 60), ref('c', 60)])).toEqual([])
-    expect(suspicionFlags([ref('a', 2), ref('a', 3), ref('a', 4)])).toEqual(['3 referrals from one network', '3 played within 15 seconds of opening the link'])
-    expect(suspicionFlags(['a', 'b', 'c', 'd', 'e'].map((ip) => ref(ip, 60)))).toEqual(['5 from the same phone and browser type'])
-  })
-
-  it('refuses forged or stale Telegram sign-ins and forged sessions', () => {
-    const good = widget(1, 'bruno')
-    expect(verifyTelegramLogin(good, BOT, DURING)?.id).toBe(1)
-    expect(verifyTelegramLogin({ ...good, id: 2 }, BOT, DURING)).toBeNull()
-    expect(verifyTelegramLogin(good, 'other:token', DURING)).toBeNull()
-    expect(verifyTelegramLogin(good, BOT, DURING + 25 * HOUR)).toBeNull()
-    const session = createSession('s', 1, DURING)
-    expect(readSession('s', session, DURING)).toBe(1)
-    expect(readSession('s', session.replace(/^1\./, '2.'), DURING)).toBeNull()
-    expect(readSession('other', session, DURING)).toBeNull()
-  })
-})
-
-describe('leaderboard', () => {
-  it('breaks ties by who got there first', async () => {
-    const t = setup()
-    const a = await t.join(1, 'bruno')
-    const b = await t.join(2, 'ada')
-    t.setClock(DURING)
-    await t.refer(b.code, 1)
-    t.setClock(DURING + 1000)
-    await t.refer(a.code, 2)
-    t.setClock(DURING + 2000)
-    await t.refer(a.code, 3)
-    t.setClock(DURING + 3000)
-    await t.refer(b.code, 4)
-    // Both on 2 points: bruno reached 2 first (ada only at the last referral).
-    t.setClock(BOARD_TIME)
-    const { body } = await t.call('leaderboard')
-    expect(body.top).toEqual([
-      { rank: 1, points: 2, name: '@bruno', me: false },
-      { rank: 2, points: 2, name: '@ada', me: false },
+  it('shows the week’s top 10 with emails and flags, and confirms one winner', async () => {
+    fake.addUser('ada', 'ada@gmail.com', NOW - DAY_MS)
+    fake.addUser('bola', 'bola@gmail.com', NOW - DAY_MS)
+    const ada = await codeOf('ada')
+    const bola = await codeOf('bola')
+    await invite(ada, 1)
+    fake.clock.now += 60_000
+    // Three of Bola's friends on one network: flagged.
+    for (const n of [2, 3, 4]) await invite(bola, n, { ip: '10.0.0.2' })
+    fake.clock.now += 60_000
+    await invite(ada, 5)
+    const { json } = await call(fake, 'admin', { token: 'admin-pw' })
+    const top = json.top as { email: string; count: number; flags: string[] }[]
+    expect(top.map((r) => [r.email, r.count])).toEqual([
+      ['bola@gmail.com', 3],
+      ['ada@gmail.com', 2],
     ])
-  })
+    expect(top[0].flags).toContain('shared-network')
+    expect(top[1].flags).toEqual([])
+    expect(json.suggested).toBe('bola')
+    expect(json.totals).toMatchObject({ counted: 5 })
 
-  it('hides names on request and shows your own rank', async () => {
-    const t = setup()
-    const a = await t.join(1, 'bruno')
-    await t.refer(a.code, 1)
-    await t.call('profile', { body: { hidden: true }, token: a.token })
-    t.setClock(BOARD_TIME)
-    const { body } = await t.call('leaderboard', { token: a.token })
-    expect(body.top).toEqual([{ rank: 1, points: 1, name: 'Hidden player', me: true }])
-    expect(body.me).toEqual({ rank: 1, points: 1, toTop3: 0 })
-  })
-})
-
-describe('live leaderboard', () => {
-  it('shows the ranking at any time of day while the contest runs, and after it', async () => {
-    const t = setup()
-    const a = await t.join(1, 'bruno')
-    await t.join(2, 'ada')
-    t.setClock(DURING)
-    await t.refer(a.code, 1)
-    await t.refer(a.code, 2)
-    for (const time of ['2026-10-24 09:00', '2026-10-24 15:30', '2026-10-24 23:45']) {
-      t.setClock(parseLagosTime(time))
-      const { body } = await t.call('leaderboard', { token: a.token })
-      expect(body).toEqual({ top: [{ rank: 1, points: 2, name: '@bruno', me: true }], me: { rank: 1, points: 2, toTop3: 0 } })
-      expect((await t.call('me', { token: a.token })).body).toMatchObject({ points: 2, rank: 1 })
-    }
-    expect((await t.call('leaderboard')).body).toMatchObject({ top: [{ rank: 1, points: 2 }], me: null })
-    // After the end: the final standings.
-    t.setClock(AFTER)
-    expect((await t.call('leaderboard')).body).toMatchObject({ top: [{ rank: 1, points: 2 }] })
-  })
-
-  it('never hides anything from the admin page', async () => {
-    const t = setup()
-    const a = await t.join(1, 'bruno')
-    t.setClock(DURING)
-    await t.refer(a.code, 1)
-    const { body } = await t.admin('admin')
-    expect(body.top).toMatchObject([{ rank: 1, points: 1, nickname: '@bruno' }])
-  })
-})
-
-describe('points to the top 3', () => {
-  it('tells each player how many more friends get them into the top 3', async () => {
-    const t = setup()
-    const players = [await t.join(1, 'bruno'), await t.join(2, 'ada'), await t.join(3, 'emeka'), await t.join(4, 'tunde')]
-    let friend = 0
-    for (const [i, n] of [5, 3, 2, 1].entries()) for (let j = 0; j < n; j += 1) await t.refer(players[i].code, (friend += 1))
-    const gap = async (token: string) => ((await t.call('me', { token })).body as { toTop3: number }).toTop3
-    expect(await gap(players[0].token)).toBe(0)
-    expect(await gap(players[2].token)).toBe(0)
-    // 3rd has 2: tunde (1) needs 2 more to pass, since a tie goes to whoever got there first.
-    expect(await gap(players[3].token)).toBe(2)
-    const newcomer = await t.join(5, 'kemi')
-    expect(await gap(newcomer.token)).toBe(3)
-    expect((await t.call('leaderboard', { token: players[3].token })).body.me).toEqual({ rank: 4, points: 1, toTop3: 2 })
-  })
-
-  it('needs just one point while fewer than 3 have any', async () => {
-    const t = setup()
-    const a = await t.join(1, 'bruno')
-    const b = await t.join(2, 'ada')
-    await t.refer(a.code, 1)
-    expect((await t.call('me', { token: b.token })).body).toMatchObject({ toTop3: 1 })
-    expect((await t.call('me', { token: a.token })).body).toMatchObject({ toTop3: 0 })
-  })
-})
-
-describe('Telegram reminders', () => {
-  const NIGHT = parseLagosTime('2026-10-23 23:40')
-  const push = (t: ReturnType<typeof setup>, kind: string, token = 'cron-secret') => t.call('push', { token, query: `?kind=${kind}` })
-
-  async function players() {
-    const t = setup({ CRON_SECRET: 'cron-secret' })
-    const a = await t.join(1, 'bruno')
-    await t.join(2, 'ada')
-    await t.join(3, 'cheat')
-    await t.refer(a.code, 1)
-    await t.refer(a.code, 2)
-    await t.admin('admin-dq', { id: 3 })
-    t.telegram.length = 0
-    return t
-  }
-
-  it('sends the nightly "leaderboard is open" message with each player’s points and gap, once a night', async () => {
-    const t = await players()
-    t.setClock(NIGHT)
-    expect((await push(t, 'night')).body).toEqual({ sent: 2, failed: 0 })
-    const [bruno, ada] = [1, 2].map((id) => t.telegram.find((m) => m.chat_id === id)!.text)
-    expect(bruno).toContain('🔴 The NAIJA TR leaderboard is live: see where you stand!')
-    expect(bruno).toContain("🔥 You have 2 pts and you're in the top 3 right now.")
-    expect(ada).toContain("You don't have any points yet: 1 friend watching with your link puts you in the 🥉 top 3.")
-    expect(ada).toMatch(/⏳ 2d 0h left · 🥇₦30,000 🥈₦20,000 🥉₦10,000/)
-    expect(ada).toContain('Leaderboard: https://www.naijatr.com/challenge')
-    expect(ada).toMatch(/Your link: https:\/\/www\.naijatr\.com\/r\/ADA\d+/)
-    // Disqualified players get nothing; a cron retry doesn't send again.
-    expect(t.telegram.some((m) => m.chat_id === 3)).toBe(false)
-    expect((await push(t, 'night')).body).toEqual({ sent: 0, skipped: 'already-sent' })
-  })
-
-  it('calls the last one the final night', async () => {
-    const t = await players()
-    t.setClock(parseLagosTime('2026-10-25 23:40'))
-    await push(t, 'night')
-    expect(t.telegram.at(-1)!.text).toContain('🏁 Final night! Check the live leaderboard: the challenge ends at 11:59 PM.')
-  })
-
-  it('sends the "final hours" message only on the last day', async () => {
-    const t = await players()
-    t.setClock(parseLagosTime('2026-10-24 18:00'))
-    expect((await push(t, 'final')).body).toEqual({ sent: 0, skipped: 'not-now' })
-    t.setClock(parseLagosTime('2026-10-25 18:00'))
-    expect((await push(t, 'final')).body).toEqual({ sent: 2, failed: 0 })
-    expect(t.telegram[0].text).toContain('⏳ Only 5h 59m left in the NAIJA TR Invite Challenge, and the race for the top 3 is tight!')
-  })
-
-  it('sends nothing outside the contest, and only for the cron or the admin', async () => {
-    const t = await players()
-    t.setClock(AFTER)
-    expect((await push(t, 'night')).body).toEqual({ sent: 0, skipped: 'not-now' })
-    t.setClock(NIGHT)
-    expect((await push(t, 'night', 'wrong')).status).toBe(401)
-    expect((await t.call('push', { query: '?kind=night' })).status).toBe(401)
-    expect((await push(t, 'night', 'admin-pass')).body).toEqual({ sent: 2, failed: 0 })
-    expect((await push(t, 'nope')).status).toBe(400)
-  })
-})
-
-describe('ending and winners', () => {
-  async function finished() {
-    const t = setup()
-    const players = []
-    for (const [i, name] of ['first', 'second', 'third', 'fourth'].entries()) {
-      const player = await t.join(i + 1, name)
-      players.push(player)
-      for (let n = 0; n < 4 - i; n += 1) await t.refer(player.code, `${i}-${n}`, { ip: `10.${i}.0.${n}` })
-    }
-    t.setClock(AFTER)
-    return { t, players }
-  }
-
-  it('waits for the end, then confirms in order, messages winners and the admin', async () => {
-    const { t } = await finished()
-    t.setClock(DURING)
-    expect((await t.admin('admin-confirm', { place: 1 })).status).toBe(409)
-    t.setClock(AFTER)
-    expect((await t.admin('admin-confirm', { place: 2 })).body).toEqual({ error: 'confirm-in-order' })
-    for (const place of [1, 2, 3]) expect((await t.admin('admin-confirm', { place })).status).toBe(200)
-    expect(t.telegram.map((m) => m.chat_id)).toEqual([1, 2, 3, '999'])
-    expect(t.telegram[0].text).toMatch(/^🎉 Congrats! You placed 1st and won ₦30,000 .* Claim within 48h: https:\/\/www\.naijatr\.com\/challenge\/claim\?t=/)
-    expect(t.telegram[3].text).toContain('🥉 @third: ₦10,000')
-    expect((await t.call('contest')).body.winners).toEqual(['@first', '@second', '@third'])
-    t.setClock(AFTER + 4 * 24 * HOUR)
-    expect((await t.call('contest')).body.winners).toBeNull()
-  })
-
-  it('disqualifying moves the next person up', async () => {
-    const { t } = await finished()
-    expect((await t.admin('admin-dq', { id: 1 })).status).toBe(200)
-    await t.admin('admin-confirm', { place: 1 })
-    expect(t.telegram[0]).toMatchObject({ chat_id: 2 })
-    // A confirmed winner can't be disqualified afterwards.
-    expect((await t.admin('admin-dq', { id: 2 })).body).toEqual({ error: 'already-confirmed' })
-    const { body } = await t.call('leaderboard')
-    expect((body.top as { name: string }[]).map((r) => r.name)).toEqual(['@second', '@third', '@fourth'])
-  })
-
-  it('makes a new claim link for a confirmed winner, for the admin to send', async () => {
-    const { t, players } = await finished()
-    expect((await t.admin('admin-claim-link', { id: 1 })).body).toEqual({ error: 'not-a-winner' })
-    await t.admin('admin-confirm', { place: 1 })
-    const { body } = await t.admin('admin-claim-link', { id: 1 })
-    const link = (body as { link: string }).link
-    expect(link).toMatch(/^https:\/\/www\.naijatr\.com\/challenge\/claim\?t=/)
-    const token = new URL(link).searchParams.get('t')!
-    expect((await t.call('claim', { query: `?t=${token}`, token: players[0].token })).body).toEqual({ place: '1st', amount: 30000 })
-    await t.admin('admin-paid', { id: 1 })
-    expect((await t.admin('admin-claim-link', { id: 1 })).body).toEqual({ error: 'already-paid' })
-  })
-
-  it('sends one player a Telegram message from the admin page', async () => {
-    const t = setup()
-    await t.join(1, 'bruno')
-    expect((await t.admin('admin-message', { id: 1, text: ' You can do this! ' })).body).toEqual({ sent: true })
-    expect(t.telegram).toEqual([expect.objectContaining({ chat_id: 1, text: 'You can do this!' })])
-    expect((await t.admin('admin-message', { id: 9, text: 'Hi' })).status).toBe(404)
-    expect((await t.admin('admin-message', { id: 1, text: '' })).status).toBe(400)
-    expect((await t.call('admin-message', { body: { id: 1, text: 'Hi' }, token: 'wrong' })).status).toBe(401)
-  })
-
-  it('keeps the admin page behind the password', async () => {
-    const { t } = await finished()
-    expect((await t.call('admin')).status).toBe(401)
-    expect((await t.call('admin', { token: 'wrong' })).status).toBe(401)
-    expect((await t.admin('admin')).status).toBe(200)
-  })
-})
-
-describe('claims', () => {
-  async function won() {
-    const t = setup()
-    const winner = await t.join(1, 'winner')
-    const other = await t.join(2, 'other')
-    await t.refer(winner.code, 1)
-    t.setClock(AFTER)
-    await t.admin('admin-confirm', { place: 1 })
-    const link = t.telegram[0].text.match(/t=([A-Za-z0-9_-]+)/)![1]
-    return { t, winner, other, link }
-  }
-  const details = { accountName: 'Bruno Ade', provider: 'GTBank', accountNumber: '0123456789', phone: '+234 801 234 5678' }
-
-  it('opens only for the winner it was made for, while signed in', async () => {
-    const { t, winner, other, link } = await won()
-    expect((await t.call('claim', { query: `?t=${link}` })).status).toBe(401)
-    expect((await t.call('claim', { query: `?t=${link}`, token: other.token })).status).toBe(404)
-    expect((await t.call('claim', { body: { t: link, ...details }, token: other.token })).status).toBe(404)
-    expect((await t.call('claim', { query: `?t=${link}`, token: winner.token })).body).toEqual({ place: '1st', amount: 30000 })
-  })
-
-  it('expires after 48 hours', async () => {
-    const { t, winner, link } = await won()
-    t.setClock(AFTER + 49 * HOUR)
-    expect((await t.call('claim', { query: `?t=${link}`, token: winner.token })).status).toBe(404)
-  })
-
-  it('stores the details encrypted, works once, and Mark as paid deletes them', async () => {
-    const { t, winner, link } = await won()
-    expect((await t.call('claim', { body: { t: link, ...details, accountNumber: '12ab' }, token: winner.token })).status).toBe(400)
-    expect((await t.call('claim', { body: { t: link, ...details }, token: winner.token })).status).toBe(200)
-    // One time only.
-    expect((await t.call('claim', { body: { t: link, ...details }, token: winner.token })).status).toBe(404)
-    const stored = JSON.stringify([...t.store.strings])
-    expect(stored).not.toContain('0123456789')
-    expect(stored).not.toContain('GTBank')
-    // Never sent over Telegram.
-    expect(JSON.stringify(t.telegram)).not.toContain('0123456789')
-    const view = (await t.admin('admin')).body as { confirmed: { claim: { accountNumber: string } | null; paid: boolean }[] }
-    expect(view.confirmed[0].claim?.accountNumber).toBe('0123456789')
-    expect((await t.admin('admin-paid', { id: 1 })).status).toBe(200)
-    const after = (await t.admin('admin')).body as typeof view
-    expect(after.confirmed[0]).toMatchObject({ claim: null, paid: true })
-    expect([...t.store.strings.keys()].some((key) => key.includes(':claim:'))).toBe(false)
-  })
-
-  it('cannot be read without the key', () => {
-    const sealed = encrypt('right', 'secret')
-    expect(decrypt('right', sealed)).toBe('secret')
-    expect(decrypt('wrong', sealed)).toBeNull()
+    const week = (json.week as { key: string }).key
+    expect((await call(fake, 'decide', { token: 'admin-pw', body: { week, userId: 'bola', decision: 'disqualified' } })).status).toBe(200)
+    expect((await call(fake, 'admin', { token: 'admin-pw' })).json.suggested).toBe('ada')
+    expect((await call(fake, 'decide', { token: 'admin-pw', body: { week, userId: 'ada', decision: 'winner' } })).status).toBe(200)
+    expect((await call(fake, 'decide', { token: 'admin-pw', body: { week, userId: 'bola', decision: 'winner' } })).status).toBe(409)
+    const after = (await call(fake, 'admin', { token: 'admin-pw' })).json
+    expect(after.winners).toEqual([expect.objectContaining({ week, email: 'ada@gmail.com', referrals: 2 })])
   })
 })

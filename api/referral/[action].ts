@@ -2,8 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { handleReferral, readReferralEnv } from '../../server/referral/handlers.js'
 
 /**
- * Vercel function for /api/referral/* (the referral program and the Invite &
- * Win contest). TELEGRAM_BOT_TOKEN, CLAIM_ENCRYPTION_KEY, the Redis token and
+ * Vercel function for /api/referral/* (the account-based referral program and
+ * the ad-free check). SUPABASE_SERVICE_ROLE_KEY, AD_FREE_EMAILS and
  * ADMIN_PASSWORD stay server-side.
  */
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
