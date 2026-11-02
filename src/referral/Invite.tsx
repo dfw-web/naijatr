@@ -7,14 +7,38 @@ import { holdAdsThisTap, isPlaybackOpen, useAdOverlay, useOverlayOpen } from '..
 import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices, useNoticesHeld } from '../ui/noticeQueue'
 import { readRef } from './capture'
-import { markPromoShown, progressText, promoShownToday, promoTiming, shareMessage } from './copy'
-import { dismissUnlock, goalNow, refreshReferralStatus, useAdFree, useReferralStatus, useUnlockDue, type ReferralStatus } from './status'
+import { AD_FREE_PLANS, buyLink, FROM_PRICE, naira } from '../config/adFree'
+import {
+  dismissRenewToday,
+  lagosDate,
+  markPromoShown,
+  progressText,
+  promoShownToday,
+  promoTiming,
+  RENEW_REMINDER_MS,
+  renewDismissedToday,
+  requestBuyOption,
+  shareMessage,
+  takeBuyRequest,
+} from './copy'
+import {
+  dismissActivation,
+  dismissUnlock,
+  goalNow,
+  refreshReferralStatus,
+  useActivationDue,
+  useAdFree,
+  useReferralStatus,
+  useUnlockDue,
+  type ReferralStatus,
+} from './status'
 import './referral.css'
 
 /**
- * The referral program's screens: /invite (link, share buttons, progress),
+ * The ad-free screens: /invite (invite friends for free, or buy ad-free),
  * /invite/rules, the header's "Go ad-free" button, the home page card, the
- * daily popup, the unlock notice and the account page's ad-free card.
+ * daily popup, the unlock and paid-activation notices, the renew reminder and
+ * the account page's ad-free card.
  * Promotions never say how long ad-free lasts; only the account page shows
  * the user's own end date. Everything promotional hides for ad-free accounts.
  */
@@ -79,11 +103,84 @@ function Progress({ status }: { status: ReferralStatus }) {
   )
 }
 
-/** /invite */
+/** "💳 Buy ad-free": the plans, and the Telegram chat to pay in (src/config/adFree.ts). */
+export function BuyAdFree() {
+  const { status: account, user } = useAccount()
+  const [plan, setPlan] = useState(AD_FREE_PLANS[0])
+  const [copied, setCopied] = useState(false)
+  const email = account === 'signedIn' ? (user?.email ?? null) : null
+  const copyEmail = async () => {
+    if (!email) return
+    holdAdsThisTap()
+    try {
+      await navigator.clipboard.writeText(email)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      window.prompt('Copy your account email:', email)
+    }
+  }
+  return (
+    <div className="account-card buy-ad-free">
+      <h2 className="account-card__title">🚫 Tired of ads? Get NAIJA TR AD-FREE! 🍿⚽</h2>
+      <p className="account-card__muted">
+        Watch movies, series, anime, K-drama &amp; live football with no ads, no pop-ups, no interruptions 😎
+      </p>
+      <p className="buy-ad-free__pricing">💰 Pricing:</p>
+      <div className="buy-ad-free__plans" role="radiogroup" aria-label="Plan">
+        {AD_FREE_PLANS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={option.id === plan.id}
+            className={option.id === plan.id ? 'buy-ad-free__plan buy-ad-free__plan--on' : 'buy-ad-free__plan'}
+            onClick={() => setPlan(option)}
+          >
+            ✅ {option.label}: {naira(option.price)}
+            {option.extra ? ` ${option.extra}` : ''}
+          </button>
+        ))}
+      </div>
+      {account === 'signedIn' && email ? (
+        <>
+          <p className="buy-ad-free__email">
+            Your account email: <strong>{email}</strong>. Send this to us on Telegram so we can activate it.{' '}
+            <button type="button" className="account-page__ghost buy-ad-free__copy" onClick={() => void copyEmail()}>
+              {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />} {copied ? 'Copied!' : 'Copy email'}
+            </button>
+          </p>
+          <a className="account-page__primary buy-ad-free__chat" href={buyLink(plan, email)} target="_blank" rel="noopener noreferrer" onClick={() => holdAdsThisTap()}>
+            Chat on Telegram to buy
+          </a>
+        </>
+      ) : account === 'checking' ? (
+        <p className="account-card__muted" role="status">
+          Signing you in…
+        </p>
+      ) : (
+        <>
+          <p className="buy-ad-free__email">Create a free account first, so we can activate ad-free on it.</p>
+          <div className="account-card__actions">
+            <button type="button" className="account-page__primary" onClick={() => openSignIn('create')}>
+              Sign up
+            </button>
+            <button type="button" className="account-page__ghost" onClick={() => openSignIn('login')}>
+              Log in
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** /invite: the two ways to go ad-free (invite friends, free; or buy), and the invite link. */
 export function InvitePage() {
   const { status: account } = useAccount()
   const status = useReferralStatus()
   const adFree = useAdFree()
+  const [option, setOption] = useState<'invite' | 'buy'>(() => (takeBuyRequest() ? 'buy' : 'invite'))
   useEffect(() => {
     if (account === 'signedIn') void refreshReferralStatus()
   }, [account])
@@ -99,6 +196,27 @@ export function InvitePage() {
           <Sparkles aria-hidden="true" /> You're enjoying NAIJA TR ad-free. Keep inviting for the weekly mystery prize!
         </p>
       ) : (
+        <div className="adfree-options" role="group" aria-label="Ways to go ad-free">
+          <button type="button" className="adfree-options__option" aria-pressed={option === 'invite'} onClick={() => setOption('invite')}>
+            🤝 Invite {goal} friends (free)
+          </button>
+          <button type="button" className="adfree-options__option" aria-pressed={option === 'buy'} onClick={() => setOption('buy')}>
+            💳 Buy ad-free
+          </button>
+        </div>
+      )}
+
+      {!adFree && option === 'buy' ? <BuyAdFree /> : <InviteOption goal={goal} adFree={adFree} />}
+    </section>
+  )
+}
+
+function InviteOption({ goal, adFree }: { goal: number; adFree: boolean }) {
+  const { status: account } = useAccount()
+  const status = useReferralStatus()
+  return (
+    <>
+      {!adFree && (
         <p className="account-page__lead">
           Invite {goal} friends to NAIJA TR and get the ad-free version. 🏆 Bonus: invite the most people this week and win a
           mystery prize 🎁
@@ -160,7 +278,7 @@ export function InvitePage() {
           Full rules
         </a>
       </div>
-    </section>
+    </>
   )
 }
 
@@ -378,29 +496,124 @@ export function UnlockNoticeHost() {
   )
 }
 
-/** The account page's ad-free card: the only place the end date shows. */
+/** Opens /invite on "Buy ad-free". */
+const openBuy = () => {
+  requestBuyOption()
+  openInvite()
+}
+
+/**
+ * The account page's ad-free card: the only place the end date shows, with
+ * "Renew" (the Telegram chat); or, not ad-free, "Go ad-free" with both options.
+ */
 export function AdFreeCard() {
   const status = useReferralStatus()
+  const { user } = useAccount()
   useEffect(() => {
     void refreshReferralStatus()
   }, [])
   if (!status?.signedIn) return null
-  const until = status.adFreeUntil ? new Date(status.adFreeUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' }) : null
+  if (status.adFree) {
+    const timed = !status.permanent && status.adFreeUntil
+    return (
+      <div className="account-card">
+        <h2 className="account-card__title">Ad-free</h2>
+        <p className="account-card__value">
+          <Sparkles aria-hidden="true" /> {timed ? `Ad-free until ${lagosDate(status.adFreeUntil!)}` : 'Ad-free on all your devices'}
+        </p>
+        <div className="account-card__actions">
+          {timed && (
+            <a className="account-page__primary" href={buyLink(AD_FREE_PLANS[0], user?.email)} target="_blank" rel="noopener noreferrer" onClick={() => holdAdsThisTap()}>
+              Renew
+            </a>
+          )}
+          <button type="button" className="account-page__ghost" onClick={openInvite}>
+            <Gift aria-hidden="true" /> Keep inviting
+          </button>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="account-card">
-      <h2 className="account-card__title">Ad-free</h2>
-      {status.adFree ? (
-        <p className="account-card__value">
-          <Sparkles aria-hidden="true" /> {status.permanent || !until ? 'Ad-free on all your devices' : `Ad-free until ${until}`}
-        </p>
-      ) : (
-        <p className="account-card__muted">{progressText(status.counted ?? 0, status.goal)}</p>
-      )}
+      <h2 className="account-card__title">🎁 Go ad-free</h2>
+      <p className="account-card__muted">{progressText(status.counted ?? 0, status.goal)}</p>
       <div className="account-card__actions">
         <button type="button" className="account-page__ghost" onClick={openInvite}>
-          <Gift aria-hidden="true" /> {status.adFree ? 'Keep inviting' : 'Invite friends'}
+          <Gift aria-hidden="true" /> Invite {status.goal} friends (free)
+        </button>
+        <button type="button" className="account-page__primary" onClick={openBuy}>
+          💳 Buy ad-free from {naira(FROM_PRICE)}
         </button>
       </div>
+    </div>
+  )
+}
+
+/** "🎉 NAIJA TR ad-free is active until…", once after a paid grant. */
+export function ActivationNoticeHost() {
+  const due = useActivationDue()
+  const status = useReferralStatus()
+  useAdOverlay(due)
+  if (!due || !status?.adFreeUntil) return null
+  return (
+    <div className="promo" role="dialog" aria-modal="true" aria-labelledby="activation-title">
+      <div className="promo__panel">
+        <p id="activation-title" className="promo__title">
+          🎉 NAIJA TR ad-free is active until {lagosDate(status.adFreeUntil)}.
+        </p>
+        <p className="promo__text">Thank you! ❤️</p>
+        <div className="promo__actions">
+          <button
+            type="button"
+            className="promo__primary"
+            onClick={() => {
+              holdAdsThisTap()
+              dismissActivation()
+            }}
+          >
+            Enjoy 🍿
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** In the last 3 days of a timed ad-free: "Your ad-free ends on… Renew", at most once a day. */
+export function RenewReminderHost() {
+  const status = useReferralStatus()
+  const { user } = useAccount()
+  const activation = useActivationDue()
+  const unlock = useUnlockDue()
+  const [closed, setClosed] = useState(() => renewDismissedToday())
+  const [now] = useState(() => Date.now())
+  const until = status?.signedIn && status.adFree && !status.permanent && status.adFreeUntil ? Date.parse(status.adFreeUntil) : NaN
+  const due = !closed && !activation && !unlock && until > now && until - now <= RENEW_REMINDER_MS
+  useHoldNotices(due)
+  if (!due) return null
+  const close = () => {
+    dismissRenewToday()
+    setClosed(true)
+  }
+  return (
+    <div className="ads-back renew-reminder" role="status">
+      <p className="ads-back__text">Your ad-free ends on {lagosDate(status!.adFreeUntil!)}. Renew to keep watching without ads.</p>
+      <a
+        className="ads-back__ok"
+        href={buyLink(AD_FREE_PLANS[0], user?.email)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => {
+          holdAdsThisTap()
+          close()
+        }}
+      >
+        Renew
+      </a>
+      <button type="button" className="renew-reminder__close" aria-label="Close" onClick={close}>
+        <X aria-hidden="true" />
+      </button>
     </div>
   )
 }

@@ -11,6 +11,7 @@
     { "source": "/admin/live", "destination": "/admin/live/index.html" },
     { "source": "/admin/feedback", "destination": "/admin/feedback/index.html" },
     { "source": "/admin/referrals", "destination": "/admin/referrals/index.html" },
+    { "source": "/admin/ad-free", "destination": "/admin/live/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

@@ -24,7 +24,8 @@ import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 /**
  * /go/telegram (go/telegram/index.html, its own page): fills in the channel
  * link, and serves the page at /go/telegram in dev and preview like Vercel does.
- * Same for the private /admin/live, /admin/feedback and /admin/referrals pages.
+ * Same for the private /admin/live, /admin/feedback and /admin/referrals pages
+ * (/admin/ad-free opens /admin/live, which has the "Give ad-free" section).
  */
 function telegramPage(): Plugin {
   const rewrite = (req: IncomingMessage, _res: ServerResponse, next: () => void) => {
@@ -32,6 +33,7 @@ function telegramPage(): Plugin {
     if (req.url && /^\/admin\/live\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/live\/?/, '/admin/live/index.html')
     if (req.url && /^\/admin\/feedback\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/feedback\/?/, '/admin/feedback/index.html')
     if (req.url && /^\/admin\/referrals\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/referrals\/?/, '/admin/referrals/index.html')
+    if (req.url && /^\/admin\/ad-free\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/ad-free\/?/, '/admin/live/index.html')
     next()
   }
   return {

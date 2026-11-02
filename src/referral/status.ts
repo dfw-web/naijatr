@@ -25,11 +25,14 @@ export interface ReferralStatus {
   pending?: number
   weekCount?: number
   rewards?: number
+  /** The latest paid grant (/admin/ad-free). */
+  lastGrant?: { id: number; at: string } | null
 }
 
 export const DEFAULT_GOAL = 5
 const CACHE_KEY = 'naijatr.adFree'
 const SEEN_REWARDS_KEY = 'naijatr.adFree.seen'
+const SEEN_GRANT_KEY = 'naijatr.adFree.seenGrant'
 const GOAL_KEY = 'naijatr.referral.goal'
 /** Where the referral's play report stands for an account: "done" once there's nothing more to report. */
 const REPORT_KEY = 'naijatr.ref.report'
@@ -48,6 +51,7 @@ interface Cached {
 
 let status: ReferralStatus | null = null
 let unlockDue = false
+let activationDue = false
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((listener) => listener())
 
@@ -90,6 +94,13 @@ function apply(next: ReferralStatus) {
     if (rewards > (seen[next.userId] ?? 0)) {
       if (next.adFree) unlockDue = true
       storage.set(SEEN_REWARDS_KEY, { ...seen, [next.userId]: rewards })
+    }
+    // "🎉 NAIJA TR ad-free is active until…": once per paid grant, per device.
+    const grant = next.lastGrant?.id ?? 0
+    const seenGrants = storage.get<Record<string, number>>(SEEN_GRANT_KEY) ?? {}
+    if (grant > (seenGrants[next.userId] ?? 0)) {
+      if (next.adFree && !next.permanent) activationDue = true
+      storage.set(SEEN_GRANT_KEY, { ...seenGrants, [next.userId]: grant })
     }
   }
   if (next.goal > 0) storage.set(GOAL_KEY, next.goal)
@@ -193,6 +204,7 @@ export function referralSignedIn() {
 export function referralSignedOut() {
   status = null
   unlockDue = false
+  activationDue = false
   reportedThisVisit = false
   storage.set(CACHE_KEY, null)
   storage.set(REPORT_KEY, null)
@@ -201,6 +213,11 @@ export function referralSignedOut() {
 
 export function dismissUnlock() {
   unlockDue = false
+  emit()
+}
+
+export function dismissActivation() {
+  activationDue = false
   emit()
 }
 
@@ -215,11 +232,13 @@ export const useReferralStatus = () => useSyncExternalStore(subscribe, () => sta
 /** Ad-free right now (re-read whenever the status changes). */
 export const useAdFree = () => useSyncExternalStore(subscribe, () => isAdFreeNow(), () => false)
 export const useUnlockDue = () => useSyncExternalStore(subscribe, () => unlockDue, () => false)
+export const useActivationDue = () => useSyncExternalStore(subscribe, () => activationDue, () => false)
 
 /** Test helper. */
 export function resetReferralStatus(next: ReferralStatus | null = null) {
   status = next
   unlockDue = false
+  activationDue = false
   loading = null
   claiming = null
   reportedThisVisit = false

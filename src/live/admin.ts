@@ -3,8 +3,11 @@
  * live viewer counter (server/live/handlers.ts), and the Live Stream API's
  * usage, cached streams and last calls (/api/football/admin-streams). The password is checked by
  * /api/live/count and kept for this browser tab only (sessionStorage).
- * Refreshes every 30 seconds while the tab is visible.
+ * Refreshes every 30 seconds while the tab is visible. Also "Give ad-free"
+ * (./adFree.ts): paid ad-free given by hand, with its log and totals.
  */
+
+import { initAdFree, loadAdFree } from './adFree'
 
 export const REFRESH_MS = 30_000
 const PASSWORD_KEY = 'naijatr.admin.password'
@@ -300,6 +303,8 @@ async function start() {
   savePassword(password)
   $('login').hidden = true
   $('stats').hidden = false
+  // Give ad-free: loaded once on unlock (and after each change), not on every refresh.
+  void loadAdFree()
   window.clearInterval(timer)
   timer = window.setInterval(() => {
     if (document.visibilityState !== 'hidden') void refresh()
@@ -307,6 +312,7 @@ async function start() {
 }
 
 export function initAdmin() {
+  initAdFree(() => password)
   $('login').addEventListener('submit', (event) => {
     event.preventDefault()
     password = $<HTMLInputElement>('password').value

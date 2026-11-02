@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { handleReferral, readReferralEnv } from './handlers'
 import { DAY_MS, normalizeEmail } from './rules'
-import type { AuthUser, Profile, Referral, ReferralStore, WeekDecision } from './store'
+import type { AdFreeGrant, AuthUser, Profile, Referral, ReferralStore, WeekDecision } from './store'
 
 const NOW = Date.UTC(2026, 10, 4, 12)
 
@@ -13,6 +13,8 @@ function fakeStore() {
   const profiles = new Map<string, Profile>()
   const referrals: Referral[] = []
   const decisions: WeekDecision[] = []
+  const grants: AdFreeGrant[] = []
+  const updatedAt = new Map<string, string>()
   let nextId = 1
   const store: ReferralStore = {
     async userFromToken(token) {
@@ -84,13 +86,34 @@ function fakeStore() {
       const i = decisions.findIndex((d) => d.week_start === week && d.user_id === userId)
       if (i >= 0) decisions.splice(i, 1)
     },
+    async findUserByEmail(email) {
+      const user = [...users.values()].find((u) => normalizeEmail(u.email) === normalizeEmail(email))
+      return user ? { id: user.id, email: user.email } : null
+    },
+    async adFreeProfiles(now) {
+      return [...profiles.values()]
+        .filter((p) => p.ad_free_until && p.ad_free_until > now)
+        .map((p) => ({ user_id: p.user_id, ad_free_until: p.ad_free_until, rewards_granted: p.rewards_granted, updated_at: updatedAt.get(p.user_id) ?? '' }))
+    },
+    async setAdFreeUntil(userId, until) {
+      await store.saveProfile(userId, { ad_free_until: until })
+      updatedAt.set(userId, new Date(clock.now).toISOString())
+    },
+    async insertGrant(row) {
+      const grant: AdFreeGrant = { id: nextId++, created_at: new Date(clock.now).toISOString(), ...row }
+      grants.unshift(grant)
+      return grant
+    },
+    async grants({ userId, since, limit = 1000 }) {
+      return grants.filter((g) => (!userId || g.user_id === userId) && (!since || g.created_at >= since)).slice(0, limit)
+    },
   }
   const clock = { now: NOW }
   const addUser = (id: string, email: string, createdAt = clock.now - 60_000, emailConfirmed = true) => {
     users.set(id, { id, email, createdAt, emailConfirmed })
     return id
   }
-  return { store, users, profiles, referrals, decisions, clock, addUser }
+  return { store, users, profiles, referrals, decisions, grants, clock, addUser }
 }
 
 const env = readReferralEnv({
@@ -278,5 +301,92 @@ describe('/admin/referrals', () => {
     expect((await call(fake, 'decide', { token: 'admin-pw', body: { week, userId: 'bola', decision: 'winner' } })).status).toBe(409)
     const after = (await call(fake, 'admin', { token: 'admin-pw' })).json
     expect(after.winners).toEqual([expect.objectContaining({ week, email: 'ada@gmail.com', referrals: 2 })])
+  })
+})
+
+describe('Give ad-free (/admin/live)', () => {
+  const admin = { token: 'admin-pw' }
+  const give = (body: Record<string, unknown>) => call(fake, 'admin-grant', { ...admin, body })
+
+  it('is admin-only', async () => {
+    fake.addUser('ada', 'ada@gmail.com')
+    for (const token of [undefined, 'wrong', 'token-ada']) {
+      expect((await call(fake, 'admin-grant', { token, body: { email: 'ada@gmail.com', days: 30 } })).status).toBe(401)
+      expect((await call(fake, 'admin-remove', { token, body: { email: 'ada@gmail.com' } })).status).toBe(401)
+      expect((await call(fake, 'admin-ad-free', { token })).status).toBe(401)
+    }
+    expect(fake.grants).toHaveLength(0)
+    expect(fake.profiles.get('ada')?.ad_free_until ?? null).toBeNull()
+  })
+
+  it('gives ad-free by email (any case, Gmail dots and +tags), stacking on time left', async () => {
+    fake.addUser('ada', 'ada.obi@gmail.com', NOW - 30 * DAY_MS)
+    let res = await give({ email: 'AdaObi+tv@GMAIL.com', days: 30, plan: '1 Month', amount: 2000, note: 'paid via PalmPay' })
+    expect(res.status).toBe(200)
+    expect(res.json).toMatchObject({ email: 'ada.obi@gmail.com', adFree: true, adFreeUntil: new Date(NOW + 30 * DAY_MS).toISOString() })
+    // Ten days later, 3 months more: added to the 20 days left.
+    fake.clock.now = NOW + 10 * DAY_MS
+    res = await give({ email: 'ada.obi@gmail.com', days: 90, plan: '3 Months', amount: 5000 })
+    expect(res.json.adFreeUntil).toBe(new Date(NOW + 120 * DAY_MS).toISOString())
+    // The account sees it (and the grant, for the "active until" message).
+    const status = (await call(fake, 'status', { token: 'token-ada' })).json
+    expect(status).toMatchObject({ adFree: true, adFreeUntil: new Date(NOW + 120 * DAY_MS).toISOString(), lastGrant: { id: fake.grants[0].id } })
+    expect(fake.grants.map((g) => [g.action, g.days, g.amount, g.email, g.user_id])).toEqual([
+      ['grant', 90, 5000, 'ada.obi@gmail.com', 'ada'],
+      ['grant', 30, 2000, 'ada.obi@gmail.com', 'ada'],
+    ])
+    expect(fake.grants[1].note).toBe('paid via PalmPay')
+  })
+
+  it('stacks on referral ad-free too, and starts from now once it has ended', async () => {
+    fake.addUser('ada', 'ada@gmail.com')
+    await codeOf('ada')
+    fake.profiles.get('ada')!.ad_free_until = new Date(NOW + 5 * DAY_MS).toISOString()
+    expect((await give({ email: 'ada@gmail.com', days: 30 })).json.adFreeUntil).toBe(new Date(NOW + 35 * DAY_MS).toISOString())
+    fake.clock.now = NOW + 100 * DAY_MS
+    expect((await give({ email: 'ada@gmail.com', days: 30 })).json.adFreeUntil).toBe(new Date(NOW + 130 * DAY_MS).toISOString())
+  })
+
+  it('says when no account has that email, and checks the days and amount', async () => {
+    expect((await give({ email: 'nobody@gmail.com', days: 30 })).status).toBe(404)
+    fake.addUser('ada', 'ada@gmail.com')
+    for (const days of [0, -5, 1.5, 'x', 99999]) expect((await give({ email: 'ada@gmail.com', days })).status).toBe(400)
+    expect((await give({ email: 'ada@gmail.com', days: 30, amount: -1 })).status).toBe(400)
+    expect(fake.grants).toHaveLength(0)
+  })
+
+  it('removes ad-free (ads come back), logging a refund', async () => {
+    fake.addUser('ada', 'ada@gmail.com')
+    await give({ email: 'ada@gmail.com', days: 30, amount: 2000 })
+    const res = await call(fake, 'admin-remove', { ...admin, body: { email: 'ada@gmail.com', amount: 2000, note: 'refund' } })
+    expect(res.json).toMatchObject({ adFree: false, adFreeUntil: null })
+    expect((await call(fake, 'ad-free', { token: 'token-ada' })).json.adFree).toBe(false)
+    expect(fake.grants[0]).toMatchObject({ action: 'remove', days: 0, amount: -2000, note: 'refund' })
+  })
+
+  it('lists everyone ad-free now with their source and last note, and the totals', async () => {
+    fake.addUser('owner', 'aaabswag@gmail.com')
+    fake.addUser('paid', 'paid@gmail.com')
+    fake.addUser('ref', 'ref@gmail.com')
+    fake.addUser('gone', 'gone@gmail.com')
+    await codeOf('ref')
+    fake.profiles.get('ref')!.ad_free_until = new Date(NOW + 9 * DAY_MS).toISOString()
+    fake.profiles.get('ref')!.rewards_granted = 1
+    await give({ email: 'gone@gmail.com', days: 30, amount: 2000 })
+    await call(fake, 'admin-remove', { ...admin, body: { email: 'gone@gmail.com' } })
+    fake.clock.now += 60_000
+    await give({ email: 'paid@gmail.com', days: 90, amount: 5000, note: 'paid via PalmPay' })
+
+    const { json } = await call(fake, 'admin-ad-free', admin)
+    const users = json.users as { email: string; sources: string[]; note: string | null; adFreeUntil: string | null }[]
+    expect(users.map((u) => [u.email, u.sources, u.note])).toEqual([
+      ['paid@gmail.com', ['paid'], 'paid via PalmPay'],
+      ['ref@gmail.com', ['referral'], null],
+      ['aaabswag@gmail.com', ['allowlist'], null],
+    ])
+    expect(users.find((u) => u.email === 'aaabswag@gmail.com')?.adFreeUntil).toBeNull()
+    // Gone's ₦2,000 still counts (no refund entered); two paid users this month.
+    expect(json).toMatchObject({ paidUsersThisMonth: 2, week: 7000, month: 7000 })
+    expect((json.log as unknown[]).length).toBe(3)
   })
 })

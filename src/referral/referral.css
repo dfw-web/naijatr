@@ -207,3 +207,87 @@
   color: var(--gold);
   font-weight: 600;
 }
+
+/* Two ways to go ad-free (/invite), and "Buy ad-free". */
+.adfree-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem;
+}
+.adfree-options__option {
+  min-height: 52px;
+  padding: 0 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.adfree-options__option[aria-pressed='true'] {
+  border-color: var(--gold);
+  background: rgba(245, 197, 24, 0.12);
+  color: var(--gold);
+}
+.buy-ad-free__pricing {
+  margin: 0.75rem 0 0.5rem;
+  font-weight: 700;
+}
+.buy-ad-free__plans {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.buy-ad-free__plan {
+  min-height: 46px;
+  padding: 0 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.buy-ad-free__plan--on {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold) inset;
+}
+.buy-ad-free__email {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.buy-ad-free__email strong {
+  color: var(--text);
+}
+.buy-ad-free__copy {
+  vertical-align: middle;
+}
+.buy-ad-free__chat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.renew-reminder {
+  padding-right: 2.75rem;
+}
+.renew-reminder .ads-back__ok {
+  text-decoration: none;
+}
+.renew-reminder__close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}

@@ -1,3 +1,5 @@
+import { normalizeEmail } from './rules.js'
+
 /**
  * The referral program's data in Supabase (supabase/migrations/002_referrals.sql),
  * reached with the service role key over PostgREST and the Auth admin API.
@@ -42,6 +44,19 @@ export interface WeekDecision {
   decided_at: string
 }
 
+export interface AdFreeGrant {
+  id: number
+  user_id: string | null
+  email: string
+  action: 'grant' | 'remove'
+  plan: string | null
+  days: number
+  amount: number
+  note: string | null
+  ad_free_until: string | null
+  created_at: string
+}
+
 export interface ReferralStore {
   /** The user an access token belongs to, checked by Supabase itself. */
   userFromToken(token: string): Promise<AuthUser | null>
@@ -70,6 +85,16 @@ export interface ReferralStore {
   decisions(weekStart?: string): Promise<WeekDecision[]>
   setDecision(row: Omit<WeekDecision, 'decided_at'>): Promise<boolean>
   clearDecision(weekStart: string, userId: string): Promise<void>
+  // ---- Paid ad-free (/admin/ad-free) ----
+  /** A user by sign-in email (case and Gmail dots/+tags don't matter). */
+  findUserByEmail(email: string): Promise<{ id: string; email: string } | null>
+  /** Accounts whose ad_free_until is still ahead, most recently changed first. */
+  adFreeProfiles(now: string): Promise<(Pick<Profile, 'user_id' | 'ad_free_until' | 'rewards_granted'> & { updated_at: string })[]>
+  /** Sets the end of the account's ad-free time (null: none). */
+  setAdFreeUntil(userId: string, until: string | null): Promise<void>
+  insertGrant(row: Omit<AdFreeGrant, 'id' | 'created_at'>): Promise<AdFreeGrant>
+  /** Grants and removals, newest first: one user's, or everyone's since `since`. */
+  grants(filter: { userId?: string; since?: string; limit?: number }): Promise<AdFreeGrant[]>
 }
 
 export interface SupabaseEnv {
@@ -78,6 +103,7 @@ export interface SupabaseEnv {
 }
 
 const PROFILE_COLUMNS = 'user_id,invite_code,ad_free_until,rewards_granted,email_normalized,last_ip_hash'
+const GRANT_COLUMNS = 'id,user_id,email,action,plan,days,amount,note,ad_free_until,created_at'
 const REFERRAL_COLUMNS = 'id,referrer_id,referred_user_id,status,reason,flags,ip_hash,created_at,counted_at'
 
 export function supabaseStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch): ReferralStore {
@@ -206,6 +232,44 @@ export function supabaseStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch)
     },
     async clearDecision(weekStart, userId) {
       await rest(`referral_weeks?week_start=eq.${q(weekStart)}&user_id=eq.${q(userId)}`, { method: 'DELETE' })
+    },
+    async findUserByEmail(email) {
+      const wanted = normalizeEmail(email)
+      // Anyone who has signed in since the referral program started has a profile with their inbox.
+      const rows = await rest<{ user_id: string }[]>(`profiles?select=user_id&email_normalized=eq.${q(wanted)}&limit=1`)
+      if (rows[0]) {
+        const found = await this.emailOf(rows[0].user_id)
+        if (found) return { id: rows[0].user_id, email: found }
+      }
+      // Else every login, 1000 at a time (at most 20 pages).
+      for (let page = 1; page <= 20; page++) {
+        const response = await fetchImpl(`${env.url}/auth/v1/admin/users?page=${page}&per_page=1000`, { headers: headers() })
+        if (!response.ok) throw new Error(`supabase ${response.status}`)
+        const body = (await response.json().catch(() => null)) as { users?: { id: string; email?: string }[] } | null
+        const users = body?.users ?? []
+        const match = users.find((user) => user.email && normalizeEmail(user.email) === wanted)
+        if (match) return { id: match.id, email: match.email! }
+        if (users.length < 1000) break
+      }
+      return null
+    },
+    adFreeProfiles(now) {
+      return rest(`profiles?select=user_id,ad_free_until,rewards_granted,updated_at&ad_free_until=gt.${q(now)}&order=updated_at.desc&limit=500`)
+    },
+    async setAdFreeUntil(userId, until) {
+      await rest(`profiles?on_conflict=user_id`, {
+        method: 'POST',
+        prefer: 'resolution=merge-duplicates,return=minimal',
+        body: JSON.stringify({ user_id: userId, ad_free_until: until, updated_at: new Date().toISOString() }),
+      })
+    },
+    async insertGrant(row) {
+      const rows = await rest<AdFreeGrant[]>(`ad_free_grants?select=${GRANT_COLUMNS}`, { method: 'POST', prefer: 'return=representation', body: JSON.stringify(row) })
+      return rows[0]
+    },
+    grants({ userId, since, limit = 1000 }) {
+      const where = `${userId ? `&user_id=eq.${q(userId)}` : ''}${since ? `&created_at=gte.${q(since)}` : ''}`
+      return rest<AdFreeGrant[]>(`ad_free_grants?select=${GRANT_COLUMNS}${where}&order=created_at.desc&limit=${limit}`)
     },
   }
 }

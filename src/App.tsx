@@ -19,7 +19,7 @@ import { TelegramGateHost } from './gate/TelegramGate'
 import { GreetingHost } from './components/Greeting'
 import { InstallAppHost } from './components/InstallApp'
 import { FeedbackHost } from './feedback/Feedback'
-import { DailyPromoHost, InvitePage, InviteRulesPage, UnlockNoticeHost } from './referral/Invite'
+import { ActivationNoticeHost, DailyPromoHost, InvitePage, InviteRulesPage, RenewReminderHost, UnlockNoticeHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
 import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } from './account/AccountPages'
@@ -219,6 +219,9 @@ function App() {
       {/* Referrals: the daily "Go ad-free" popup (at most once a day) and the unlock notice. */}
       <DailyPromoHost />
       <UnlockNoticeHost />
+      {/* Paid ad-free: "active until…" after a grant, and the renew reminder in its last 3 days. */}
+      <ActivationNoticeHost />
+      <RenewReminderHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

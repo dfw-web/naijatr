@@ -5,6 +5,8 @@ import { useHoldNotices } from '../ui/noticeQueue'
 import { holdAdsThisTap, useOverlayOpen } from './adManager'
 import { goToPage } from '../account/pages'
 import { goalNow } from '../referral/status'
+import { requestBuyOption } from '../referral/copy'
+import { FROM_PRICE, naira } from '../config/adFree'
 import '../referral/referral.css'
 import { adsDisabled } from './directLink'
 import './AdsBackNotice.css'
@@ -74,6 +76,19 @@ export function AdsBackNotice() {
           }}
         >
           Learn more
+        </a>{' '}
+        <a
+          href="/invite"
+          className="ads-back__link"
+          onClick={(event) => {
+            event.preventDefault()
+            holdAdsThisTap()
+            setDue(false)
+            requestBuyOption()
+            goToPage('invite')
+          }}
+        >
+          …or buy ad-free from {naira(FROM_PRICE)}
         </a>
       </p>
       <button type="button" className="ads-back__ok" onClick={() => setDue(false)}>

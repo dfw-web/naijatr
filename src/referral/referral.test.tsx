@@ -10,8 +10,8 @@ import { loadMultitag } from '../ads/monetag'
 import { adLinkClicks } from '../test/ads'
 import { captureReferral, readRef, REF_TTL_MS } from './capture'
 import { PROMO_DAY_KEY, progressText, promoTiming, shareMessage } from './copy'
-import { DailyPromoHost, GoAdFreeButton, InviteCard } from './Invite'
-import { adFreeReady, isAdFreeNow, resetReferralStatus } from './status'
+import { ActivationNoticeHost, AdFreeCard, DailyPromoHost, GoAdFreeButton, InvitePage, InviteCard, RenewReminderHost } from './Invite'
+import { adFreeReady, isAdFreeNow, refreshReferralStatus, resetReferralStatus } from './status'
 
 const AD_FREE = { goal: 5, signedIn: true, userId: 'u1', adFree: true, permanent: false, adFreeUntil: new Date(Date.now() + 86_400_000).toISOString(), rewards: 1 }
 
@@ -200,5 +200,104 @@ describe('promotion', () => {
     setAccountForTests({ status: 'disabled' })
     render(<GoAdFreeButton />)
     expect(screen.queryByRole('button', { name: /Go ad-free/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('buying ad-free', () => {
+  const user = { id: 'u1', email: 'ada@gmail.com', passwordSet: true }
+  const notAdFree = { goal: 5, signedIn: true, userId: 'u1', adFree: false, counted: 2, link: 'https://www.naijatr.com/r/ABC234', code: 'ABC234' }
+  const serve = (body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))))
+
+  it('offers "Buy ad-free" next to inviting, with the prices and a Telegram chat that says who it is', async () => {
+    setAccountForTests({ status: 'signedIn', user })
+    resetReferralStatus(notAdFree)
+    serve(notAdFree)
+    render(<InvitePage />)
+    expect(screen.getByRole('button', { name: '🤝 Invite 5 friends (free)' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: '💳 Buy ad-free' }))
+    expect(screen.getByText('🚫 Tired of ads? Get NAIJA TR AD-FREE! 🍿⚽')).toBeInTheDocument()
+    expect(screen.getByText(/Watch movies, series, anime, K-drama & live football with no ads, no pop-ups, no interruptions 😎/)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '✅ 1 Month: ₦2,000' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: '✅ 3 Months: ₦5,000 🔥 (save ₦1,000)' })).toBeInTheDocument()
+    expect(screen.getByText(/Your account email:/)).toHaveTextContent('Your account email: ada@gmail.com. Send this to us on Telegram so we can activate it.')
+    const chat = () => screen.getByRole('link', { name: 'Chat on Telegram to buy' })
+    expect(chat()).toHaveAttribute('href', `https://t.me/Dfw_Brun0?text=${encodeURIComponent('Hi, I want NAIJA TR ad-free (1 Month). My account email is ada@gmail.com')}`)
+    expect(chat()).toHaveAttribute('target', '_blank')
+    await userEvent.click(screen.getByRole('radio', { name: /3 Months/ }))
+    expect(chat().getAttribute('href')).toContain(encodeURIComponent('(3 Months)'))
+  })
+
+  it('asks signed-out visitors to sign up first', async () => {
+    setAccountForTests({ status: 'signedOut' })
+    render(<InvitePage />)
+    await userEvent.click(screen.getByRole('button', { name: '💳 Buy ad-free' }))
+    expect(screen.getByText('Create a free account first, so we can activate ad-free on it.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Chat on Telegram to buy' })).not.toBeInTheDocument()
+  })
+
+  it('hides the buy option for ad-free accounts; the account page shows the date and Renew', () => {
+    setAccountForTests({ status: 'signedIn', user })
+    const until = new Date(Date.UTC(2026, 11, 2, 12)).toISOString()
+    const paid = { ...notAdFree, adFree: true, adFreeUntil: until, permanent: false }
+    resetReferralStatus(paid)
+    serve(paid)
+    render(
+      <>
+        <InvitePage />
+        <AdFreeCard />
+      </>,
+    )
+    expect(screen.queryByRole('button', { name: '💳 Buy ad-free' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Tired of ads/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Ad-free until 2 December 2026/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Renew' }).getAttribute('href')).toContain('https://t.me/Dfw_Brun0')
+    expect(screen.queryByRole('button', { name: /Buy ad-free from/ })).not.toBeInTheDocument()
+  })
+
+  it('offers both ways on the account page when not ad-free', () => {
+    setAccountForTests({ status: 'signedIn', user })
+    resetReferralStatus(notAdFree)
+    serve(notAdFree)
+    render(<AdFreeCard />)
+    expect(screen.getByRole('button', { name: /Invite 5 friends \(free\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '💳 Buy ad-free from ₦2,000' })).toBeInTheDocument()
+  })
+
+  it('after a paid grant: no ads, and "active until" once per grant', async () => {
+    const until = new Date(Date.UTC(2026, 11, 2, 12)).toISOString()
+    const granted = { ...notAdFree, adFree: true, adFreeUntil: until, lastGrant: { id: 7, at: new Date().toISOString() } }
+    localStorage.setItem(STORAGE_KEY, '{}')
+    serve(granted)
+    render(<ActivationNoticeHost />)
+    await act(() => refreshReferralStatus())
+    expect(adsDisabled()).toBe(true)
+    expect(screen.getByRole('dialog')).toHaveTextContent('🎉 NAIJA TR ad-free is active until 2 December 2026.Thank you! ❤️')
+    await userEvent.click(screen.getByRole('button', { name: 'Enjoy 🍿' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The same grant on the next visit: not again. A new one (a renewal): again.
+    const nextVisit = () => act(() => (resetReferralStatus(), refreshReferralStatus()))
+    await nextVisit()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    serve({ ...granted, lastGrant: { id: 8, at: new Date().toISOString() } })
+    await nextVisit()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('reminds to renew in the last 3 days only', () => {
+    setAccountForTests({ status: 'signedIn', user })
+    const ending = (days: number, extra = {}) => ({ ...notAdFree, adFree: true, adFreeUntil: new Date(Date.now() + days * 86_400_000).toISOString(), ...extra })
+    resetReferralStatus(ending(5))
+    const { unmount } = render(<RenewReminderHost />)
+    expect(screen.queryByText(/Your ad-free ends on/)).not.toBeInTheDocument()
+    unmount()
+    resetReferralStatus(ending(2, { permanent: true }))
+    const second = render(<RenewReminderHost />)
+    expect(screen.queryByText(/Your ad-free ends on/)).not.toBeInTheDocument()
+    second.unmount()
+    resetReferralStatus(ending(2))
+    render(<RenewReminderHost />)
+    expect(screen.getByText(/Your ad-free ends on .*\. Renew to keep watching without ads\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Renew' }).getAttribute('href')).toContain('https://t.me/Dfw_Brun0')
   })
 })

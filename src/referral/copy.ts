@@ -30,3 +30,37 @@ export function markPromoShown(now = Date.now()): void {
     // Storage blocked: promoShownToday() already says yes.
   }
 }
+
+/** "Ad-free until 16 November 2026" (Lagos date). */
+export const lagosDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' })
+
+/** Ad-free ending within this: the renew reminder shows. */
+export const RENEW_REMINDER_MS = 3 * 24 * 60 * 60 * 1000
+export const RENEW_DAY_KEY = 'naijatr.adFree.renewDay'
+
+/** The renew reminder was closed today (Lagos day) on this device. */
+export function renewDismissedToday(now = Date.now()): boolean {
+  try {
+    return localStorage.getItem(RENEW_DAY_KEY) === lagosDay(now)
+  } catch {
+    return false
+  }
+}
+
+export function dismissRenewToday(now = Date.now()): void {
+  try {
+    localStorage.setItem(RENEW_DAY_KEY, lagosDay(now))
+  } catch {
+    // Shown again on the next page.
+  }
+}
+
+// /invite opens on "Buy ad-free" when asked to (the "Ads are back" card, the account page).
+let buyRequested = false
+export const requestBuyOption = () => void (buyRequested = true)
+export function takeBuyRequest(): boolean {
+  const asked = buyRequested
+  buyRequested = false
+  return asked
+}

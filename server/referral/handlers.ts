@@ -8,7 +8,9 @@ import {
   hashIp,
   isInviteCode,
   lagosDayStart,
+  lagosMonthStart,
   lagosWeek,
+  MAX_GRANT_DAYS,
   newInviteCode,
   normalizeEmail,
   rankWeek,
@@ -18,7 +20,7 @@ import {
   weeklyWinner,
   type ReferralConfig,
 } from './rules.js'
-import { supabaseStore, type AuthUser, type Profile, type ReferralStore } from './store.js'
+import { supabaseStore, type AdFreeGrant, type AuthUser, type Profile, type ReferralStore } from './store.js'
 
 /**
  * /api/referral/*: the account-based referral program and the ad-free reward.
@@ -31,6 +33,8 @@ import { supabaseStore, type AuthUser, type Profile, type ReferralStore } from '
  *   referral counts (email confirmed, within the network's daily limit), and
  *   every `goal` counted referrals adds ad-free time to the referrer.
  * - GET  admin?week=YYYY-MM-DD / POST decide (ADMIN_PASSWORD): /admin/referrals.
+ * - POST admin-grant / POST admin-remove / GET admin-ad-free (ADMIN_PASSWORD):
+ *   /admin/live → Give ad-free: paid ad-free given by hand, every change logged.
  *
  * Needs SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.
  * Optional: AD_FREE_EMAILS, AD_FREE_DAYS, REFERRAL_GOAL, REFERRAL_IP_DAILY_LIMIT,
@@ -156,6 +160,7 @@ export async function handleReferral(
 
   try {
     if (action === 'admin' || action === 'decide') return await handleAdmin(env, action, req, res, store, now)
+    if (action.startsWith('admin-')) return await handleAdFreeAdmin(env, action, req, res, store, now)
 
     if (action === 'status' || action === 'ad-free') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
@@ -165,8 +170,9 @@ export async function handleReferral(
       if (!user) return sendJson(res, 401, { error: 'unauthorized', goal })
       const profile = await ensureProfile(store, user, hashIp(env.config.salt, clientIp(req)))
       const ad = adFreeState(user.email, profile.ad_free_until, env.config, now)
-      const referrals = await store.referralsOf(user.id)
+      const [referrals, lastGrants] = await Promise.all([store.referralsOf(user.id), store.grants({ userId: user.id, limit: 1 })])
       const counted = referrals.filter((r) => r.status === 'counted')
+      const lastGrant = lastGrants[0]?.action === 'grant' ? { id: lastGrants[0].id, at: lastGrants[0].created_at } : null
       const week = lagosWeek(now)
       return sendJson(res, 200, {
         goal,
@@ -181,6 +187,8 @@ export async function handleReferral(
         pending: referrals.filter((r) => r.status === 'pending' || r.status === 'held').length,
         weekCount: counted.filter((r) => r.counted_at && Date.parse(r.counted_at) >= week.start && Date.parse(r.counted_at) < week.end).length,
         rewards: profile.rewards_granted,
+        // The latest paid grant, for "🎉 NAIJA TR ad-free is active until…" once per grant.
+        lastGrant,
       })
     }
 
@@ -315,4 +323,103 @@ async function handleAdmin(env: ReferralEnv, action: string, req: IncomingMessag
     winners,
     totals,
   })
+}
+
+const text = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '') || null
+
+export type AdFreeSource = 'paid' | 'referral' | 'allowlist'
+
+/** Where an account's ad-free comes from: the allowlist, paid grants, referral unlocks (or both). */
+export function adFreeSources(permanent: boolean, grants: AdFreeGrant[], rewardsGranted: number): AdFreeSource[] {
+  if (permanent) return ['allowlist']
+  const sources: AdFreeSource[] = []
+  if (grants.some((g) => g.action === 'grant')) sources.push('paid')
+  if (rewardsGranted > 0) sources.push('referral')
+  return sources.length ? sources : ['paid']
+}
+
+async function handleAdFreeAdmin(env: ReferralEnv, action: string, req: IncomingMessage, res: ServerResponse, store: ReferralStore | null, now: number) {
+  if (!isAdmin({ redisUrl: '', redisToken: '', adminPassword: env.adminPassword }, req.headers.authorization)) {
+    return sendJson(res, 401, { error: 'unauthorized' })
+  }
+  if (!store) return sendJson(res, 503, { error: 'not-configured' })
+
+  // Give (or take away) ad-free: by account email (any case, Gmail dots/+tags ignored) or user id.
+  if (action === 'admin-grant' || action === 'admin-remove') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    const body = await readBody(req)
+    const user =
+      typeof body.userId === 'string' && body.userId
+        ? await store.emailOf(body.userId).then((email) => (email ? { id: body.userId as string, email } : null))
+        : typeof body.email === 'string' && body.email.includes('@')
+          ? await store.findUserByEmail(body.email)
+          : null
+    if (!user) return sendJson(res, 404, { error: 'no-user' })
+    const amount = Number(body.amount ?? 0)
+    if (!Number.isInteger(amount) || amount < 0 || amount > 10_000_000) return sendJson(res, 400, { error: 'amount' })
+    let until: string | null = null
+    let days = 0
+    if (action === 'admin-grant') {
+      days = Number(body.days)
+      if (!Number.isInteger(days) || days < 1 || days > MAX_GRANT_DAYS) return sendJson(res, 400, { error: 'days' })
+      // Added to the time left, or from now.
+      until = extendAdFree((await store.getProfile(user.id))?.ad_free_until, now, days, 1)
+    }
+    await store.setAdFreeUntil(user.id, until)
+    await store.insertGrant({
+      user_id: user.id,
+      email: user.email,
+      action: action === 'admin-grant' ? 'grant' : 'remove',
+      plan: action === 'admin-grant' ? text(body.plan, 40) : null,
+      days,
+      // A removal's amount is a refund.
+      amount: action === 'admin-grant' ? amount : -amount,
+      note: text(body.note, 300),
+      ad_free_until: until,
+    })
+    const ad = adFreeState(user.email, until, env.config, now)
+    return sendJson(res, 200, { userId: user.id, email: user.email, adFree: ad.adFree, adFreeUntil: ad.until, permanent: ad.permanent })
+  }
+
+  // Everyone ad-free now (with where it comes from and the last note), the totals and the log.
+  if (action === 'admin-ad-free') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
+    const [profiles, grants] = await Promise.all([store.adFreeProfiles(new Date(now).toISOString()), store.grants({ limit: 10000 })])
+    const byUser = new Map<string, AdFreeGrant[]>()
+    for (const g of grants) if (g.user_id) byUser.set(g.user_id, [...(byUser.get(g.user_id) ?? []), g])
+    const rows = new Map<string, { userId: string; email: string; adFreeUntil: string | null; sources: AdFreeSource[]; note: string | null; changedAt: string }>()
+    await Promise.all(
+      profiles.map(async (profile) => {
+        const email = (await store.emailOf(profile.user_id)) ?? '(deleted account)'
+        const theirs = byUser.get(profile.user_id) ?? []
+        const ad = adFreeState(email, profile.ad_free_until, env.config, now)
+        rows.set(profile.user_id, {
+          userId: profile.user_id,
+          email,
+          adFreeUntil: ad.permanent ? null : profile.ad_free_until,
+          sources: adFreeSources(ad.permanent, theirs, profile.rewards_granted),
+          note: theirs.find((g) => g.note)?.note ?? null,
+          changedAt: theirs[0]?.created_at ?? profile.updated_at,
+        })
+      }),
+    )
+    // The allowlisted accounts (AD_FREE_EMAILS), ad-free for good.
+    for (const allowed of env.config.adFreeEmails) {
+      const user = await store.findUserByEmail(allowed).catch(() => null)
+      if (!user) continue
+      const known = rows.get(user.id)
+      rows.set(user.id, { userId: user.id, email: user.email, note: null, changedAt: '', ...known, adFreeUntil: null, sources: ['allowlist'] })
+    }
+    const month = lagosMonthStart(now)
+    const paidThisMonth = grants.filter((g) => g.action === 'grant' && g.amount > 0 && Date.parse(g.created_at) >= month)
+    const sum = (since: number) => grants.filter((g) => Date.parse(g.created_at) >= since).reduce((total, g) => total + g.amount, 0)
+    return sendJson(res, 200, {
+      users: [...rows.values()].sort((a, b) => b.changedAt.localeCompare(a.changedAt)),
+      paidUsersThisMonth: new Set(paidThisMonth.map((g) => g.user_id ?? g.email)).size,
+      week: sum(lagosWeek(now).start),
+      month: sum(month),
+      log: grants.slice(0, 50),
+    })
+  }
+  sendJson(res, 404, { error: 'not-found' })
 }

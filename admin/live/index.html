@@ -155,12 +155,51 @@
       [hidden] {
         display: none !important;
       }
+      /* Give ad-free */
+      .af-form {
+        display: grid;
+        gap: 8px;
+      }
+      .af-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .af-row > * {
+        flex: 1 1 10rem;
+      }
+      .af-row button.on {
+        outline: 2px solid #f5c518;
+      }
+      #af-result.ok {
+        color: #6fdc8c;
+      }
+      #af-result.bad {
+        color: #ff6b6b;
+      }
+      #af-users li,
+      #af-log li {
+        display: grid;
+        gap: 6px;
+      }
+      #af-users .af-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      #af-users .af-actions button {
+        min-height: 34px;
+        font-size: 0.85rem;
+      }
+      #af-search {
+        width: 100%;
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Live viewers</h1>
-      <p class="muted"><a href="/admin/feedback" style="color: inherit">Feedback inbox →</a> · <a href="/admin/challenge" style="color: inherit">Invite Challenge →</a></p>
+      <p class="muted"><a href="/admin/feedback" style="color: inherit">Feedback inbox →</a> · <a href="/admin/referrals" style="color: inherit">Referrals →</a> · <a href="#give-ad-free" style="color: inherit">Give ad-free ↓</a></p>
 
       <form id="login" hidden>
         <label class="muted" for="password">Admin password</label>
@@ -203,6 +242,35 @@
         <ol id="sl-calls"></ol>
         <p class="muted" id="sl-calls-empty" hidden>No calls yet.</p>
         <p class="error" id="sl-error" role="alert" hidden></p>
+
+        <h2 id="give-ad-free">Give ad-free</h2>
+        <p class="muted">After they pay on Telegram. Adds the days to their ad-free time (on top of any time left). Ads go on their next page load.</p>
+        <div class="stats">
+          <p class="stat"><strong id="af-paid">–</strong><span>paid users this month</span></p>
+          <p class="stat"><strong id="af-week">–</strong><span>₦ this week</span></p>
+          <p class="stat"><strong id="af-month">–</strong><span>₦ this month</span></p>
+        </div>
+        <form id="af-form" class="af-form">
+          <input id="af-email" type="email" placeholder="Their account email" autocomplete="off" required />
+          <div class="af-row" id="af-plans"></div>
+          <div class="af-row">
+            <input id="af-days" type="number" min="1" max="3650" inputmode="numeric" placeholder="Custom days" aria-label="Custom days" />
+            <input id="af-amount" type="number" min="0" step="1" inputmode="numeric" placeholder="Amount paid (₦)" aria-label="Amount paid (₦)" />
+          </div>
+          <input id="af-note" type="text" maxlength="300" placeholder="Note (optional), e.g. paid via PalmPay" aria-label="Note" />
+          <button type="submit" id="af-give">Give ad-free</button>
+          <p id="af-result" role="status" hidden></p>
+        </form>
+
+        <h2>Ad-free now</h2>
+        <input id="af-search" type="search" placeholder="Search by email" aria-label="Search ad-free users" />
+        <ol id="af-users"></ol>
+        <p class="muted" id="af-empty" hidden>Nobody is ad-free right now.</p>
+        <details>
+          <summary class="muted">Log of grants and removals</summary>
+          <ol id="af-log"></ol>
+        </details>
+        <p class="error" id="af-error" role="alert" hidden></p>
 
         <p class="muted" id="updated"></p>
         <button type="button" class="ghost" id="sign-out">Sign out</button>

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAdOverlay } from './adManager'
 import { AdsBackNotice } from './AdsBackNotice'
 
-const TEXT = '📢 Ads are back on NAIJA TR to keep it free. Want it ad-free? Invite 5 friends 👉 Learn more'
+const TEXT = '📢 Ads are back on NAIJA TR to keep it free. Want it ad-free? Invite 5 friends 👉 Learn more …or buy ad-free from ₦2,000'
 
 function Popup() {
   useAdOverlay()

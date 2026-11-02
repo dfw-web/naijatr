@@ -184,6 +184,15 @@ export function weekOf(key: string): Week | null {
   return { key, start, end: start + 7 * DAY_MS }
 }
 
+/** The start of this month in Lagos, as a UTC time. */
+export function lagosMonthStart(now: number): number {
+  const local = new Date(now + LAGOS_OFFSET_MS)
+  return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1) - LAGOS_OFFSET_MS
+}
+
+/** Days a paid grant may add at once (about 10 years). */
+export const MAX_GRANT_DAYS = 3650
+
 /** The start of today in Lagos, as a UTC time. */
 export function lagosDayStart(now: number): number {
   const local = new Date(now + LAGOS_OFFSET_MS)
