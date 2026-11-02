@@ -33,8 +33,9 @@ import { supabaseStore, type AdFreeGrant, type AuthUser, type Profile, type Refe
  *   referral counts (email confirmed, within the network's daily limit), and
  *   every `goal` counted referrals adds ad-free time to the referrer.
  * - GET  admin?week=YYYY-MM-DD / POST decide (ADMIN_PASSWORD): /admin/referrals.
- * - POST admin-grant / POST admin-remove / GET admin-ad-free (ADMIN_PASSWORD):
- *   /admin/live → Give ad-free: paid ad-free given by hand, every change logged.
+ * - POST admin-grant / POST admin-remove / GET admin-ad-free / POST admin-email
+ *   (ADMIN_PASSWORD): /admin/live → Give ad-free: paid ad-free given by hand,
+ *   every change logged, and the person emailed (Resend).
  *
  * Needs SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.
  * Optional: AD_FREE_EMAILS, AD_FREE_DAYS, REFERRAL_GOAL, REFERRAL_IP_DAILY_LIMIT,
@@ -160,7 +161,7 @@ export async function handleReferral(
 
   try {
     if (action === 'admin' || action === 'decide') return await handleAdmin(env, action, req, res, store, now)
-    if (action.startsWith('admin-')) return await handleAdFreeAdmin(env, action, req, res, store, now)
+    if (action.startsWith('admin-')) return await handleAdFreeAdmin(env, action, req, res, store, now, fetchImpl)
 
     if (action === 'status' || action === 'ad-free') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
@@ -339,7 +340,49 @@ export function adFreeSources(permanent: boolean, grants: AdFreeGrant[], rewards
   return sources.length ? sources : ['paid']
 }
 
-async function handleAdFreeAdmin(env: ReferralEnv, action: string, req: IncomingMessage, res: ServerResponse, store: ReferralStore | null, now: number) {
+/** "2 December 2026" (Lagos). */
+const lagosDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' })
+
+export type MailResult = { sent: true } | { sent: false; error: string }
+
+/**
+ * "🎉 Your NAIJA TR ad-free is active" to the account's email, through Resend
+ * (RESEND_API_KEY, RESEND_FROM). Never throws: says what went wrong instead.
+ */
+export async function sendAdFreeEmail(env: ReferralEnv, to: string, until: string | null, fetchImpl: typeof fetch): Promise<MailResult> {
+  if (!env.resendKey || !env.resendFrom) return { sent: false, error: 'email isn’t set up (RESEND_API_KEY, RESEND_FROM)' }
+  const when = until ? `until ${lagosDate(until)}` : 'for good'
+  const renew = 'https://t.me/Dfw_Brun0'
+  const site = env.siteUrl
+  try {
+    const response = await fetchImpl('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.resendKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: env.resendFrom,
+        to: [to],
+        subject: '🎉 Your NAIJA TR ad-free is active',
+        text: `Hi! Thanks for your support ❤️\n\nNAIJA TR ad-free is now active on your account ${when}.\nSign in at ${site} with this email on any device to watch movies, series and live football with no ads.\n\nTo renew, just message us on Telegram: ${renew}\n\nNAIJA TR`,
+        html: `<p>Hi! Thanks for your support ❤️</p><p>NAIJA TR ad-free is now active on your account <strong>${when}</strong>.</p><p>Sign in at <a href="${site}">${site.replace(/^https:\/\//, '')}</a> with this email on any device to watch movies, series and live football with no ads.</p><p>To renew, just message us on Telegram: <a href="${renew}">${renew.replace(/^https:\/\//, '')}</a></p><p>NAIJA TR</p>`,
+      }),
+    })
+    if (response.ok) return { sent: true }
+    const body = (await response.json().catch(() => null)) as { message?: string } | null
+    return { sent: false, error: body?.message ?? `Resend answered ${response.status}` }
+  } catch {
+    return { sent: false, error: 'Resend couldn’t be reached' }
+  }
+}
+
+async function handleAdFreeAdmin(
+  env: ReferralEnv,
+  action: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: ReferralStore | null,
+  now: number,
+  fetchImpl: typeof fetch,
+) {
   if (!isAdmin({ redisUrl: '', redisToken: '', adminPassword: env.adminPassword }, req.headers.authorization)) {
     return sendJson(res, 401, { error: 'unauthorized' })
   }
@@ -379,7 +422,20 @@ async function handleAdFreeAdmin(env: ReferralEnv, action: string, req: Incoming
       ad_free_until: until,
     })
     const ad = adFreeState(user.email, until, env.config, now)
-    return sendJson(res, 200, { userId: user.id, email: user.email, adFree: ad.adFree, adFreeUntil: ad.until, permanent: ad.permanent })
+    // Given: they're told by email too.
+    const mail = action === 'admin-grant' ? await sendAdFreeEmail(env, user.email, ad.until, fetchImpl) : null
+    return sendJson(res, 200, { userId: user.id, email: user.email, adFree: ad.adFree, adFreeUntil: ad.until, permanent: ad.permanent, mail })
+  }
+
+  // "📧 Email them": the "ad-free is active" email again, for someone ad-free now.
+  if (action === 'admin-email') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    const body = await readBody(req)
+    const email = typeof body.userId === 'string' && body.userId ? await store.emailOf(body.userId) : null
+    if (!email) return sendJson(res, 404, { error: 'no-user' })
+    const ad = adFreeState(email, (await store.getProfile(body.userId as string))?.ad_free_until, env.config, now)
+    if (!ad.adFree) return sendJson(res, 409, { error: 'not-ad-free' })
+    return sendJson(res, 200, { email, mail: await sendAdFreeEmail(env, email, ad.until, fetchImpl) })
   }
 
   // Everyone ad-free now (with where it comes from and the last note), the totals and the log.

@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleReferral, readReferralEnv } from './handlers'
 import { DAY_MS, normalizeEmail } from './rules'
 import type { AdFreeGrant, AuthUser, Profile, Referral, ReferralStore, WeekDecision } from './store'
@@ -128,7 +128,7 @@ const env = readReferralEnv({
 async function call(
   fake: ReturnType<typeof fakeStore>,
   action: string,
-  init: { method?: string; token?: string; body?: unknown; ip?: string; query?: string } = {},
+  init: { method?: string; token?: string; body?: unknown; ip?: string; query?: string; env?: typeof env; fetchImpl?: typeof fetch } = {},
 ) {
   const req = Readable.from(init.body === undefined ? [] : [Buffer.from(JSON.stringify(init.body))]) as unknown as IncomingMessage
   req.method = init.method ?? (init.body === undefined ? 'GET' : 'POST')
@@ -147,7 +147,7 @@ async function call(
       body = text
     },
   } as unknown as ServerResponse
-  await handleReferral(env, action, req, res, { store: fake.store, now: fake.clock.now })
+  await handleReferral(init.env ?? env, action, req, res, { store: fake.store, now: fake.clock.now, fetchImpl: init.fetchImpl })
   return { status, json: JSON.parse(body) as Record<string, unknown> }
 }
 
@@ -388,5 +388,52 @@ describe('Give ad-free (/admin/live)', () => {
     // Gone's ₦2,000 still counts (no refund entered); two paid users this month.
     expect(json).toMatchObject({ paidUsersThisMonth: 2, week: 7000, month: 7000 })
     expect((json.log as unknown[]).length).toBe(3)
+  })
+})
+
+describe('the "ad-free is active" email', () => {
+  const mailEnv = { ...env, resendKey: 're_test', resendFrom: 'NAIJA TR <hello@naijatr.com>' }
+  const resend = (status = 200, body: unknown = { id: 'm1' }) => vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
+
+  it('goes to the person when ad-free is given, with the end date and the renew link', async () => {
+    fake.addUser('ada', 'ada.obi@gmail.com')
+    const fetchImpl = resend()
+    const res = await call(fake, 'admin-grant', { token: 'admin-pw', env: mailEnv, fetchImpl, body: { email: 'adaobi@gmail.com', days: 30 } })
+    expect(res.json.mail).toEqual({ sent: true })
+    const [url, init] = vi.mocked(fetchImpl).mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.resend.com/emails')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer re_test')
+    const mail = JSON.parse(init.body as string) as { from: string; to: string[]; subject: string; text: string }
+    expect(mail).toMatchObject({ from: 'NAIJA TR <hello@naijatr.com>', to: ['ada.obi@gmail.com'], subject: '🎉 Your NAIJA TR ad-free is active' })
+    expect(mail.text).toContain('active on your account until 4 December 2026')
+    expect(mail.text).toContain('https://t.me/Dfw_Brun0')
+  })
+
+  it('says why when it can’t be sent, and the grant still stands', async () => {
+    fake.addUser('ada', 'ada@gmail.com')
+    const res = await call(fake, 'admin-grant', {
+      token: 'admin-pw',
+      env: mailEnv,
+      fetchImpl: resend(403, { message: 'The naijatr.com domain is not verified.' }),
+      body: { email: 'ada@gmail.com', days: 30 },
+    })
+    expect(res.json).toMatchObject({ adFree: true, mail: { sent: false, error: 'The naijatr.com domain is not verified.' } })
+    // Not set up at all.
+    expect((await call(fake, 'admin-grant', { token: 'admin-pw', body: { email: 'ada@gmail.com', days: 1 } })).json.mail).toMatchObject({ sent: false })
+    // Removing sends nothing.
+    const fetchImpl = resend()
+    expect((await call(fake, 'admin-remove', { token: 'admin-pw', env: mailEnv, fetchImpl, body: { email: 'ada@gmail.com' } })).json.mail).toBeNull()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('"Email them" sends it again to someone ad-free now (admin only)', async () => {
+    fake.addUser('ada', 'ada@gmail.com')
+    fake.addUser('bola', 'bola@gmail.com')
+    await call(fake, 'admin-grant', { token: 'admin-pw', body: { email: 'ada@gmail.com', days: 30 } })
+    const fetchImpl = resend()
+    expect((await call(fake, 'admin-email', { token: 'admin-pw', env: mailEnv, fetchImpl, body: { userId: 'ada' } })).json).toEqual({ email: 'ada@gmail.com', mail: { sent: true } })
+    expect((await call(fake, 'admin-email', { token: 'admin-pw', env: mailEnv, fetchImpl, body: { userId: 'bola' } })).status).toBe(409)
+    expect((await call(fake, 'admin-email', { token: 'wrong', env: mailEnv, fetchImpl, body: { userId: 'ada' } })).status).toBe(401)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })

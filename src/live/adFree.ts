@@ -4,8 +4,9 @@ import { AD_FREE_PLANS, naira } from '../config/adFree'
  * /admin/live → "Give ad-free" (admin/live/index.html): paid ad-free given by
  * hand after a Telegram payment, through /api/referral/admin-* (the server
  * holds the Supabase service key). The form adds days by account email; the
- * list shows everyone ad-free now, with +30 / +90 days and Remove each; every
- * change is logged (ad_free_grants) and totalled.
+ * list shows everyone ad-free now, with +30 / +90 days, Email them and Remove
+ * each; every change is logged (ad_free_grants) and totalled. Giving ad-free
+ * emails the person (Resend), and the result says if it went.
  */
 
 interface Grant {
@@ -101,6 +102,12 @@ function renderUsers() {
           })
           actions.append(b)
         }
+        const mail = el('button', '📧 Email them', 'ghost') as HTMLButtonElement
+        mail.type = 'button'
+        mail.addEventListener('click', () => {
+          if (window.confirm(`Email ${user.email} that their ad-free is active?`)) void emailThem(user)
+        })
+        actions.append(mail)
         const remove = el('button', 'Remove ad-free', 'ghost') as HTMLButtonElement
         remove.type = 'button'
         remove.addEventListener('click', () => {
@@ -138,10 +145,22 @@ function result(text: string, ok: boolean) {
   node.hidden = false
 }
 
+type Mail = { sent: true } | { sent: false; error: string } | null
+
+/** " · 📧 Email sent" / " · ⚠️ Email not sent: …" */
+const mailText = (mail: Mail) => (!mail ? '' : mail.sent ? ' · 📧 Email sent' : ` · ⚠️ Email not sent: ${mail.error}`)
+
+async function emailThem(user: AdFreeUser) {
+  const { status, data } = await api<{ email: string; mail: Mail }>('admin-email', { userId: user.userId })
+  if (data) result(data.mail?.sent ? `📧 Email sent to ${data.email}` : `⚠️ Email not sent to ${data.email}: ${data.mail && !data.mail.sent ? data.mail.error : ''}`, Boolean(data.mail?.sent))
+  else result(status === 409 ? `❌ ${user.email} isn’t ad-free now.` : '❌ That didn’t work. Please try again.', false)
+  $('af-result').scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
 async function change(action: 'admin-grant' | 'admin-remove', body: Record<string, unknown>) {
-  const { status, data } = await api<{ email: string; adFreeUntil: string | null; permanent: boolean; adFree: boolean }>(action, body)
+  const { status, data } = await api<{ email: string; adFreeUntil: string | null; permanent: boolean; adFree: boolean; mail: Mail }>(action, body)
   if (data) {
-    result(action === 'admin-grant' || data.adFree ? doneText(data) : `✅ Ad-free removed from ${data.email}`, true)
+    result(action === 'admin-grant' || data.adFree ? `${doneText(data)}${mailText(data.mail)}` : `✅ Ad-free removed from ${data.email}`, true)
     await loadAdFree()
     return true
   }
