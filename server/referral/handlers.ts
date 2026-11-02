@@ -170,7 +170,8 @@ export async function handleReferral(
       if (!user) return sendJson(res, 401, { error: 'unauthorized', goal })
       const profile = await ensureProfile(store, user, hashIp(env.config.salt, clientIp(req)))
       const ad = adFreeState(user.email, profile.ad_free_until, env.config, now)
-      const [referrals, lastGrants] = await Promise.all([store.referralsOf(user.id), store.grants({ userId: user.id, limit: 1 })])
+      // The grant log is optional here: without it (003 not run yet) the ad-free check still works.
+      const [referrals, lastGrants] = await Promise.all([store.referralsOf(user.id), store.grants({ userId: user.id, limit: 1 }).catch(() => [])])
       const counted = referrals.filter((r) => r.status === 'counted')
       const lastGrant = lastGrants[0]?.action === 'grant' ? { id: lastGrants[0].id, at: lastGrants[0].created_at } : null
       const week = lagosWeek(now)
