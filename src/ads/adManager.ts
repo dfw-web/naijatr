@@ -220,6 +220,24 @@ export function searchAd(event: Event | undefined): boolean {
   )
 }
 
+/**
+ * Quiet zones: the sign-in sheet and every password form (data-quiet-ads).
+ * The Multitag listens for taps on the whole page and can't be paused once
+ * loaded, so taps inside a quiet zone stop at the app's root, after React has
+ * handled them: someone signing up or typing a password gets no pop-under.
+ */
+export const QUIET_ADS_ATTR = 'data-quiet-ads'
+const QUIET_EVENTS = ['click', 'auxclick', 'dblclick', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'submit'] as const
+
+/** Call once, right after the React root is created on `root` (its own listeners come first). */
+export function installQuietZones(root: HTMLElement): void {
+  const stop = (event: Event) => {
+    const target = event.target as Element | null
+    if (target?.closest?.(`[${QUIET_ADS_ATTR}]`)) event.stopPropagation()
+  }
+  for (const type of QUIET_EVENTS) root.addEventListener(type, stop, { passive: true })
+}
+
 /** Test helper. */
 export function resetAdManager() {
   memory.clear()

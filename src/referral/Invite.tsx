@@ -397,7 +397,7 @@ export function DailyPromoHost() {
   const [open, setOpen] = useState(false)
   // A signed-in device waits for the server's ad-free answer first.
   const known = !hasStoredSession() || status !== null || account === 'signedOut'
-  const onInvitePages = /^\/invite(\/|$)/.test(window.location.pathname)
+  const onInvitePages = /^\/(invite|auth)(\/|$)/.test(window.location.pathname)
   const [alreadyToday] = useState(() => promoShownToday())
   const due = on && !adFree && known && !onInvitePages && !alreadyToday
 

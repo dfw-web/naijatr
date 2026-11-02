@@ -18,6 +18,7 @@ import { useCooldownSeconds } from './authRules'
 import { goToPage } from './pages'
 import { snooze } from './reminders'
 import './account.css'
+import { useAdOverlay } from '../ads/adManager'
 
 /** The sign-in sheet ("Log in" / "Create account"), opened from the header, the prompt or the Account page. Mount once (App). */
 export function SignInHost() {
@@ -40,6 +41,8 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [email, setEmail] = useState('')
   useDismiss(true, closeSignIn)
+  // No ads while signing up or in (see src/ads/adManager.ts).
+  useAdOverlay(true)
 
   const notNow = () => {
     snooze('sync')
@@ -123,8 +126,8 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   }
 
   return (
-    <div className="account-sheet" role="presentation" onClick={(event) => event.target === event.currentTarget && closeSignIn()}>
-      <div className="account-sheet__panel" role="dialog" aria-modal="true" aria-label="Your NAIJA TR account">
+    <div className="account-sheet" role="presentation" data-quiet-ads="" onClick={(event) => event.target === event.currentTarget && closeSignIn()}>
+      <div className="account-sheet__panel" role="dialog" aria-modal="true" aria-label="Your NAIJA TR account" data-quiet-ads="">
         <button type="button" className="account-sheet__close" aria-label="Close" onClick={closeSignIn}>
           <X aria-hidden="true" />
         </button>

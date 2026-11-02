@@ -69,11 +69,12 @@ function forgetTitleLink() {
 function App() {
   // Before useFilterParams rewrites the query string.
   useState(() => rememberNoAdsFlag())
-  // The Monetag Multitag, once (after the ?noads= check above), while the movie section has ads.
-  useMultitag(AD_SECTIONS.movies)
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
   // /my-list, /account, /privacy: shown instead of the views.
   const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname))
+  // The Monetag Multitag, once (after the ?noads= check above), while the movie section has ads;
+  // not while setting a password from an email link, but as soon as they move on.
+  useMultitag(AD_SECTIONS.movies && page !== 'auth/confirm' && page !== 'auth/reset')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MediaItem | null>(titleFromUrl)
   // Wrapped in an object so clicking the same link twice still scrolls.
