@@ -15,8 +15,19 @@ export const PLAYER_SERVERS: { id: PlayerServerId; enabled: boolean }[] = [
   { id: 'embedmaster', enabled: true },
 ]
 
-/** A server that hasn't sent a single player event this long after it was opened is switched for the other. */
+/**
+ * A server with no playable start (duration, time or play from its player)
+ * this long after it was opened is switched for the other; when that one
+ * doesn't start either, the viewer has most likely hit the daily limit.
+ */
 export const SERVER_START_TIMEOUT_MS = 10_000
+
+/**
+ * The hour (UTC) the providers' daily limit is expected to reset. Not
+ * published; midnight UTC (01:00 in Lagos) is a guess. Change it once the
+ * player's "Try again in …" shows the real time.
+ */
+export const STREAM_LIMIT_RESET_UTC_HOUR = 0
 
 /** The timeout in use (tests shorten it). */
 export const serverTiming = { startMs: SERVER_START_TIMEOUT_MS }

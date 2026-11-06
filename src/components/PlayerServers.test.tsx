@@ -147,9 +147,70 @@ describe('Server 1 / Server 2', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Play' }))
     expect(await screen.findByText('Switched to Server 1')).toBeInTheDocument()
     expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
-    // Server 1 is silent too: no switching back and forth.
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+    // Server 1 is silent too: no switching back, but the viewer's daily limit.
+    expect(await screen.findByText(/You’ve reached today’s streaming limit 😔 It resets in about/)).toBeInTheDocument()
+    expect(screen.queryByTitle('Fight Club player')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '＋ My List' })).toBeInTheDocument()
+  })
+
+  it('switches at the same episode and time when the player shows something that isn’t the video', async () => {
+    serverTiming.startMs = 80
+    localStorage.setItem('naijatr.playerServer', 'embedmaster')
+    render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
+    await userEvent.selectOptions(screen.getByLabelText('Episode'), '2')
+    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E2' }))
+    const two = await screen.findByTitle('Game of Thrones player')
+    // Saved earlier on this device: 10:00 into S1 E2.
+    const entry = readContinueWatching()[0]
+    localStorage.setItem('naijatr:continueWatching', JSON.stringify([{ ...entry, progressSeconds: 600 }]))
+    // A message from the player that isn't a playable start (like a limit screen) doesn't count.
+    post(two, 'ready')
+    post(two, 'duration', 0)
+    expect(await screen.findByText('Switched to Server 1')).toBeInTheDocument()
+    const one = await screen.findByTitle('Game of Thrones player')
+    expect(one).toHaveAttribute('src', '/api/play/tv/1399/1/2')
+    const send = vi.spyOn((one as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => undefined)
+    post(one, 'duration', 3600, 'https://embdmstrplayer.com')
+    expect(send).toHaveBeenCalledWith({ source: 'embedmaster_player_command', command: 'seek', value: 600 }, 'https://embdmstrplayer.com')
+    // Server 2 is remembered as limited on this device only.
+    expect(JSON.parse(localStorage.getItem('naijatr.streamLimit') ?? '{}')).toHaveProperty('embedmaster')
+  })
+
+  it('skips a server limited on this device, and shows the limit at once when both are', async () => {
+    const later = Date.now() + 60 * 60_000
+    localStorage.setItem('naijatr.streamLimit', JSON.stringify({ nextstream: later }))
+    const fetchImpl = checks(true)
+    const { unmount } = render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    unmount()
+
+    localStorage.setItem('naijatr.streamLimit', JSON.stringify({ nextstream: later, embedmaster: later }))
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('You’ve reached today’s streaming limit')
+    expect(screen.queryByTitle('Fight Club player')).not.toBeInTheDocument()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    // Another network may work: Try again clears the marks and plays.
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+    expect(localStorage.getItem('naijatr.streamLimit')).toBeNull()
+  })
+
+  it('tries a limited server when picked by hand, and clears its mark once it plays', async () => {
+    serverTiming.startMs = 100
+    localStorage.setItem('naijatr.streamLimit', JSON.stringify({ nextstream: Date.now() + 60 * 60_000 }))
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    const two = await screen.findByTitle('Fight Club player')
+    expect(two).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`)
+    post(two, 'duration', 6000)
+    await userEvent.click(server('Server 1'))
+    const one = await screen.findByTitle('Fight Club player')
+    expect(one).toHaveAttribute('src', '/api/play/movie/550')
+    post(one, 'time', 3, 'https://embdmstrplayer.com')
+    expect(localStorage.getItem('naijatr.streamLimit')).toBeNull()
   })
 
   it('stays put once the player reports in', async () => {

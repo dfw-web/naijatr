@@ -243,6 +243,28 @@
   color: var(--accent);
 }
 
+/* The viewer's daily streaming limit: in place of the player. */
+.player__limit {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.player__limit p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.player__limit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .player__unavailable {
   margin-top: 1rem;
   color: var(--text-faint);

@@ -152,12 +152,49 @@ describe('the count', () => {
         { item: 'match:123', viewers: 1 },
       ],
       ads: { card: 5, play: 1, football: 0, search: 0, cooldown: 2, cap: 0 },
+      players: {
+        calls: 0,
+        nextstream: { load: 0, nostart: 0, fallback: 0, limited: 0 },
+        embedmaster: { load: 0, nostart: 0, fallback: 0, limited: 0 },
+      },
+      key: { issued: null, expiresAt: null, okAt: null, rejectedAt: null },
     })
     expect(calls[0]).toEqual([
       ['ZREMRANGEBYSCORE', 'live:now', '-inf', `(${NOW - WINDOW_MS}`],
       ['ZRANGE', 'live:now', String(NOW - WINDOW_MS), '+inf', 'BYSCORE', 'WITHSCORES'],
       ['HGETALL', `ads:${lagosDay(NOW)}`],
+      ['HGETALL', `players:${lagosDay(NOW)}`],
+      ['HGETALL', 'codespecter:key'],
     ])
+  })
+
+  it('counts each server\'s loads, no-starts, switches and limit messages, and our key\'s calls and status', async () => {
+    const { fetchImpl } = upstash([
+      0,
+      [],
+      [],
+      ['nextstream:load', '7', 'nextstream:calls', '6', 'embedmaster:nostart', '3', 'embedmaster:fallback', '2', 'nextstream:limited', '1'],
+      ['ok', '1000', 'rejected', '2000'],
+    ])
+    const count = await countLive({ ...ENV, keyIssued: '2026-11-01' }, NOW, fetchImpl)
+    expect(count?.players).toEqual({
+      calls: 6,
+      nextstream: { load: 7, nostart: 0, fallback: 0, limited: 1 },
+      embedmaster: { load: 0, nostart: 3, fallback: 2, limited: 0 },
+    })
+    expect(count?.key).toEqual({ issued: '2026-11-01', expiresAt: Date.parse('2026-12-01T00:00:00Z'), okAt: 1000, rejectedAt: 2000 })
+  })
+
+  it('takes player reports from the site, and nothing else', async () => {
+    const { fetchImpl, calls } = upstash([1, 1])
+    expect((await call('player', request('POST', { server: 'embedmaster', event: 'nostart' }), fetchImpl)).statusCode).toBe(200)
+    expect(calls[0]).toEqual([
+      ['HINCRBY', `players:${lagosDay(NOW)}`, 'embedmaster:nostart', '1'],
+      ['EXPIRE', `players:${lagosDay(NOW)}`, String(8 * 24 * 60 * 60)],
+    ])
+    expect((await call('player', request('POST', { server: 'other', event: 'load' }), fetchImpl)).statusCode).toBe(400)
+    expect((await call('player', request('POST', { server: 'nextstream', event: 'calls' }), fetchImpl)).statusCode).toBe(400)
+    expect((await call('player', request('GET'), fetchImpl)).statusCode).toBe(405)
   })
 
   it('keeps the top five', async () => {
@@ -172,7 +209,7 @@ describe('the count', () => {
     expect((await call('count', request('GET', undefined, 'Bearer wrong'), fetchImpl)).statusCode).toBe(401)
     const ok = await call('count', request('GET', undefined, 'Bearer open sesame'), fetchImpl)
     expect(ok.statusCode).toBe(200)
-    expect(ok.json).toEqual({ watching: 0, browsing: 0, top: [], ads: { card: 0, play: 0, football: 0, search: 0, cooldown: 0, cap: 0 } })
+    expect(ok.json).toMatchObject({ watching: 0, browsing: 0, top: [], ads: { card: 0, play: 0, football: 0, search: 0, cooldown: 0, cap: 0 } })
     expect(ok.headers['cache-control']).toBe('no-store')
   })
 
@@ -190,6 +227,7 @@ describe('the count', () => {
       redisUrl: 'https://a.upstash.io',
       redisToken: 't',
       adminPassword: 'p',
+      keyIssued: '',
     })
     expect(readLiveEnv({ UPSTASH_REDIS_REST_URL: 'https://b.upstash.io', UPSTASH_REDIS_REST_TOKEN: 'u' })).toMatchObject({
       redisUrl: 'https://b.upstash.io',

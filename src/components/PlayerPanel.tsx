@@ -41,6 +41,8 @@ import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watc
 import { requestSyncNow } from '../account/sync'
 import { embedmasterUrl, serverTiming, type PlayerServerId } from '../config/players'
 import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
+import { clearLimited, isLimited, markLimited, nextReset, timeUntil } from '../utils/streamLimit'
+import { reportPlayer } from '../live/playerStats'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -66,6 +68,8 @@ type PlayerState =
   | { status: 'loading' }
   | { status: 'playing' }
   | { status: 'error'; message: string }
+  /** The viewer's daily streaming limit, most likely: no server started (src/utils/streamLimit.ts). */
+  | { status: 'limited'; resetAt: number }
 
 interface Run {
   itemId: string
@@ -168,7 +172,14 @@ const STREAM_MESSAGES: Record<string, string> = {
   'not-configured': 'Playback isn’t configured on this server.',
   unreachable: 'The streaming service couldn’t be reached. Please try again.',
   'upstream-error': 'The streaming service returned an error. Please try again.',
+  'key-rejected': 'The streaming service couldn’t be reached. Please try again.',
 }
+
+/** A player event that means the video really started: its length, a time, or play. */
+const isPlayableStart = (data: { event?: unknown; info?: unknown }) =>
+  data.event === 'play' ||
+  (data.event === 'time' && typeof data.info === 'number') ||
+  (data.event === 'duration' && typeof data.info === 'number' && data.info > 0)
 
 const trailerUrl = (trailer: Trailer) =>
   `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.key)}?autoplay=1&rel=0`
@@ -195,7 +206,6 @@ export function PlayerPanel({
   const servers = availableServers(isSeries ? availability.tv : availability.movie, item.tmdbId)
   const [pickedServer, setPickedServer] = useState<PlayerServerId | null>(null)
   const server = pickedServer && servers.includes(pickedServer) ? pickedServer : preferredServer(servers)
-  const otherServer = (current: PlayerServerId | undefined) => servers.find((id) => id !== current) ?? null
   const streamEnabled = servers.length > 0
   const tvSrc = (s: number, e: number) => `/api/play/tv/${item.tmdbId}/${s}/${e}`
 
@@ -405,29 +415,42 @@ export function PlayerPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchingSrc, watchingRun, itemId])
 
-  // Auto-fallback: a server that hasn't sent a single player event within 10s
-  // (or whose check failed, see start) is switched for the other one, once.
+  // Auto-fallback: a server with no playable start within 10s (or whose check
+  // failed, see start) is marked limited on this device and switched for the
+  // other one, once per play. When there's no other to try, it's most likely
+  // the viewer's daily limit: the limit message replaces the player.
   // (`switchServer` is defined below the early return; the ref is set once it exists.)
   const switchServerRef = useRef<((to: PlayerServerId, how: 'picked' | 'auto') => void) | null>(null)
   const startingRun =
-    active?.choice === 'stream' &&
-    !active.autoSwitched &&
-    (active.state.status === 'loading' || active.state.status === 'playing') &&
-    otherServer(active.server) !== null
-      ? `${active.attempt}`
+    active?.choice === 'stream' && (active.state.status === 'loading' || active.state.status === 'playing')
+      ? active.attempt
       : null
   const startingServer = active?.server
+  const startingAuto = active?.autoSwitched ?? false
   useEffect(() => {
-    if (!startingRun) return
+    if (startingRun === null || !startingServer) return
     const onMessage = (ev: MessageEvent) => {
-      const data = ev.data as { source?: unknown } | null
+      const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
+      if (!isPlayableStart(data)) return
       window.clearTimeout(timer)
       window.removeEventListener('message', onMessage)
+      clearLimited(startingServer)
     }
     const timer = window.setTimeout(() => {
-      const to = servers.find((id) => id !== startingServer)
-      if (to) switchServerRef.current?.(to, 'auto')
+      window.removeEventListener('message', onMessage)
+      reportPlayer(startingServer, 'nostart')
+      markLimited(startingServer)
+      const to = startingAuto ? null : servers.find((id) => id !== startingServer && !isLimited(id))
+      if (to) {
+        reportPlayer(startingServer, 'fallback')
+        switchServerRef.current?.(to, 'auto')
+        return
+      }
+      reportPlayer(startingServer, 'limited')
+      setRun((r) =>
+        r && r.attempt === startingRun ? { ...r, state: { status: 'limited', resetAt: nextReset() } } : r,
+      )
     }, serverTiming.startMs)
     window.addEventListener('message', onMessage)
     return () => {
@@ -590,21 +613,30 @@ export function PlayerPanel({
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
     }
-    const onServer = via?.server ?? server
-    if (!src || !onServer) return
+    // A server that hit this viewer's limit today is skipped; with none left, the limit message.
+    const onServer = via?.server ?? (server && !isLimited(server) ? server : (servers.find((id) => !isLimited(id)) ?? null))
+    if (!src) return
+    if (!onServer) {
+      if (!server) return
+      reportPlayer(server, 'limited')
+      setRun({ itemId: item.id, choice, streamSrc: src, server, attempt, state: { status: 'limited', resetAt: nextReset() } })
+      return
+    }
     dismissResume()
     const autoSwitched = via?.autoSwitched ?? false
     if (onServer === 'embedmaster') {
       // Played straight from embedmaster.link: nothing to check first.
       if (isSeries) saveLastEpisode(item.id, ep)
+      reportPlayer(onServer, 'load')
       setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'loading' }, keepPlayer })
       return
     }
     setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'checking' }, keepPlayer })
     // This server can't play it: the other one tries, once.
     const fallBack = () => {
-      const to = autoSwitched ? null : otherServer(onServer)
+      const to = autoSwitched ? null : servers.find((id) => id !== onServer && !isLimited(id))
       if (!to) return false
+      reportPlayer(onServer, 'fallback')
       trackServerSwitch(to, 'auto')
       void start(choice, ep, true, { server: to, autoSwitched: true, switching: true })
       return true
@@ -616,6 +648,7 @@ export function PlayerPanel({
         reason?: string | null
       }
       if (body.available && isSeries) saveLastEpisode(item.id, ep)
+      if (body.available) reportPlayer(onServer, 'load')
       if (!body.available && fallBack()) return
       update(
         attempt,
@@ -851,7 +884,8 @@ export function PlayerPanel({
   if (
     !active ||
     (active.state.status === 'checking' && !active.keepPlayer) ||
-    active.state.status === 'error'
+    active.state.status === 'error' ||
+    active.state.status === 'limited'
   ) {
     return (
       <section ref={sectionRef} className={sectionClass} aria-label="Watch">
@@ -870,6 +904,29 @@ export function PlayerPanel({
               <RotateCcw aria-hidden="true" /> Retry
             </button>
           </p>
+        )}
+        {active?.state.status === 'limited' && (
+          <div className="player__limit" role="alert">
+            <p>
+              You’ve reached today’s streaming limit 😔 It resets in about {timeUntil(active.state.resetAt)}. Try
+              switching between Wi-Fi and mobile data, or add it to My List for later.
+            </p>
+            <div className="player__limit-actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  // Another network may have its own limit: every server is tried again.
+                  clearLimited()
+                  const ep = active.streamSrc ? episodeOfSrc(active.streamSrc) : {}
+                  void start('stream', ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined)
+                }}
+              >
+                <RotateCcw aria-hidden="true" /> Try again
+              </button>
+              <WatchLaterButton item={item} />
+            </div>
+          </div>
         )}
         {actions}
         {howTo}

@@ -14,13 +14,30 @@ const PASSWORD_KEY = 'naijatr.admin.password'
 
 type AdEvent = 'card' | 'play' | 'football' | 'search' | 'cooldown' | 'cap'
 
+type PlayerEvent = 'load' | 'nostart' | 'fallback' | 'limited'
+type PlayerCounts = Record<'nextstream' | 'embedmaster', Record<PlayerEvent, number>> & { calls: number }
+
+interface KeyStatus {
+  issued: string | null
+  expiresAt: number | null
+  okAt: number | null
+  rejectedAt: number | null
+}
+
 interface LiveCount {
   watching: number
   browsing: number
   top: { item: string; viewers: number }[]
   /** Today's direct-link ads (server/live/handlers.ts). */
   ads?: Record<AdEvent, number>
+  /** Today's player stats per server, and our CodeSpecter key (server/live/handlers.ts). */
+  players?: PlayerCounts
+  key?: KeyStatus
 }
+
+/** Warn this many days before the CodeSpecter key's 30 days are up. */
+export const KEY_WARN_DAYS = 5
+const DAY_MS = 24 * 60 * 60_000
 
 const AD_ROWS: { event: AdEvent; label: string }[] = [
   { event: 'card', label: 'Opened: title card' },
@@ -111,6 +128,7 @@ async function render(count: LiveCount) {
   )
   $('top').replaceChildren(...rows)
   renderAds(count.ads)
+  renderServers(count.players, count.key)
   $('empty').hidden = rows.length > 0
   $('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 30 seconds`
 }
@@ -130,6 +148,50 @@ function renderAds(ads: LiveCount['ads']) {
       return li
     }),
   )
+}
+
+const SERVER_ROWS = [
+  { id: 'nextstream', label: 'Server 1 (CodeSpecter)' },
+  { id: 'embedmaster', label: 'Server 2 (EmbedMaster)' },
+] as const
+
+function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undefined) {
+  $('servers').replaceChildren(
+    ...SERVER_ROWS.map(({ id, label }) => {
+      const c = players?.[id]
+      const li = document.createElement('li')
+      const name = document.createElement('span')
+      name.textContent = label
+      const numbers = document.createElement('span')
+      numbers.textContent = c
+        ? `${c.load} loads · ${c.nostart} no start · ${c.fallback} switched away · ${c.limited} limit msg` +
+          (id === 'nextstream' && players ? ` · ${players.calls} key calls` : '')
+        : '–'
+      li.append(name, numbers)
+      return li
+    }),
+  )
+  const warning = keyWarning(key, Date.now())
+  $('key-warning').hidden = !warning
+  $('key-warning').textContent = warning ?? ''
+  $('key-note').textContent = key?.expiresAt
+    ? `CodeSpecter key issued ${key.issued}, valid until ${new Date(key.expiresAt).toLocaleDateString()}.`
+    : 'Set NEXTSTREAM_KEY_ISSUED=YYYY-MM-DD (the day the CodeSpecter key was issued) on Vercel to get an expiry warning.'
+}
+
+/** The CodeSpecter key: refused by NextStream, expired, or due to expire within KEY_WARN_DAYS; else null. */
+export function keyWarning(key: KeyStatus | undefined, now: number): string | null {
+  if (!key) return null
+  if (key.rejectedAt && (!key.okAt || key.rejectedAt > key.okAt)) {
+    return `⚠️ CodeSpecter refused our API key at ${new Date(key.rejectedAt).toLocaleString()}. Server 1 is down: get a new key at api.codespecters.com/api, put it in NEXTSTREAM_API_KEY and redeploy.`
+  }
+  if (key.expiresAt === null) return null
+  const days = Math.ceil((key.expiresAt - now) / DAY_MS)
+  if (days <= 0) return '⚠️ The CodeSpecter key has passed its 30 days. Get a new key, update NEXTSTREAM_API_KEY and NEXTSTREAM_KEY_ISSUED, and redeploy.'
+  if (days <= KEY_WARN_DAYS) {
+    return `⚠️ The CodeSpecter key expires in ${days} day${days === 1 ? '' : 's'} (${new Date(key.expiresAt).toLocaleDateString()}). Get a new key, update NEXTSTREAM_API_KEY and NEXTSTREAM_KEY_ISSUED, and redeploy.`
+  }
+  return null
 }
 
 interface StreamRow {

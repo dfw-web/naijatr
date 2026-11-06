@@ -58,6 +58,8 @@ const PLAYER_PAGE = `<!DOCTYPE html><html><head><title>NexStream</title></head><
 </script>
 </body></html>`
 
+const BROWSER = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36'
+
 const json = (res: { body?: string }) => JSON.parse(res.body ?? 'null') as Record<string, unknown>
 
 /** Applies vercel.json's rewrites the way Vercel does for these simple patterns. */
@@ -231,6 +233,61 @@ describe('Playback and download handlers', () => {
       expect(res.body).toContain('})(apiUrl)')
     })
 
+    it('makes one call on our key per play: the check looks the sources up, the player reuses them and the saved page', async () => {
+      const cache = createPlayCache()
+      // The first play of the day fetches the page once.
+      await play(nextStream('ok', 'ok'), cache)
+      const fetchImpl = nextStream('ok', 'ok')
+      const reports: string[] = []
+      const check = fakeResponse()
+      await handlePlay(embed, '/movie/27205', new URLSearchParams('check=1'), check, fetchImpl, cache, { report: (e) => reports.push(e) })
+      expect(json(check)).toMatchObject({ available: true })
+      const page = fakeResponse()
+      await handlePlay(embed, '/movie/27205', new URLSearchParams(), page, fetchImpl, cache, { report: (e) => reports.push(e) })
+      expect(page.body).toContain('https://src.example/movie/550')
+      expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual(['https://player.example/api/movie/27205?apikey=nx_test'])
+      expect(reports).toEqual(['call', 'key-ok'])
+    })
+
+    it('fetches the player page again once the saved copy is a day old', async () => {
+      const cache = createPlayCache()
+      const day = 24 * 60 * 60 * 1000
+      await handlePlay(embed, '/movie/550', new URLSearchParams(), fakeResponse(), nextStream('ok', 'ok'), cache, { now: () => 0 })
+      const fetchImpl = nextStream('ok', 'ok')
+      await handlePlay(embed, '/movie/550', new URLSearchParams(), fakeResponse(), fetchImpl, cache, { now: () => day + 1 })
+      expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual(['https://player.example/embed/movie/550?apikey=nx_test'])
+    })
+
+    it('says when NextStream refuses our key, and when a title has no sources', async () => {
+      const reports: string[] = []
+      const refused = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ error: 'Invalid API Key.' }), { status: 401 }))
+      const res = fakeResponse()
+      await handlePlay(embed, '/movie/550', new URLSearchParams('check=1'), res, refused, createPlayCache(), { report: (e) => reports.push(e) })
+      expect(json(res)).toMatchObject({ available: false, reason: 'key-rejected' })
+      expect(refused).toHaveBeenCalledTimes(1)
+      expect(reports).toEqual(['call', 'key-rejected'])
+
+      const none = fakeResponse()
+      await handlePlay(embed, '/movie/550', new URLSearchParams('check=1'), none, nextStream('ok', 'none'), createPlayCache())
+      expect(json(none)).toMatchObject({ available: false, reason: 'not-found' })
+    })
+
+    it('gives crawlers no player, and keeps player routes out of search results', async () => {
+      const fetchImpl = nextStream('ok', 'ok')
+      for (const userAgent of ['Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', 'facebookexternalhit/1.1', 'curl/8.4.0', undefined]) {
+        const res = fakeResponse()
+        await handlePlay(embed, '/movie/550', new URLSearchParams(), res, fetchImpl, createPlayCache(), { userAgent })
+        expect(res.statusCode).toBe(403)
+        expect(res.headers['x-robots-tag']).toBe('noindex, nofollow')
+      }
+      expect(fetchImpl).not.toHaveBeenCalled()
+      const person = fakeResponse()
+      await handlePlay(embed, '/movie/550', new URLSearchParams(), person, fetchImpl, createPlayCache(), { userAgent: BROWSER })
+      expect(person.statusCode).toBe(200)
+      expect(person.headers['x-robots-tag']).toBe('noindex, nofollow')
+      expect(readFileSync('public/robots.txt', 'utf8')).toContain('Disallow: /api/play/')
+    })
+
     it('gives a source 20 seconds to load before the player calls it failed', () => {
       const page = `sourceTimeout = setTimeout(() => {\n  showError('All servers failed to load.');\n}, 8000);\nsetTimeout(hideLoading, 8000);`
       const html = injectSources(page, null)
@@ -323,7 +380,7 @@ describe('Vercel functions', () => {
     })
     try {
       const play = fakeResponse()
-      await playFunction({ url: vercelRewrite('/api/play/movie/7') } as never, play)
+      await playFunction({ url: vercelRewrite('/api/play/movie/7'), headers: { 'user-agent': BROWSER } } as never, play)
       expect(play.headers.location).toBe('https://player.example/m/7?k=nx_env')
 
       const download = fakeResponse()

@@ -15,6 +15,13 @@
  * - ads:<day>     hash of today's direct-link ads (Lagos date): opened by
  *                 trigger (card, play, football, search) and held back by the
  *                 cooldown or the daily cap (src/ads/adManager.ts). Kept 8 days.
+ * - players:<day> hash of today's player stats (Lagos date), "<server>:<event>":
+ *                 loads, no playable start within 10 s (most likely the
+ *                 viewer's daily limit), automatic switches away, the "daily
+ *                 limit" message shown (src/live/playerStats.ts), and calls on
+ *                 our NextStream key (/api/play). Kept 8 days.
+ * - codespecter:key  hash of when NextStream last took ("ok") and refused
+ *                 ("rejected") our API key, in ms.
  * A heartbeat is one Redis command (three or four on a football match page).
  *
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
@@ -40,6 +47,17 @@ export const AD_EVENTS = ['card', 'play', 'football', 'search', 'cooldown', 'cap
 export type AdEvent = (typeof AD_EVENTS)[number]
 export type AdCounts = Record<AdEvent, number>
 
+const playersKey = (day: string) => `players:${day}`
+const KEY_STATUS = 'codespecter:key'
+export const PLAYER_SERVERS = ['nextstream', 'embedmaster'] as const
+export const PLAYER_EVENTS = ['load', 'nostart', 'fallback', 'limited'] as const
+export type PlayerServer = (typeof PLAYER_SERVERS)[number]
+export type PlayerEvent = (typeof PLAYER_EVENTS)[number]
+/** Per server: today's counts of each player event, and (NextStream) the calls on our key. */
+export type PlayerCounts = Record<PlayerServer, Record<PlayerEvent, number>> & { calls: number }
+/** CodeSpecter keys are valid for 30 days from the day they're issued. */
+export const KEY_VALID_DAYS = 30
+
 /** The date in Lagos (UTC+1 all year), as the site's daily ad cap counts it. */
 export const lagosDay = (now: number) => new Date(now + 60 * 60_000).toISOString().slice(0, 10)
 
@@ -50,10 +68,12 @@ export type LiveState = 'watch' | 'browse'
 
 export interface LiveEnv extends RedisEnv {
   adminPassword: string
+  /** NEXTSTREAM_KEY_ISSUED (YYYY-MM-DD): the day our CodeSpecter key was issued, for its expiry warning. */
+  keyIssued?: string
 }
 
 export function readLiveEnv(env: Record<string, string | undefined>): LiveEnv {
-  return { ...readRedisEnv(env), adminPassword: env.ADMIN_PASSWORD ?? '' }
+  return { ...readRedisEnv(env), adminPassword: env.ADMIN_PASSWORD ?? '', keyIssued: env.NEXTSTREAM_KEY_ISSUED?.trim() ?? '' }
 }
 
 export interface Heartbeat {
@@ -119,6 +139,68 @@ function adCounts(flat: unknown): AdCounts {
   return counts
 }
 
+/** A valid player report ({ server, event }), or null. */
+export function parsePlayerEvent(body: unknown): { server: PlayerServer; event: PlayerEvent } | null {
+  const b = body as { server?: unknown; event?: unknown } | null
+  if (!PLAYER_SERVERS.includes(b?.server as PlayerServer) || !PLAYER_EVENTS.includes(b?.event as PlayerEvent)) return null
+  return { server: b!.server as PlayerServer, event: b!.event as PlayerEvent }
+}
+
+/** Counts one player event for today. */
+export async function recordPlayerEvent(env: RedisEnv, server: PlayerServer, event: PlayerEvent, now: number, fetchImpl: typeof fetch = fetch) {
+  const key = playersKey(lagosDay(now))
+  await redis(env, [['HINCRBY', key, `${server}:${event}`, 1], ['EXPIRE', key, ADS_KEY_TTL_S]], fetchImpl)
+}
+
+/** What /api/play saw: a call on our NextStream key, or NextStream taking or refusing the key. */
+export async function recordPlayReport(env: RedisEnv, report: 'call' | 'key-ok' | 'key-rejected', now: number, fetchImpl: typeof fetch = fetch) {
+  if (report === 'call') {
+    const key = playersKey(lagosDay(now))
+    await redis(env, [['HINCRBY', key, 'nextstream:calls', 1], ['EXPIRE', key, ADS_KEY_TTL_S]], fetchImpl)
+  } else {
+    await redis(env, [['HSET', KEY_STATUS, report === 'key-ok' ? 'ok' : 'rejected', now]], fetchImpl)
+  }
+}
+
+/** Redis's HGETALL answer ([field, value, ...]) as an object. */
+function hash(flat: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  if (!Array.isArray(flat)) return out
+  for (let i = 0; i + 1 < flat.length; i += 2) out[String(flat[i])] = Number(flat[i + 1]) || 0
+  return out
+}
+
+function playerCounts(flat: unknown): PlayerCounts {
+  const fields = hash(flat)
+  const counts = { calls: fields['nextstream:calls'] ?? 0 } as PlayerCounts
+  for (const server of PLAYER_SERVERS) {
+    counts[server] = Object.fromEntries(PLAYER_EVENTS.map((event) => [event, fields[`${server}:${event}`] ?? 0])) as Record<PlayerEvent, number>
+  }
+  return counts
+}
+
+export interface KeyStatus {
+  /** NEXTSTREAM_KEY_ISSUED, when set and valid. */
+  issued: string | null
+  /** 30 days after it was issued (ms), or null without NEXTSTREAM_KEY_ISSUED. */
+  expiresAt: number | null
+  /** When NextStream last took / refused the key (ms). */
+  okAt: number | null
+  rejectedAt: number | null
+}
+
+function keyStatus(env: LiveEnv, flat: unknown): KeyStatus {
+  const fields = hash(flat)
+  const given = env.keyIssued ?? ''
+  const issued = /^\d{4}-\d{2}-\d{2}$/.test(given) && !Number.isNaN(Date.parse(given)) ? given : null
+  return {
+    issued,
+    expiresAt: issued ? Date.parse(`${issued}T00:00:00Z`) + KEY_VALID_DAYS * 24 * 60 * 60_000 : null,
+    okAt: fields.ok || null,
+    rejectedAt: fields.rejected || null,
+  }
+}
+
 export interface LiveCount {
   watching: number
   browsing: number
@@ -126,6 +208,10 @@ export interface LiveCount {
   top: { item: string; viewers: number }[]
   /** Today's direct-link ads (Lagos date). */
   ads: AdCounts
+  /** Today's player stats per server (Lagos date). */
+  players: PlayerCounts
+  /** Our CodeSpecter (NextStream) API key. */
+  key: KeyStatus
 }
 
 /** Everyone seen in the last WINDOW_MS, each counted once (their latest heartbeat). */
@@ -137,6 +223,8 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
       ['ZREMRANGEBYSCORE', NOW_KEY, '-inf', `(${since}`],
       ['ZRANGE', NOW_KEY, since, '+inf', 'BYSCORE', 'WITHSCORES'],
       ['HGETALL', adsKey(lagosDay(now))],
+      ['HGETALL', playersKey(lagosDay(now))],
+      ['HGETALL', KEY_STATUS],
     ],
     fetchImpl,
   )
@@ -165,7 +253,7 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
     .map(([item, count]) => ({ item, viewers: count }))
     .sort((a, b) => b.viewers - a.viewers || a.item.localeCompare(b.item))
     .slice(0, TOP_COUNT)
-  return { watching, browsing, top, ads: adCounts(results?.[2]) }
+  return { watching, browsing, top, ads: adCounts(results?.[2]), players: playerCounts(results?.[3]), key: keyStatus(env, results?.[4]) }
 }
 
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -196,7 +284,7 @@ async function readJsonBody(req: IncomingMessage & { body?: unknown }): Promise<
   return JSON.parse(raw || 'null')
 }
 
-/** Serves POST /api/live/heartbeat, POST /api/live/ad and GET /api/live/count (admin only). */
+/** Serves POST /api/live/heartbeat, POST /api/live/ad, POST /api/live/player and GET /api/live/count (admin only). */
 export async function handleLive(
   env: LiveEnv,
   action: string,
@@ -228,6 +316,19 @@ export async function handleLive(
     const event = parseAdEvent(body)
     if (!event) return sendJson(res, 400, { error: 'bad-request' })
     await recordAdEvent(env, event, now, fetchImpl)
+    return sendJson(res, 200, {})
+  }
+  if (action === 'player') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return sendJson(res, 400, { error: 'bad-request' })
+    }
+    const report = parsePlayerEvent(body)
+    if (!report) return sendJson(res, 400, { error: 'bad-request' })
+    await recordPlayerEvent(env, report.server, report.event, now, fetchImpl)
     return sendJson(res, 200, {})
   }
   if (action === 'count') {

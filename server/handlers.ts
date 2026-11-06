@@ -140,18 +140,54 @@ export function createPlayCache(shared?: PlayStore) {
 
 export type PlayCache = ReturnType<typeof createPlayCache>
 
-/** NextStream's player page is the same for every title; the last good copy is kept for when it doesn't answer. */
+/**
+ * NextStream's player page is the same for every title, so the last good copy
+ * is used for every play and fetched again at most once a day (or when there
+ * is none): each fetch is a call on our API key.
+ */
 const PLAYER_PAGE_KEY = 'player-page'
 const PLAYER_PAGE_TTL = 7 * 24 * 60 * 60
+const PLAYER_PAGE_FRESH_MS = 24 * 60 * 60 * 1000
 /** A title's stream sources rarely change. */
 const SOURCES_TTL = 6 * 60 * 60
 
-async function fetchText(url: string, timeoutMs: number, fetchImpl: typeof fetch) {
+/** The saved page and when it was fetched (older copies were saved as the bare HTML). */
+type SavedPage = { html: string; at: number }
+const asSavedPage = (saved: unknown): SavedPage | null =>
+  typeof saved === 'string'
+    ? { html: saved, at: 0 }
+    : saved && typeof (saved as SavedPage).html === 'string'
+      ? { html: (saved as SavedPage).html, at: Number((saved as SavedPage).at) || 0 }
+      : null
+
+/**
+ * What /api/play tells the stats (/admin/live): a call on our NextStream key,
+ * and whether NextStream took or refused the key.
+ */
+export type PlayReport = 'call' | 'key-ok' | 'key-rejected'
+
+export interface PlayOptions {
+  /** The request's User-Agent: crawlers get no player. */
+  userAgent?: string
+  report?: (event: PlayReport) => unknown
+  now?: () => number
+}
+
+/** Crawlers, link previews and scripts: a player load for nobody. */
+const BOT_AGENT =
+  /bot\b|bot\/|crawl|spider|slurp|facebookexternalhit|embedly|bingpreview|headlesschrome|lighthouse|python-requests|python-urllib|curl\/|wget|go-http-client|okhttp|axios|node-fetch|scrapy/i
+export const isBot = (userAgent: string | undefined) => !userAgent || BOT_AGENT.test(userAgent)
+
+/** One call to NextStream: its status, and its body when it answered OK. */
+async function fetchUpstream(url: string, timeoutMs: number, fetchImpl: typeof fetch, report: PlayOptions['report']) {
   try {
+    void report?.('call')
     const upstream = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) })
-    return upstream.ok ? await upstream.text() : null
+    if (upstream.status === 401 || upstream.status === 403) void report?.('key-rejected')
+    else if (upstream.ok) void report?.('key-ok')
+    return { status: upstream.status, text: upstream.ok ? await upstream.text() : null }
   } catch {
-    return null
+    return { status: null, text: null }
   }
 }
 
@@ -164,26 +200,37 @@ export function sourcesUrl(upstreamUrl: string) {
   return `${url.origin}/api/${url.pathname.slice('/embed/'.length)}?apikey=${encodeURIComponent(apiKey)}`
 }
 
-/** The title's stream sources (as NextStream's JSON), looked up here so the browser needn't wait on NextStream. */
-async function loadSources(upstreamUrl: string, cache: PlayCache, fetchImpl: typeof fetch) {
+interface Sources {
+  text: string | null
+  reason: 'not-found' | 'key-rejected' | 'unreachable' | null
+}
+
+/**
+ * The title's stream sources (as NextStream's JSON), looked up here so the
+ * browser needn't wait on NextStream. Saved for 6 hours, so the availability
+ * check and the player page that follows it make one call between them.
+ */
+async function loadSources(upstreamUrl: string, cache: PlayCache, fetchImpl: typeof fetch, report?: PlayOptions['report']): Promise<Sources> {
   const url = sourcesUrl(upstreamUrl)
-  if (!url) return null
+  if (!url) return { text: null, reason: 'unreachable' }
   const key = `sources:${new URL(upstreamUrl).pathname}`
   const saved = await cache.get<string>(key)
-  if (saved) return saved
+  if (saved) return { text: saved, reason: null }
   for (let attempt = 0; attempt < SOURCES_ATTEMPTS; attempt += 1) {
-    const text = await fetchText(url, SOURCES_TIMEOUT_MS, fetchImpl)
+    const { status, text } = await fetchUpstream(url, SOURCES_TIMEOUT_MS, fetchImpl, report)
+    if (status === 401 || status === 403) return { text: null, reason: 'key-rejected' }
+    if (status === 404) return { text: null, reason: 'not-found' }
     if (text === null) continue
     try {
       const data = JSON.parse(text) as { success?: unknown; sources?: unknown }
-      if (data.success !== true || !Array.isArray(data.sources) || !data.sources.length) return null
+      if (data.success !== true || !Array.isArray(data.sources) || !data.sources.length) return { text: null, reason: 'not-found' }
       await cache.set(key, text, SOURCES_TTL)
-      return text
+      return { text, reason: null }
     } catch {
-      return null
+      return { text: null, reason: 'unreachable' }
     }
   }
-  return null
+  return { text: null, reason: 'unreachable' }
 }
 
 const SOURCES_FETCH = 'fetch(apiUrl)'
@@ -210,15 +257,33 @@ export function injectSources(html: string, sources: string | null) {
   return patient.replace(SOURCES_FETCH, () => call)
 }
 
+/** NextStream's player page, ads stripped: the saved copy while it's under a day old, else a fresh one (or the old copy). */
+async function playerPage(url: string, cache: PlayCache, fetchImpl: typeof fetch, options: PlayOptions) {
+  const now = options.now?.() ?? Date.now()
+  const saved = asSavedPage(await cache.get(PLAYER_PAGE_KEY))
+  const savedClean = saved ? stripPlayerAds(saved.html, url) : null
+  if (savedClean && saved && now - saved.at < PLAYER_PAGE_FRESH_MS) return savedClean
+  const { text: fresh } = await fetchUpstream(url, PLAYER_PAGE_TIMEOUT_MS, fetchImpl, options.report)
+  const clean = fresh === null ? null : stripPlayerAds(fresh, url)
+  if (clean && fresh !== null) {
+    await cache.set(PLAYER_PAGE_KEY, { html: fresh, at: now } satisfies SavedPage, PLAYER_PAGE_TTL)
+    return clean
+  }
+  return savedClean
+}
+
 /**
  * Serves /api/play/movie/{id} and /api/play/tv/{id}/{season}/{episode}.
  * Plain requests serve the NextStream player with its ads stripped (used as
- * the iframe src). NextStream often hangs, so the last good copy of its page
- * (the same for every title) is used when it doesn't answer in time, and the
- * title's sources are looked up here. Only with no usable page at all does it
- * redirect to the original player, ads and all. `?check=1` asks the server to
- * probe the player URL and answer with JSON, so the UI can report unavailable
- * titles instead of showing a broken frame.
+ * the iframe src). Its page is the same for every title, so the saved copy is
+ * used (fetched again once a day), and the title's sources are looked up
+ * here. Only with no usable page at all does it redirect to the original
+ * player, ads and all. `?check=1` asks whether the title can be played, as
+ * JSON, so the UI can report unavailable titles instead of showing a broken
+ * frame: it looks the sources up, and the player page then reuses them, so a
+ * play is one call on our NextStream key.
+ *
+ * Crawlers get nothing: a 403 here, and robots.txt and noindex keep them away.
  */
 export async function handlePlay(
   config: NextStreamConfig,
@@ -227,31 +292,36 @@ export async function handlePlay(
   res: ServerResponse,
   fetchImpl: typeof fetch = fetch,
   cache: PlayCache = createPlayCache(),
+  options: PlayOptions = {},
 ) {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow')
+  if ('userAgent' in options && isBot(options.userAgent)) return sendJson(res, 403, { available: false, reason: 'bot' })
   const request = parsePlaybackPath(path)
   if (!request) return sendJson(res, 400, { available: false, reason: 'bad-request' })
   const url = resolvePlaybackUrl(config, request)
   if (!url) return sendJson(res, 503, { available: false, reason: 'not-configured' })
+  const withSources = sourcesUrl(url) !== null
 
   if (!params.has('check')) {
-    const [fresh, sources] = await Promise.all([
-      fetchText(url, PLAYER_PAGE_TIMEOUT_MS, fetchImpl),
-      loadSources(url, cache, fetchImpl),
+    const [clean, sources] = await Promise.all([
+      playerPage(url, cache, fetchImpl, options),
+      withSources ? loadSources(url, cache, fetchImpl, options.report) : null,
     ])
-    let clean = fresh === null ? null : stripPlayerAds(fresh, url)
-    if (clean) await cache.set(PLAYER_PAGE_KEY, fresh, PLAYER_PAGE_TTL)
-    else {
-      const saved = await cache.get<string>(PLAYER_PAGE_KEY)
-      clean = saved ? stripPlayerAds(saved, url) : null
-    }
     if (!clean) return redirect(res, url)
     res.statusCode = 200
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Cache-Control', 'no-store')
-    return res.end(injectSources(clean, sources))
+    return res.end(injectSources(clean, sources?.text ?? null))
   }
 
+  if (withSources) {
+    const { text, reason } = await loadSources(url, cache, fetchImpl, options.report)
+    return sendJson(res, 200, { available: text !== null, status: null, reason })
+  }
+
+  // Another kind of player URL (no source lookup): the page itself is probed.
   try {
+    void options.report?.('call')
     const upstream = await fetchImpl(url, {
       redirect: 'follow',
       signal: AbortSignal.timeout(PLAYBACK_CHECK_TIMEOUT_MS),
