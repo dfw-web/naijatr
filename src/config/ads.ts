@@ -36,22 +36,55 @@ export const MULTITAG_2 = {
 export const DIRECT_LINK_URL = 'https://uplcm.com/4/12033849'
 
 /**
- * When the direct-link ad may open (src/ads/adManager.ts). No limits: an ad on
- * every card tap, every Play, every search and every football Watch, with no
- * gap and no daily maximum. (It still never opens while a player is open, or on
- * the tap that opens or closes a popup.) To bring limits back, set e.g.
- * cooldownMs: 60_000, dailyCap: 8, oncePerTitle: true, footballRepeatMs: 5 * 60_000,
- * searchRepeatMs: 10 * 60_000. Tests set their own.
+ * When the direct-link ad may open (src/ads/adManager.ts). Tune these here:
+ * each trigger can be switched off on its own, and two safety limits hold for
+ * all of them. Always, whatever is set here: nothing while a player is open
+ * (so never on the player's own controls), nothing on the tap that opens or
+ * closes a popup (sign-in, the Telegram gate, the invite and ad-free sheets),
+ * nothing for ad-free accounts, and nothing on /admin, /account, /privacy,
+ * /invite/rules or the password pages. Tests set their own.
  */
 export const AD_RULES = {
   /** At least this long between any two direct-link ads (0: no gap). */
-  cooldownMs: 0,
+  cooldownMs: 30_000,
   /** At most this many per visitor per day, midnight to midnight Lagos time (Infinity: no cap). */
-  dailyCap: Infinity,
+  dailyCap: 20,
+  /** Which taps may open the ad. */
+  triggers: {
+    /** A title's card (or View Details), every time. */
+    card: true,
+    /** Play, every time (not just the first per title). */
+    play: true,
+    /** A football match's Watch. */
+    football: true,
+    /** A search submitted. */
+    search: true,
+    /** A Continue Watching card, or a title in My List. */
+    list: true,
+    /** Picking another season or episode (before Play: never while a player is open). */
+    episode: true,
+    /** Picking Server 1 / Server 2 (before Play: never while a player is open). */
+    server: true,
+  },
   /** Cards and Play open the ad only the first time per title each visit. */
   oncePerTitle: false,
   /** A football match's Watch tab opens the ad again only after this long (0: every time). */
   footballRepeatMs: 0,
   /** Search opens the ad again only after this long (0: every search). */
   searchRepeatMs: 0,
+}
+
+/**
+ * The "Too many ads?" banner (src/ads/AdUpsell.tsx): after every `every`th
+ * direct-link ad of the day, at most `perDay` times a day.
+ */
+export const AD_UPSELL = { every: 5, perDay: 2 }
+
+/**
+ * When the ad settings above last changed, for the before/after marker on
+ * /admin/live. Update it with every change to AD_RULES.
+ */
+export const AD_LEVEL = {
+  changedAt: '2026-11-06T18:30:00Z',
+  summary: 'Every card, Play, football Watch, search, list item, episode and server pick; 30 s apart, 20 a day',
 }

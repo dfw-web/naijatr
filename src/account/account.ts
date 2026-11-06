@@ -9,6 +9,7 @@ import { supabaseBackend } from './backend'
 import { getClient, hasStoredSession, takeAuthRedirect } from './client'
 import { referralSignedIn, referralSignedOut } from '../referral/status'
 import { forgetSyncedAccount, requestSyncNow, startSync, stopSync } from './sync'
+import { holdAdsThisTap } from '../ads/adManager'
 
 /**
  * The optional account: signed out (everything stays on this device, as
@@ -325,6 +326,8 @@ export function openSignIn(tab?: SheetTab): void {
     // New here, as far as we know.
   }
   sheet = tab ?? (known ? 'login' : 'create')
+  // No ad on the tap that opens it.
+  holdAdsThisTap()
   track('sheet')
   emit()
 }

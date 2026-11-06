@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { Analytics } from '@vercel/analytics/react'
 import { AdsBackNotice } from '../ads/AdsBackNotice'
+import { AdUpsell } from '../ads/AdUpsell'
 import { rememberNoAdsFlag } from '../ads/directLink'
 import { useMultitag } from '../ads/monetag'
 import { analyticsBeforeSend } from '../analytics'
@@ -26,6 +27,7 @@ export function FootballRoot() {
       <TvAdBreakHost />
       <TelegramGateHost />
       <AdsBackNotice />
+      <AdUpsell />
       <InstallAppHost />
       <FeedbackHost />
       <Analytics beforeSend={analyticsBeforeSend} />

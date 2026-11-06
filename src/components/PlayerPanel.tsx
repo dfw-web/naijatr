@@ -43,6 +43,7 @@ import { embedmasterUrl, serverTiming, type PlayerServerId } from '../config/pla
 import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
 import { clearLimited, isLimited, markLimited, nextReset, timeUntil } from '../utils/streamLimit'
 import { reportPlayer } from '../live/playerStats'
+import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -719,7 +720,10 @@ export function PlayerPanel({
         {seasons.length > 0 ? (
           <select
             value={season}
-            onChange={(e) => setSelected({ season: Number(e.target.value), episode: 1 })}
+            onChange={(e) => {
+              episodeAd(e.nativeEvent, item)
+              setSelected({ season: Number(e.target.value), episode: 1 })
+            }}
           >
             {seasons.map((s) => (
               <option key={s.number} value={s.number}>
@@ -743,7 +747,10 @@ export function PlayerPanel({
         {episodeCount > 0 ? (
           <select
             value={episode}
-            onChange={(e) => setSelected({ season, episode: Number(e.target.value) })}
+            onChange={(e) => {
+              episodeAd(e.nativeEvent, item)
+              setSelected({ season, episode: Number(e.target.value) })
+            }}
           >
             {Array.from({ length: episodeCount }, (_, i) => (
               <option key={i + 1} value={i + 1}>
@@ -775,7 +782,12 @@ export function PlayerPanel({
           type="button"
           className={id === playingServer ? 'player__server player__server--on' : 'player__server'}
           aria-pressed={id === playingServer}
-          onClick={() => id !== playingServer && switchServer(id, 'picked')}
+          onClick={(event) => {
+            if (id === playingServer) return
+            // An ad only before Play: never while a player is open.
+            serverAd(event.nativeEvent, item)
+            switchServer(id, 'picked')
+          }}
         >
           {serverLabel(servers, id)}
         </button>
@@ -949,8 +961,9 @@ export function PlayerPanel({
 
   const fullscreenOn = isFullscreen || filling
 
+  // While the player is up, taps on its controls (Skip, Fullscreen, Close, servers, episodes) reach no ad script.
   return (
-    <section ref={sectionRef} className={sectionClass} aria-label="Watch">
+    <section ref={sectionRef} className={sectionClass} aria-label="Watch" {...{ [QUIET_ADS_ATTR]: '' }}>
       {active.choice === 'stream' && pickers}
       {active.choice === 'stream' && serverSwitch}
       {active.choice === 'stream' && active.autoSwitched && active.server && (

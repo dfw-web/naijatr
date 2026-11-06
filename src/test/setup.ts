@@ -14,7 +14,7 @@ import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 import { resetReferralStatus } from '../referral/status'
 import { PROMO_DAY_KEY } from '../referral/copy'
 
-const SHIPPED_AD_RULES = { ...AD_RULES }
+const SHIPPED_AD_RULES = { ...AD_RULES, triggers: { ...AD_RULES.triggers } }
 
 // The one-time "ads are back" card counts as seen, except in its own tests (AdsBackNotice.test.tsx).
 // Same for the seasonal greetings, so a test run on their dates isn't affected (except Greeting.test.tsx).
@@ -43,9 +43,9 @@ afterEach(() => {
   document.cookie = 'naijatr_ref=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
-  // Back to the shipped ad settings (src/config/ads.ts): both sections, no limits.
+  // Back to the shipped ad settings (src/config/ads.ts): both sections, 30 seconds apart, 20 a day.
   AD_SECTIONS.movies = true
-  Object.assign(AD_RULES, SHIPPED_AD_RULES)
+  Object.assign(AD_RULES, SHIPPED_AD_RULES, { triggers: { ...SHIPPED_AD_RULES.triggers } })
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()
 })
 

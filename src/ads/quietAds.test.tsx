@@ -28,7 +28,10 @@ describe('no ads while signing up or choosing a password', () => {
     for (const path of ['/auth/confirm', '/auth/reset', '/auth/confirm/']) {
       expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(true)
     }
-    expect(adsDisabled('https://www.naijatr.com/account')).toBe(false)
+    // Nor on the account and privacy pages.
+    expect(adsDisabled('https://www.naijatr.com/account')).toBe(true)
+    expect(adsDisabled('https://www.naijatr.com/privacy')).toBe(true)
+    expect(adsDisabled('https://www.naijatr.com/my-list')).toBe(false)
     window.history.replaceState(null, '', '/auth/confirm')
     expect(loadMultitag()).toBe(false)
     // Moving on into the site: the Multitag loads.

@@ -8,13 +8,13 @@
  */
 
 import { initAdFree, loadAdFree } from './adFree'
-import { MULTITAG, MULTITAG_2 } from '../config/ads'
+import { AD_LEVEL, AD_RULES, MULTITAG, MULTITAG_2 } from '../config/ads'
 
 export const REFRESH_MS = 30_000
 const PASSWORD_KEY = 'naijatr.admin.password'
 
 type AdEvent =
-  | 'card' | 'play' | 'football' | 'search' | 'cooldown' | 'cap'
+  | 'card' | 'play' | 'football' | 'search' | 'list' | 'episode' | 'server' | 'cooldown' | 'cap' | 'upsell'
   | 'multitag-302667' | 'multitag-302667-blocked' | 'multitag-306795' | 'multitag-306795-blocked'
 
 type PlayerEvent = 'load' | 'nostart' | 'fallback' | 'limited'
@@ -49,9 +49,16 @@ const AD_ROWS: { event: AdEvent; label: string }[] = [
   { event: 'play', label: 'Opened: Play' },
   { event: 'football', label: 'Opened: football Watch' },
   { event: 'search', label: 'Opened: search' },
-  { event: 'cooldown', label: 'Held back: 60-second cooldown' },
-  { event: 'cap', label: 'Held back: daily cap (8)' },
+  { event: 'list', label: 'Opened: Continue Watching / My List' },
+  { event: 'episode', label: 'Opened: season or episode picked' },
+  { event: 'server', label: 'Opened: server picked' },
+  { event: 'cooldown', label: `Held back: ${AD_RULES.cooldownMs / 1000}-second cooldown` },
+  { event: 'cap', label: `Held back: daily cap (${AD_RULES.dailyCap})` },
+  { event: 'upsell', label: '"Too many ads?" banner shown' },
 ]
+
+/** The triggers that open the ad (the rest are held back or banners). */
+const OPENED: AdEvent[] = ['card', 'play', 'football', 'search', 'list', 'episode', 'server']
 
 /** The Monetag Multitags: page loads with each zone's script, and loads blocked (ad blockers). */
 const TAG_ROWS: { event: AdEvent; label: string }[] = [
@@ -149,7 +156,8 @@ async function render(count: LiveCount) {
 
 function renderAds(ads: LiveCount['ads']) {
   const n = (event: AdEvent) => ads?.[event] ?? 0
-  $('ads-opened').textContent = ads ? String(n('card') + n('play') + n('football') + n('search')) : '–'
+  $('ads-opened').textContent = ads ? String(OPENED.reduce((sum, event) => sum + n(event), 0)) : '–'
+  $('ad-level').textContent = `Ad level changed at ${new Date(AD_LEVEL.changedAt).toLocaleString()}: ${AD_LEVEL.summary}.`
   $('ads-held').textContent = ads ? String(n('cooldown') + n('cap')) : '–'
   $('ads').replaceChildren(
     ...AD_ROWS.map(({ event, label }) => {

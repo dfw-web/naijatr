@@ -1,6 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { findPlayer } from '../test/player'
 import App from '../App'
 import { createLocalProvider } from '../data/localProvider'
 import { CatalogProviderContext } from '../data/provider'
@@ -110,7 +111,7 @@ describe('resuming from a card', () => {
     requestResume(readContinueWatching()[0])
     render(<PlayerPanel item={show} availability={on} fetchImpl={available()} />)
 
-    const frame = await screen.findByTitle('Game of Thrones player', {}, { timeout: 5000 })
+    const frame = await findPlayer('Game of Thrones player', {}, { timeout: 5000 })
     expect(frame).toHaveAttribute('src', '/api/play/tv/1399/2/5')
     const player = (frame as HTMLIFrameElement).contentWindow!
     const send = vi.spyOn(player, 'postMessage').mockImplementation(() => {})
@@ -123,7 +124,7 @@ describe('resuming from a card', () => {
     recordPlay(show, { season: 1, episode: 10 }, 1000)
     requestResume(readContinueWatching()[0])
     render(<PlayerPanel item={show} availability={on} fetchImpl={available()} />)
-    const frame = await screen.findByTitle('Game of Thrones player', {}, { timeout: 5000 })
+    const frame = await findPlayer('Game of Thrones player', {}, { timeout: 5000 })
     vi.spyOn((frame as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => {})
 
     post(frame, 'duration', 3000)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Analytics } from '@vercel/analytics/react'
 import { AdsBackNotice } from './ads/AdsBackNotice'
+import { AdUpsell } from './ads/AdUpsell'
 import { rememberNoAdsFlag } from './ads/directLink'
 import { useMultitag } from './ads/monetag'
 import { AD_SECTIONS } from './config/ads'
@@ -74,7 +75,7 @@ function App() {
   const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname))
   // The Monetag Multitag, once (after the ?noads= check above), while the movie section has ads;
   // not while setting a password from an email link, but as soon as they move on.
-  useMultitag(AD_SECTIONS.movies && page !== 'auth/confirm' && page !== 'auth/reset')
+  useMultitag(AD_SECTIONS.movies && page !== 'auth/confirm' && page !== 'auth/reset' && page !== 'account' && page !== 'privacy')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MediaItem | null>(titleFromUrl)
   // Wrapped in an object so clicking the same link twice still scrolls.
@@ -209,6 +210,7 @@ function App() {
       <TvAdBreakHost />
       <TelegramGateHost />
       {AD_SECTIONS.movies && <AdsBackNotice />}
+      <AdUpsell />
       {/* The seasonal greeting (src/config/greetings.ts), after any other popup. */}
       <GreetingHost />
       <InstallAppHost />

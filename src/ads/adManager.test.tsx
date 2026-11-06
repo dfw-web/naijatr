@@ -1,12 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AD_SECTIONS, MULTITAG } from '../config/ads'
+import { AD_RULES, AD_SECTIONS, MULTITAG } from '../config/ads'
 import { playAfterGate } from '../gate/gateStore'
 import { TelegramGateHost } from '../gate/TelegramGate'
 import { AD_LINK, adLinkClicks, useLimitedAdRules } from '../test/ads'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
-import { adClock, cardAd, holdAdsThisTap, lagosDay, playbackAd, searchAd, useAdOverlay } from './adManager'
+import { adClock, cardAd, closeUpsell, episodeAd, holdAdsThisTap, lagosDay, playbackAd, searchAd, serverAd, useAdOverlay, useUpsellOpen } from './adManager'
 import { loadMultitag } from './monetag'
 
 const MINUTE = 60_000
@@ -45,34 +45,110 @@ afterEach(() => {
   document.querySelectorAll('.player__frame, .fb-stream__player, script[data-zone]').forEach((node) => node.remove())
 })
 
-describe('as shipped: no limits', () => {
-  it('opens on every card tap, Play, search and football Watch, back to back', async () => {
-    card('dune')
-    card('dune')
-    play('dune')
-    play('dune')
-    search()
-    search()
-    watch('1')
-    watch('1')
-    expect(ads()).toBe(8)
-    await vi.waitFor(() => expect(reported()).toHaveLength(8))
-    expect(reported()).not.toContain('cooldown')
+describe('as shipped: every trigger, 30 seconds apart, 20 a day', () => {
+  const SECONDS = 1000
+  const next = () => void (now += 30 * SECONDS)
+
+  it('opens on every card tap and every Play (not just the first per title), football Watch and search', async () => {
+    for (const tapIt of [() => card('dune'), () => card('dune'), () => play('dune'), () => play('dune'), () => search(), () => watch('1'), () => watch('1')]) {
+      tapIt()
+      next()
+    }
+    expect(ads()).toBe(7)
+    // (The 5th also brings up "Too many ads?".)
+    await vi.waitFor(() => expect(reported()).toEqual(['card', 'card', 'play', 'play', 'search', 'upsell', 'football', 'football']))
   })
 
-  it('has no daily maximum', () => {
-    for (let i = 0; i < 30; i++) card('dune')
-    expect(ads()).toBe(30)
+  it('opens on Continue Watching and My List items, another season or episode, and a server pick', async () => {
+    tap((event) => cardAd(event, { id: 'dune' }, 'list'))
+    next()
+    tap((event) => episodeAd(event, { id: 'got' }))
+    next()
+    // Picked from a season or episode list: the select's change.
+    const select = document.createElement('select')
+    select.addEventListener('change', (event) => episodeAd(event, { id: 'got' }))
+    document.body.append(select)
+    select.dispatchEvent(new Event('change'))
+    select.remove()
+    next()
+    tap((event) => serverAd(event, { id: 'dune' }))
+    expect(ads()).toBe(4)
+    await vi.waitFor(() => expect(reported()).toEqual(['list', 'episode', 'episode', 'server']))
   })
 
-  it('still opens nothing while a player is open', () => {
+  it('leaves 30 seconds between two ads', async () => {
+    card('a')
+    now += 29 * SECONDS
+    play('a')
+    expect(ads()).toBe(1)
+    now += SECONDS
+    play('a')
+    expect(ads()).toBe(2)
+    await vi.waitFor(() => expect(reported()).toEqual(['card', 'cooldown', 'play']))
+  })
+
+  it('opens at most 20 a day', async () => {
+    for (let i = 0; i < 22; i++) {
+      card(`t${i}`)
+      next()
+    }
+    expect(ads()).toBe(20)
+    await vi.waitFor(() => expect(reported().filter((event) => event === 'cap')).toHaveLength(2))
+  })
+
+  it('takes each trigger off on its own', () => {
+    AD_RULES.triggers.server = false
+    AD_RULES.triggers.episode = false
+    tap((event) => serverAd(event, { id: 'dune' }))
+    tap((event) => episodeAd(event, { id: 'got' }))
+    expect(ads()).toBe(0)
+    card('dune')
+    expect(ads()).toBe(1)
+  })
+
+  it('still opens nothing while a player is open, not even on its server or episode pickers', () => {
     const frame = document.createElement('div')
     frame.className = 'player__frame'
     document.body.append(frame)
     card('dune')
     play('dune')
     search()
+    tap((event) => serverAd(event, { id: 'dune' }))
+    tap((event) => episodeAd(event, { id: 'got' }))
     expect(ads()).toBe(0)
+  })
+})
+
+describe('"Too many ads?"', () => {
+  const next = () => void (now += 30_000)
+
+  it('shows after every 5th ad of the day, at most twice a day', async () => {
+    const seen: boolean[] = []
+    const Probe = () => {
+      seen.push(useUpsellOpen())
+      return null
+    }
+    render(<Probe />)
+    for (let i = 0; i < 4; i++) {
+      card(`t${i}`)
+      next()
+    }
+    expect(seen.at(-1)).toBe(false)
+    act(() => card('t4'))
+    next()
+    expect(seen.at(-1)).toBe(true)
+    act(() => closeUpsell())
+    for (let i = 5; i < 15; i++) {
+      act(() => card(`t${i}`))
+      next()
+      if (i === 9) {
+        expect(seen.at(-1)).toBe(true)
+        act(() => closeUpsell())
+      }
+    }
+    // The 15th: already twice today.
+    expect(seen.at(-1)).toBe(false)
+    await vi.waitFor(() => expect(reported().filter((event) => event === 'upsell')).toHaveLength(2))
   })
 })
 

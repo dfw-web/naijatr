@@ -334,8 +334,9 @@ function HlsPlayer({ url, title, onFailed }: { url: string; title: string; onFai
     }
   }, [url, onFailed])
 
+  // Taps on the video's controls reach no ad script (src/ads/adManager.ts, quiet zones).
   return (
-    <div className="fb-stream__player">
+    <div className="fb-stream__player" data-quiet-ads="">
       {failed ? (
         <div className="fb-stream__player--link">
           <StatusMessage

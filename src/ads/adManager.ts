@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { AD_RULES, AD_SECTIONS } from '../config/ads'
+import { AD_RULES, AD_SECTIONS, AD_UPSELL } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { adsDisabled, isDevHost, openAd } from './directLink'
 
@@ -7,25 +7,31 @@ import { adsDisabled, isDevHost, openAd } from './directLink'
  * The direct-link ad's one set of rules. It opens in a new tab, inside the tap
  * (Safari only allows that), and the tap's own action carries on as normal:
  *
- * - cards:    a click on a title's card (or View Details);
+ * - card:     a click on a title's card (or View Details);
  * - play:     a Play of a title;
  * - football: a match's Watch;
- * - search:   a search submitted.
+ * - search:   a search submitted;
+ * - list:     a Continue Watching card, or a title in My List;
+ * - episode:  another season or episode picked;
+ * - server:   Server 1 / Server 2 picked.
  *
- * How often is set in AD_RULES (src/config/ads.ts): now every time, with no gap
- * and no daily cap. Always: nothing while a player is open, nothing while the
- * Telegram gate, the invite guide or a contest popup is open, and nothing on
- * the tap that opens or closes one of those. With limits set, a tap that's held
- * back keeps its turn: the next eligible tap opens the ad instead.
+ * Which of them, and how often, is set in AD_RULES (src/config/ads.ts): each
+ * trigger on or off, at least 30 seconds apart, at most 20 a day. Always:
+ * nothing while a player is open (so never on its controls), nothing while the
+ * sign-in sheet, the Telegram gate, the invite guide or a contest popup is
+ * open, and nothing on the tap that opens or closes one of those. A tap held
+ * back by the limits keeps its turn: the next eligible tap opens the ad instead.
  *
- * Cards, Play and search are the movie section's: off while AD_SECTIONS.movies is false.
+ * All but football are the movie section's: off while AD_SECTIONS.movies is false.
+ * After every 5th ad of the day, the "Too many ads?" banner (AdUpsell.tsx).
  */
 
-export type AdTrigger = 'card' | 'play' | 'football' | 'search'
+export type AdTrigger = 'card' | 'play' | 'football' | 'search' | 'list' | 'episode' | 'server'
 /** What /api/live/ad counts: an ad opened (by trigger), or one held back by the cooldown or the daily cap. */
 export type AdEvent = AdTrigger | 'cooldown' | 'cap'
 
 const DAY_KEY = 'naijatr.ads.day'
+const UPSELL_KEY = 'naijatr.ads.upsell'
 const VISIT_KEY = 'naijatr.ads.visit'
 const REPORT_URL = '/api/live/ad'
 /** Open players: a film, episode or trailer (PlayerPanel) and a football stream (MatchStream). */
@@ -86,7 +92,7 @@ const readDay = (now: number): Day => {
 const readVisit = () => read<Visit>(() => sessionStorage, VISIT_KEY, { cards: [], plays: [], matches: {}, search: null })
 
 /** Counts the ad on /api/live/ad (shown on /admin/live). Never from a developer's machine. */
-function report(event: AdEvent) {
+function report(event: AdEvent | 'upsell') {
   if (isDevHost()) return
   try {
     navigator.sendBeacon?.(REPORT_URL, new Blob([JSON.stringify({ event })], { type: 'application/json' }))
@@ -135,7 +141,8 @@ export const useOverlayOpen = () => useSyncExternalStore(subscribeOverlays, () =
 export const useOverlayCount = () => useSyncExternalStore(subscribeOverlays, () => overlays, () => 0)
 
 // Events a person makes: a new tab may open in them. (A resumed title starts its player from an effect, with none.)
-const TAP_TYPES = new Set(['click', 'keydown', 'keyup', 'pointerup', 'mouseup', 'touchend', 'submit'])
+// `change`: a season or episode picked from a list, right after the tap that opened it.
+const TAP_TYPES = new Set(['click', 'keydown', 'keyup', 'pointerup', 'mouseup', 'touchend', 'submit', 'change'])
 
 /** True while a film, episode, trailer or football stream player is on the page. */
 export const isPlaybackOpen = () => document.querySelector(PLAYER_SELECTOR) !== null
@@ -146,6 +153,7 @@ export const isPlaybackOpen = () => document.querySelector(PLAYER_SELECTOR) !== 
  */
 function tryAd(trigger: AdTrigger, adKey: string, due: (visit: Visit, now: number) => boolean, opened: (visit: Visit, now: number) => void, event?: Event): boolean {
   if (adsDisabled() || isTvMode()) return false
+  if (!AD_RULES.triggers[trigger]) return false
   if (!AD_SECTIONS[trigger === 'football' ? 'football' : 'movies']) return false
   const tap = event ?? window.event
   if (!tap || !TAP_TYPES.has(tap.type) || heldTaps.has(tap)) return false
@@ -167,16 +175,57 @@ function tryAd(trigger: AdTrigger, adKey: string, due: (visit: Visit, now: numbe
   write(() => sessionStorage, VISIT_KEY, visit)
   write(() => localStorage, DAY_KEY, { day: day.day, count: day.count + 1, last: now })
   report(trigger)
+  maybeUpsell(day.day, day.count + 1)
   return true
 }
+
+/** Today's "Too many ads?" banners on this device. */
+interface UpsellDay {
+  day: string
+  shown: number
+}
+
+let upsellOpen = false
+const upsellListeners = new Set<() => void>()
+
+/** After every AD_UPSELL.every-th ad of the day, the banner, at most AD_UPSELL.perDay times a day. */
+function maybeUpsell(day: string, count: number) {
+  if (AD_UPSELL.every <= 0 || count % AD_UPSELL.every !== 0) return
+  const stored = read<UpsellDay>(() => localStorage, UPSELL_KEY, { day, shown: 0 })
+  const shown = stored.day === day ? stored.shown : 0
+  if (shown >= AD_UPSELL.perDay) return
+  write(() => localStorage, UPSELL_KEY, { day, shown: shown + 1 })
+  report('upsell')
+  upsellOpen = true
+  upsellListeners.forEach((listener) => listener())
+}
+
+/** Hides the banner. */
+export function closeUpsell() {
+  upsellOpen = false
+  upsellListeners.forEach((listener) => listener())
+}
+
+const subscribeUpsell = (listener: () => void) => {
+  upsellListeners.add(listener)
+  return () => {
+    upsellListeners.delete(listener)
+  }
+}
+
+/** True while the "Too many ads?" banner is up. */
+export const useUpsellOpen = () => useSyncExternalStore(subscribeUpsell, () => upsellOpen, () => false)
 
 /** A title's ad key: its details page shows the ad break if the ad was blocked. */
 export const titleAdKey = (item: { id: string }) => `title:${item.id}`
 
-/** A title card (or View Details) was clicked. Call it first thing in the click handler. */
-export function cardAd(event: Event | undefined, item: { id: string }): boolean {
+/**
+ * A title card (or View Details) was clicked: `list` for a Continue Watching
+ * card or a title in My List. Call it first thing in the click handler.
+ */
+export function cardAd(event: Event | undefined, item: { id: string }, trigger: 'card' | 'list' = 'card'): boolean {
   return tryAd(
-    'card',
+    trigger,
     titleAdKey(item),
     (visit) => !AD_RULES.oncePerTitle || !visit.cards.includes(item.id),
     (visit) => void visit.cards.push(item.id),
@@ -220,6 +269,16 @@ export function searchAd(event: Event | undefined): boolean {
   )
 }
 
+/** Another season or episode was picked for `item` (a select's change, or a tap). */
+export function episodeAd(event: Event | undefined, item: { id: string }): boolean {
+  return tryAd('episode', titleAdKey(item), () => true, () => undefined, event)
+}
+
+/** Server 1 / Server 2 was picked for `item`. */
+export function serverAd(event: Event | undefined, item: { id: string }): boolean {
+  return tryAd('server', titleAdKey(item), () => true, () => undefined, event)
+}
+
 /**
  * Quiet zones: the sign-in sheet and every password form (data-quiet-ads).
  * The Multitag listens for taps on the whole page and can't be paused once
@@ -243,4 +302,5 @@ export function resetAdManager() {
   memory.clear()
   overlays = 0
   emit()
+  upsellOpen = false
 }

@@ -13,8 +13,9 @@
  * - live:m:<id>   sorted set of the sids watching football match <id>, for
  *                 "X watching now" on its page; expires when nobody is.
  * - ads:<day>     hash of today's direct-link ads (Lagos date): opened by
- *                 trigger (card, play, football, search) and held back by the
- *                 cooldown or the daily cap (src/ads/adManager.ts); and the
+ *                 trigger (card, play, football, search, list, episode,
+ *                 server), held back by the cooldown or the daily cap, and
+ *                 "Too many ads?" banners shown (src/ads/adManager.ts); and the
  *                 Monetag Multitags loaded, or blocked, by zone
  *                 (src/ads/monetag.ts). Kept 8 days.
  * - ads:test:306795  when the second Multitag (zone 306795) first loaded
@@ -48,7 +49,7 @@ const matchKey = (id: string) => `live:m:${id}`
 const adsKey = (day: string) => `ads:${day}`
 const ADS_KEY_TTL_S = 8 * 24 * 60 * 60
 export const AD_EVENTS = [
-  'card', 'play', 'football', 'search', 'cooldown', 'cap',
+  'card', 'play', 'football', 'search', 'list', 'episode', 'server', 'cooldown', 'cap', 'upsell',
   'multitag-302667', 'multitag-302667-blocked', 'multitag-306795', 'multitag-306795-blocked',
 ] as const
 /** Set the first time the second Multitag loads. */

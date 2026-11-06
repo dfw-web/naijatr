@@ -152,7 +152,7 @@ describe('the count', () => {
         { item: 'match:123', viewers: 1 },
       ],
       ads: {
-        card: 5, play: 1, football: 0, search: 0, cooldown: 2, cap: 0,
+        card: 5, play: 1, football: 0, search: 0, list: 0, episode: 0, server: 0, cooldown: 2, cap: 0, upsell: 0,
         'multitag-302667': 0, 'multitag-302667-blocked': 0, 'multitag-306795': 0, 'multitag-306795-blocked': 0,
       },
       adTestStartedAt: null,
@@ -171,6 +171,14 @@ describe('the count', () => {
       ['HGETALL', 'codespecter:key'],
       ['GET', 'ads:test:306795'],
     ])
+  })
+
+  it('counts the new triggers and the "Too many ads?" banner', async () => {
+    for (const event of ['list', 'episode', 'server', 'upsell']) {
+      const { fetchImpl, calls } = upstash([1, 1])
+      expect((await call('ad', request('POST', { event }), fetchImpl)).statusCode).toBe(200)
+      expect(calls[0][0]).toEqual(['HINCRBY', `ads:${lagosDay(NOW)}`, event, '1'])
+    }
   })
 
   it('counts the Multitags by zone, and marks when the second one first loaded', async () => {

@@ -38,7 +38,8 @@ export function PosterCard({ item, onSelect, rank, onNotInterested }: PosterCard
         type="button"
         className="poster-card__button"
         onClick={(event) => {
-          cardAd(event.nativeEvent, item)
+          // In My List (its home row or page): the list trigger.
+          cardAd(event.nativeEvent, item, event.currentTarget.closest('#my-list, [data-ad-trigger="list"]') ? 'list' : 'card')
           onSelect(item)
         }}
         aria-label={`View details for ${label}`}

@@ -31,7 +31,7 @@ export function ContinueWatchingRow({ onSelect }: ContinueWatchingRowProps) {
           entry={entry}
           onPlay={(event) => {
             const item = entryTitle(entry)
-            cardAd(event.nativeEvent, item)
+            cardAd(event.nativeEvent, item, 'list')
             requestResume(entry)
             onSelect(item)
           }}

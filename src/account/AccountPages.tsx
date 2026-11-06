@@ -16,7 +16,7 @@ export function MyListPage({ onSelect }: { onSelect: (item: MediaItem) => void }
   const entries = useWatchLater()
   const { status } = useAccount()
   return (
-    <section className="account-page" aria-labelledby="my-list-title">
+    <section className="account-page" aria-labelledby="my-list-title" data-ad-trigger="list">
       <h1 id="my-list-title" className="account-page__title">
         My List
       </h1>
@@ -53,7 +53,7 @@ export function AccountPage() {
 
   if (status !== 'signedIn' || !user) {
     return (
-      <section className="account-page" aria-labelledby="account-title">
+      <section className="account-page" aria-labelledby="account-title" data-quiet-ads="">
         <h1 id="account-title" className="account-page__title">
           Account
         </h1>
@@ -103,7 +103,7 @@ export function AccountPage() {
   }
 
   return (
-    <section className="account-page" aria-labelledby="account-title">
+    <section className="account-page" aria-labelledby="account-title" data-quiet-ads="">
       <h1 id="account-title" className="account-page__title">
         Account
       </h1>
@@ -179,7 +179,7 @@ export function AccountPage() {
 /** /privacy */
 export function PrivacyPage() {
   return (
-    <article className="account-page account-page--text" aria-labelledby="privacy-title">
+    <article className="account-page account-page--text" aria-labelledby="privacy-title" data-quiet-ads="">
       <h1 id="privacy-title" className="account-page__title">
         Privacy
       </h1>
