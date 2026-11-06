@@ -8,3 +8,5 @@ declare const __PLAYBACK_ENABLED__: { movie: boolean; tv: boolean }
 /** Which NextStream download URL templates are configured server-side. Defined in vite.config.ts. */
 declare const __DOWNLOAD_ENABLED__: { movie: boolean; tv: boolean }
 
+/** The second Monetag Multitag is on (MULTITAG_2_ENABLED isn't "false"). Defined in vite.config.ts. */
+declare const __MULTITAG_2_ENABLED__: boolean

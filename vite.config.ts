@@ -136,6 +136,8 @@ export default defineConfig(({ mode }) => {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
       __DOWNLOAD_ENABLED__: JSON.stringify(downloads),
+      // The second Monetag Multitag (src/config/ads.ts): on unless MULTITAG_2_ENABLED=false.
+      __MULTITAG_2_ENABLED__: JSON.stringify(env.MULTITAG_2_ENABLED?.trim().toLowerCase() !== 'false'),
     },
     // Smart TVs run old Chromium (2019+ Samsung/LG: Chromium 64-94), so the
     // bundle is compiled down for them; src/tv/polyfills.ts fills the APIs.

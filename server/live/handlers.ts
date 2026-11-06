@@ -14,7 +14,11 @@
  *                 "X watching now" on its page; expires when nobody is.
  * - ads:<day>     hash of today's direct-link ads (Lagos date): opened by
  *                 trigger (card, play, football, search) and held back by the
- *                 cooldown or the daily cap (src/ads/adManager.ts). Kept 8 days.
+ *                 cooldown or the daily cap (src/ads/adManager.ts); and the
+ *                 Monetag Multitags loaded, or blocked, by zone
+ *                 (src/ads/monetag.ts). Kept 8 days.
+ * - ads:test:306795  when the second Multitag (zone 306795) first loaded
+ *                 anywhere (ms): the "ad test started" marker on /admin/live.
  * - players:<day> hash of today's player stats (Lagos date), "<server>:<event>":
  *                 loads, no playable start within 10 s (most likely the
  *                 viewer's daily limit), automatic switches away, the "daily
@@ -43,7 +47,12 @@ const matchKey = (id: string) => `live:m:${id}`
 
 const adsKey = (day: string) => `ads:${day}`
 const ADS_KEY_TTL_S = 8 * 24 * 60 * 60
-export const AD_EVENTS = ['card', 'play', 'football', 'search', 'cooldown', 'cap'] as const
+export const AD_EVENTS = [
+  'card', 'play', 'football', 'search', 'cooldown', 'cap',
+  'multitag-302667', 'multitag-302667-blocked', 'multitag-306795', 'multitag-306795-blocked',
+] as const
+/** Set the first time the second Multitag loads. */
+const AD_TEST_KEY = 'ads:test:306795'
 export type AdEvent = (typeof AD_EVENTS)[number]
 export type AdCounts = Record<AdEvent, number>
 
@@ -125,7 +134,9 @@ export function parseAdEvent(body: unknown): AdEvent | null {
 /** Counts one ad event for today. */
 export async function recordAdEvent(env: LiveEnv, event: AdEvent, now: number, fetchImpl: typeof fetch = fetch) {
   const key = adsKey(lagosDay(now))
-  await redis(env, [['HINCRBY', key, event, 1], ['EXPIRE', key, ADS_KEY_TTL_S]], fetchImpl)
+  const commands: Command[] = [['HINCRBY', key, event, 1], ['EXPIRE', key, ADS_KEY_TTL_S]]
+  if (event === 'multitag-306795') commands.push(['SET', AD_TEST_KEY, now, 'NX'])
+  await redis(env, commands, fetchImpl)
 }
 
 /** Redis's HGETALL answer ([field, value, ...]) as today's counts. */
@@ -206,8 +217,10 @@ export interface LiveCount {
   browsing: number
   /** What's being watched, most viewers first. */
   top: { item: string; viewers: number }[]
-  /** Today's direct-link ads (Lagos date). */
+  /** Today's direct-link ads and Multitag loads (Lagos date). */
   ads: AdCounts
+  /** When the second Multitag (zone 306795) first loaded (ms), or null. */
+  adTestStartedAt: number | null
   /** Today's player stats per server (Lagos date). */
   players: PlayerCounts
   /** Our CodeSpecter (NextStream) API key. */
@@ -225,6 +238,7 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
       ['HGETALL', adsKey(lagosDay(now))],
       ['HGETALL', playersKey(lagosDay(now))],
       ['HGETALL', KEY_STATUS],
+      ['GET', AD_TEST_KEY],
     ],
     fetchImpl,
   )
@@ -253,7 +267,7 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
     .map(([item, count]) => ({ item, viewers: count }))
     .sort((a, b) => b.viewers - a.viewers || a.item.localeCompare(b.item))
     .slice(0, TOP_COUNT)
-  return { watching, browsing, top, ads: adCounts(results?.[2]), players: playerCounts(results?.[3]), key: keyStatus(env, results?.[4]) }
+  return { watching, browsing, top, ads: adCounts(results?.[2]), adTestStartedAt: Number(results?.[5]) || null, players: playerCounts(results?.[3]), key: keyStatus(env, results?.[4]) }
 }
 
 const digest = (value: string) => createHash('sha256').update(value).digest()

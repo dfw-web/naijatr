@@ -151,7 +151,11 @@ describe('the count', () => {
         { item: 'tv:1399', viewers: 2 },
         { item: 'match:123', viewers: 1 },
       ],
-      ads: { card: 5, play: 1, football: 0, search: 0, cooldown: 2, cap: 0 },
+      ads: {
+        card: 5, play: 1, football: 0, search: 0, cooldown: 2, cap: 0,
+        'multitag-302667': 0, 'multitag-302667-blocked': 0, 'multitag-306795': 0, 'multitag-306795-blocked': 0,
+      },
+      adTestStartedAt: null,
       players: {
         calls: 0,
         nextstream: { load: 0, nostart: 0, fallback: 0, limited: 0 },
@@ -165,7 +169,22 @@ describe('the count', () => {
       ['HGETALL', `ads:${lagosDay(NOW)}`],
       ['HGETALL', `players:${lagosDay(NOW)}`],
       ['HGETALL', 'codespecter:key'],
+      ['GET', 'ads:test:306795'],
     ])
+  })
+
+  it('counts the Multitags by zone, and marks when the second one first loaded', async () => {
+    const { fetchImpl, calls } = upstash([1, 1, 'OK'])
+    expect((await call('ad', request('POST', { event: 'multitag-306795' }), fetchImpl)).statusCode).toBe(200)
+    expect(calls[0]).toEqual([
+      ['HINCRBY', `ads:${lagosDay(NOW)}`, 'multitag-306795', '1'],
+      ['EXPIRE', `ads:${lagosDay(NOW)}`, String(8 * 24 * 60 * 60)],
+      ['SET', 'ads:test:306795', String(NOW), 'NX'],
+    ])
+    const counted = upstash([0, [], ['multitag-302667', '40', 'multitag-306795', '38', 'multitag-306795-blocked', '2'], [], [], String(NOW)])
+    const count = await countLive(ENV, NOW, counted.fetchImpl)
+    expect(count?.ads).toMatchObject({ 'multitag-302667': 40, 'multitag-306795': 38, 'multitag-306795-blocked': 2 })
+    expect(count?.adTestStartedAt).toBe(NOW)
   })
 
   it('counts each server\'s loads, no-starts, switches and limit messages, and our key\'s calls and status', async () => {

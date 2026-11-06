@@ -8,11 +8,14 @@
  */
 
 import { initAdFree, loadAdFree } from './adFree'
+import { MULTITAG, MULTITAG_2 } from '../config/ads'
 
 export const REFRESH_MS = 30_000
 const PASSWORD_KEY = 'naijatr.admin.password'
 
-type AdEvent = 'card' | 'play' | 'football' | 'search' | 'cooldown' | 'cap'
+type AdEvent =
+  | 'card' | 'play' | 'football' | 'search' | 'cooldown' | 'cap'
+  | 'multitag-302667' | 'multitag-302667-blocked' | 'multitag-306795' | 'multitag-306795-blocked'
 
 type PlayerEvent = 'load' | 'nostart' | 'fallback' | 'limited'
 type PlayerCounts = Record<'nextstream' | 'embedmaster', Record<PlayerEvent, number>> & { calls: number }
@@ -30,6 +33,8 @@ interface LiveCount {
   top: { item: string; viewers: number }[]
   /** Today's direct-link ads (server/live/handlers.ts). */
   ads?: Record<AdEvent, number>
+  /** When the second Multitag (zone 306795) first loaded (ms). */
+  adTestStartedAt?: number | null
   /** Today's player stats per server, and our CodeSpecter key (server/live/handlers.ts). */
   players?: PlayerCounts
   key?: KeyStatus
@@ -46,6 +51,14 @@ const AD_ROWS: { event: AdEvent; label: string }[] = [
   { event: 'search', label: 'Opened: search' },
   { event: 'cooldown', label: 'Held back: 60-second cooldown' },
   { event: 'cap', label: 'Held back: daily cap (8)' },
+]
+
+/** The Monetag Multitags: page loads with each zone's script, and loads blocked (ad blockers). */
+const TAG_ROWS: { event: AdEvent; label: string }[] = [
+  { event: 'multitag-302667', label: `Multitag zone ${MULTITAG.zone}: loaded` },
+  { event: 'multitag-302667-blocked', label: `Multitag zone ${MULTITAG.zone}: blocked` },
+  { event: 'multitag-306795', label: `Multitag zone ${MULTITAG_2.zone} (test): loaded` },
+  { event: 'multitag-306795-blocked', label: `Multitag zone ${MULTITAG_2.zone} (test): blocked` },
 ]
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -128,6 +141,7 @@ async function render(count: LiveCount) {
   )
   $('top').replaceChildren(...rows)
   renderAds(count.ads)
+  renderTags(count.ads, count.adTestStartedAt ?? null)
   renderServers(count.players, count.key)
   $('empty').hidden = rows.length > 0
   $('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 30 seconds`
@@ -192,6 +206,23 @@ export function keyWarning(key: KeyStatus | undefined, now: number): string | nu
     return `⚠️ The CodeSpecter key expires in ${days} day${days === 1 ? '' : 's'} (${new Date(key.expiresAt).toLocaleDateString()}). Get a new key, update NEXTSTREAM_API_KEY and NEXTSTREAM_KEY_ISSUED, and redeploy.`
   }
   return null
+}
+
+function renderTags(ads: LiveCount['ads'], startedAt: number | null) {
+  $('tags').replaceChildren(
+    ...TAG_ROWS.map(({ event, label }) => {
+      const li = document.createElement('li')
+      const name = document.createElement('span')
+      name.textContent = label
+      const number = document.createElement('span')
+      number.textContent = ads ? String(ads[event] ?? 0) : '–'
+      li.append(name, number)
+      return li
+    }),
+  )
+  $('ad-test').textContent =
+    (startedAt ? `Ad test (zone ${MULTITAG_2.zone}) started at ${new Date(startedAt).toLocaleString()}.` : `Ad test (zone ${MULTITAG_2.zone}): not loaded anywhere yet.`) +
+    (MULTITAG_2.enabled ? '' : ' Switched off in this build (MULTITAG_2_ENABLED=false).')
 }
 
 interface StreamRow {

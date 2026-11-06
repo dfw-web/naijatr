@@ -16,7 +16,21 @@ export const ADS_ENABLED: boolean = import.meta.env.VITE_ADS_ENABLED !== 'false'
 export const AD_SECTIONS = { movies: true, football: true }
 
 /** The site-wide Monetag Multitag (it includes the Vignette). Loaded by src/ads/monetag.ts. */
-export const MULTITAG = { zone: '302667', src: 'https://quge5.com/88/tag.min.js' } as const
+export const MULTITAG = { zone: '302667', src: 'https://quge5.com/88/tag.min.js', id: 'monetag-multitag-1' } as const
+
+/**
+ * A second Multitag, on test next to the first (both stay on). Same script
+ * URL: each copy reads the zone from its own script element, so it gets its
+ * own element and id, added once the first has loaded. To turn it off without
+ * touching zone 302667: set MULTITAG_2_ENABLED=false on Vercel and redeploy.
+ * (`enabled` comes from vite.config.ts; tests switch it.)
+ */
+export const MULTITAG_2 = {
+  zone: '306795',
+  src: 'https://quge5.com/88/tag.min.js',
+  id: 'monetag-multitag-2',
+  enabled: __MULTITAG_2_ENABLED__,
+}
 
 /** The direct-link ad, opened in a new tab by src/ads/adManager.ts. */
 export const DIRECT_LINK_URL = 'https://uplcm.com/4/12033849'
