@@ -219,12 +219,17 @@
         <p class="error" id="stats-error" role="alert" hidden></p>
 
         <h2>Movie servers today</h2>
+        <div class="stats">
+          <p class="stat"><strong id="player-opens">–</strong><span>player opens</span></p>
+          <p class="stat"><strong id="player-limits">–</strong><span>hit the limit screen</span></p>
+        </div>
         <p class="error" id="key-warning" role="alert" hidden></p>
         <ol id="servers"></ol>
         <p class="muted" id="key-note"></p>
         <p class="muted">
-          Since midnight, Lagos time. "No start" = no video within 10 seconds, most likely that viewer's daily limit
-          (kept on their device only). Counted from visitors' browsers (src/live/playerStats.ts) and /api/play.
+          Since midnight, Lagos time. EmbedMaster limits the movies opened per network (IP), on both servers.
+          "Hit the limit screen" = no video within 10 seconds of opening, most likely that network's daily limit
+          (remembered on that device only). Counted from visitors' browsers (src/live/playerStats.ts) and /api/play.
         </p>
 
         <h2>Ads today</h2>

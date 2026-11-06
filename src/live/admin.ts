@@ -178,6 +178,9 @@ const SERVER_ROWS = [
 ] as const
 
 function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undefined) {
+  const total = (event: PlayerEvent) => (players ? players.nextstream[event] + players.embedmaster[event] : null)
+  $('player-opens').textContent = players ? String(total('load')) : '–'
+  $('player-limits').textContent = players ? String(total('nostart')) : '–'
   $('servers').replaceChildren(
     ...SERVER_ROWS.map(({ id, label }) => {
       const c = players?.[id]
@@ -186,7 +189,7 @@ function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undef
       name.textContent = label
       const numbers = document.createElement('span')
       numbers.textContent = c
-        ? `${c.load} loads · ${c.nostart} no start · ${c.fallback} switched away · ${c.limited} limit msg` +
+        ? `${c.load} opens · ${c.nostart} hit the limit screen · ${c.fallback} switched away · ${c.limited} limit msg` +
           (id === 'nextstream' && players ? ` · ${players.calls} key calls` : '')
         : '–'
       li.append(name, numbers)

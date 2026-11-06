@@ -16,9 +16,10 @@ export const PLAYER_SERVERS: { id: PlayerServerId; enabled: boolean }[] = [
 ]
 
 /**
- * A server with no playable start (duration, time or play from its player)
- * this long after it was opened is switched for the other; when that one
- * doesn't start either, the viewer has most likely hit the daily limit.
+ * A player with no playable start (duration, time or play) this long after it
+ * opened: most likely the network's daily limit (EmbedMaster counts movies
+ * opened per IP, on both servers). Only a Server 1 page that never opened
+ * EmbedMaster is switched for Server 2, so a play opens one player.
  */
 export const SERVER_START_TIMEOUT_MS = 10_000
 
@@ -29,8 +30,11 @@ export const SERVER_START_TIMEOUT_MS = 10_000
  */
 export const STREAM_LIMIT_RESET_UTC_HOUR = 0
 
-/** The timeout in use (tests shorten it). */
-export const serverTiming = { startMs: SERVER_START_TIMEOUT_MS }
+/** A film or episode left in a hidden tab (or app) this long is closed: EmbedMaster counts every player opened. */
+export const HIDDEN_CLOSE_MS = 2 * 60 * 1000
+
+/** The timings in use (tests shorten them). */
+export const serverTiming = { startMs: SERVER_START_TIMEOUT_MS, hiddenCloseMs: HIDDEN_CLOSE_MS }
 
 export const EMBEDMASTER_ORIGIN = 'https://embedmaster.link'
 

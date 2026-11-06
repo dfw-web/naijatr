@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Captions,
@@ -41,7 +41,7 @@ import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watc
 import { requestSyncNow } from '../account/sync'
 import { embedmasterUrl, serverTiming, type PlayerServerId } from '../config/players'
 import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
-import { clearLimited, isLimited, markLimited, nextReset, timeUntil } from '../utils/streamLimit'
+import { clearLimited, isLimited, markLimited } from '../utils/streamLimit'
 import { reportPlayer } from '../live/playerStats'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import './PlayerPanel.css'
@@ -69,8 +69,8 @@ type PlayerState =
   | { status: 'loading' }
   | { status: 'playing' }
   | { status: 'error'; message: string }
-  /** The viewer's daily streaming limit, most likely: no server started (src/utils/streamLimit.ts). */
-  | { status: 'limited'; resetAt: number }
+  /** This network hit today's limit earlier (src/utils/streamLimit.ts): the message, no player loaded. */
+  | { status: 'limited' }
 
 interface Run {
   itemId: string
@@ -88,6 +88,29 @@ interface Run {
   state: PlayerState
   /** Moving on to the next episode: keep the player (and fullscreen) up while it's checked. */
   keepPlayer?: boolean
+  /** No playable start within 10 s: most likely the network's daily limit (the message covers the player). */
+  limitHit?: boolean
+}
+
+/** The friendly message for EmbedMaster's per-network daily limit. */
+export const LIMIT_MESSAGE =
+  'This network has reached today’s streaming limit 😔 Try switching between Wi-Fi and mobile data, or come back in a few hours.'
+
+/**
+ * True when this play has opened EmbedMaster's player: always on Server 2,
+ * and on Server 1 once its page (ours, same origin) has given its stream
+ * frame a source. A page we can't look into (the original player, after a
+ * redirect) counts as opened.
+ */
+function openedEmbedMaster(frame: HTMLIFrameElement | null, server: PlayerServerId): boolean {
+  if (server === 'embedmaster' || !frame) return true
+  try {
+    const doc = frame.contentDocument
+    if (!doc) return true
+    return Boolean(doc.getElementById('stream-frame')?.getAttribute('src'))
+  } catch {
+    return true
+  }
 }
 
 /** Watched this share of a movie or episode: a strong taste signal. */
@@ -416,10 +439,11 @@ export function PlayerPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchingSrc, watchingRun, itemId])
 
-  // Auto-fallback: a server with no playable start within 10s (or whose check
-  // failed, see start) is marked limited on this device and switched for the
-  // other one, once per play. When there's no other to try, it's most likely
-  // the viewer's daily limit: the limit message replaces the player.
+  // A player with no playable start within 10s. EmbedMaster counts every
+  // player opened, per network, and both servers end in it, so the other
+  // server is tried only while this play hasn't opened EmbedMaster yet (Server
+  // 1's page never got that far): one open per play. Otherwise it's most
+  // likely the network's daily limit, and the message covers the player.
   // (`switchServer` is defined below the early return; the ref is set once it exists.)
   const switchServerRef = useRef<((to: PlayerServerId, how: 'picked' | 'auto') => void) | null>(null)
   const startingRun =
@@ -430,28 +454,31 @@ export function PlayerPanel({
   const startingAuto = active?.autoSwitched ?? false
   useEffect(() => {
     if (startingRun === null || !startingServer) return
+    const setLimitHit = (limitHit: boolean) =>
+      setRun((r) => (r && r.attempt === startingRun && Boolean(r.limitHit) !== limitHit ? { ...r, limitHit } : r))
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
       if (!isPlayableStart(data)) return
+      // Playing (even after the message): no limit on this network after all.
       window.clearTimeout(timer)
       window.removeEventListener('message', onMessage)
-      clearLimited(startingServer)
+      clearLimited()
+      setLimitHit(false)
     }
     const timer = window.setTimeout(() => {
-      window.removeEventListener('message', onMessage)
       reportPlayer(startingServer, 'nostart')
-      markLimited(startingServer)
-      const to = startingAuto ? null : servers.find((id) => id !== startingServer && !isLimited(id))
-      if (to) {
+      const to = startingAuto ? null : servers.find((id) => id !== startingServer)
+      if (to && !openedEmbedMaster(frameRef.current, startingServer)) {
+        window.removeEventListener('message', onMessage)
         reportPlayer(startingServer, 'fallback')
         switchServerRef.current?.(to, 'auto')
         return
       }
+      // Still listening: a late start takes the message away again.
       reportPlayer(startingServer, 'limited')
-      setRun((r) =>
-        r && r.attempt === startingRun ? { ...r, state: { status: 'limited', resetAt: nextReset() } } : r,
-      )
+      markLimited()
+      setLimitHit(true)
     }, serverTiming.startMs)
     window.addEventListener('message', onMessage)
     return () => {
@@ -461,6 +488,44 @@ export function PlayerPanel({
     // Once per run; the server list doesn't change while it plays.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startingRun])
+
+  // The player's iframe, unloaded (about:blank) as it leaves the page: Close
+  // player, leaving the title, another server or episode, or the hidden-tab
+  // close below. Stable, so a re-render never reloads it.
+  const attachFrame = useCallback((node: HTMLIFrameElement | null) => {
+    frameRef.current = node
+    if (!node) return
+    return () => {
+      if (frameRef.current === node) frameRef.current = null
+      node.src = 'about:blank'
+    }
+  }, [])
+
+  // A film or episode left in a hidden tab (or app) for 2 minutes is closed,
+  // its progress saved first (the watching effect's cleanup); Play carries on
+  // from there. Back sooner: the same player, untouched.
+  const [closedAway, setClosedAway] = useState(false)
+  const streamShown =
+    active?.choice === 'stream' && (active.state.status === 'loading' || active.state.status === 'playing')
+  useEffect(() => {
+    if (!streamShown) return
+    let timer: number | undefined
+    const onVisibility = () => {
+      window.clearTimeout(timer)
+      if (document.visibilityState !== 'hidden') return
+      timer = window.setTimeout(() => {
+        if (fullscreenElement()) exitFullscreen()
+        setRun(null)
+        setClosedAway(true)
+      }, serverTiming.hiddenCloseMs)
+    }
+    onVisibility()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [streamShown])
 
   // TV: the remote plays and pauses the video (OK on the video, or the media
   // keys), and pausing shows a "watch on your phone" QR code.
@@ -614,13 +679,13 @@ export function PlayerPanel({
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
     }
-    // A server that hit this viewer's limit today is skipped; with none left, the limit message.
-    const onServer = via?.server ?? (server && !isLimited(server) ? server : (servers.find((id) => !isLimited(id)) ?? null))
-    if (!src) return
-    if (!onServer) {
-      if (!server) return
-      reportPlayer(server, 'limited')
-      setRun({ itemId: item.id, choice, streamSrc: src, server, attempt, state: { status: 'limited', resetAt: nextReset() } })
+    const onServer = via?.server ?? server
+    if (!src || !onServer) return
+    setClosedAway(false)
+    // This network hit today's limit earlier: the message, without opening (and counting) another player.
+    if (!via && isLimited()) {
+      reportPlayer(onServer, 'limited')
+      setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, attempt, state: { status: 'limited' } })
       return
     }
     dismissResume()
@@ -635,7 +700,8 @@ export function PlayerPanel({
     setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'checking' }, keepPlayer })
     // This server can't play it: the other one tries, once.
     const fallBack = () => {
-      const to = autoSwitched ? null : servers.find((id) => id !== onServer && !isLimited(id))
+      // Its check failed before any player opened: the other server is still the play's first open.
+      const to = autoSwitched ? null : servers.find((id) => id !== onServer)
       if (!to) return false
       reportPlayer(onServer, 'fallback')
       trackServerSwitch(to, 'auto')
@@ -917,12 +983,15 @@ export function PlayerPanel({
             </button>
           </p>
         )}
+        {closedAway && !active && (
+          <p className="player__switched" role="status">
+            The player was closed while you were away, to save this network’s streaming limit. Press Play to carry on
+            where you left off.
+          </p>
+        )}
         {active?.state.status === 'limited' && (
           <div className="player__limit" role="alert">
-            <p>
-              You’ve reached today’s streaming limit 😔 It resets in about {timeUntil(active.state.resetAt)}. Try
-              switching between Wi-Fi and mobile data, or add it to My List for later.
-            </p>
+            <p>{LIMIT_MESSAGE}</p>
             <div className="player__limit-actions">
               <button
                 type="button"
@@ -998,7 +1067,7 @@ export function PlayerPanel({
           item.tmdbId !== undefined ? (
           <iframe
             key={key}
-            ref={frameRef}
+            ref={attachFrame}
             src={embedmasterUrl(item.tmdbId, isSeries ? (episodeOfSrc(active.streamSrc) as EpisodeRef) : undefined)}
             title={titles.stream}
             // No sandbox: EmbedMaster's player breaks with one.
@@ -1009,7 +1078,7 @@ export function PlayerPanel({
         ) : active.choice === 'stream' && active.streamSrc ? (
           <iframe
             key={key}
-            ref={frameRef}
+            ref={attachFrame}
             src={active.streamSrc}
             title={titles.stream}
             // `*`: /api/play may redirect to another host, which must keep these.
@@ -1044,6 +1113,28 @@ export function PlayerPanel({
               onLoad={loaded}
             />
           )
+        )}
+        {active.limitHit && (
+          <div className="player__limit player__limit--over" role="alert">
+            <p>{LIMIT_MESSAGE}</p>
+            <div className="player__limit-actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  // On another network now: one more try.
+                  clearLimited()
+                  const ep = active.streamSrc ? episodeOfSrc(active.streamSrc) : {}
+                  void start('stream', ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined)
+                }}
+              >
+                <RotateCcw aria-hidden="true" /> Try again
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={closePlayer}>
+                <X aria-hidden="true" /> Close player
+              </button>
+            </div>
+          </div>
         )}
         {tv && paused && active.choice !== 'trailer' && (
           <div className="player__paused" role="status">

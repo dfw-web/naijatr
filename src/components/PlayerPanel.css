@@ -259,6 +259,20 @@
   line-height: 1.5;
 }
 
+/* Over a player that didn't start (most likely EmbedMaster's limit screen behind it). */
+.player__limit--over {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  margin: 0;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  border: 0;
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.92);
+}
+
 .player__limit-actions {
   display: flex;
   flex-wrap: wrap;

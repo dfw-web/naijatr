@@ -1,36 +1,23 @@
-import { STREAM_LIMIT_RESET_UTC_HOUR, type PlayerServerId } from '../config/players'
+import { STREAM_LIMIT_RESET_UTC_HOUR } from '../config/players'
 
 /**
- * The servers that hit this viewer's daily limit, on this device only.
+ * This network hit EmbedMaster's daily limit, remembered on this device only.
  *
- * Both servers end in EmbedMaster's player, whose "You have reached today's
- * limit" is most likely per viewer (IP), so it's never shared with anyone
- * else. A server that didn't start within 10 s is marked until the estimated
- * reset; Play then tries the other one first, and when both are marked it
- * shows the limit message at once (with "Try again", which clears the marks).
- * A server that starts playing is cleared.
+ * EmbedMaster counts the movies opened per IP, and both servers end in its
+ * player, so the limit is the network's, not a server's: switching servers
+ * would only open (and count) another player. A player with no playable start
+ * within 10 s marks it until the estimated reset; Play then shows the limit
+ * message first, with "Try again" (another network may have its own limit),
+ * which clears the mark. A player that starts playing clears it too.
  */
 const KEY = 'naijatr.streamLimit'
 
-type Marks = Partial<Record<PlayerServerId, number>>
-
-function read(now: number): Marks {
+function readUntil(now: number): number | null {
   try {
-    const marks = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Marks
-    return Object.fromEntries(
-      Object.entries(marks).filter(([, until]) => typeof until === 'number' && until > now),
-    ) as Marks
+    const until = Number(JSON.parse(localStorage.getItem(KEY) ?? 'null')?.until)
+    return Number.isFinite(until) && until > now ? until : null
   } catch {
-    return {}
-  }
-}
-
-function write(marks: Marks) {
-  try {
-    if (Object.keys(marks).length) localStorage.setItem(KEY, JSON.stringify(marks))
-    else localStorage.removeItem(KEY)
-  } catch {
-    // This visit only.
+    return null
   }
 }
 
@@ -42,24 +29,20 @@ export function nextReset(now = Date.now()): number {
   return reset.getTime()
 }
 
-export const isLimited = (server: PlayerServerId, now = Date.now()) => read(now)[server] !== undefined
+export const isLimited = (now = Date.now()) => readUntil(now) !== null
 
-export function markLimited(server: PlayerServerId, now = Date.now()) {
-  write({ ...read(now), [server]: nextReset(now) })
+export function markLimited(now = Date.now()) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ until: nextReset(now) }))
+  } catch {
+    // This visit only (nothing to remember it in).
+  }
 }
 
-export function clearLimited(server?: PlayerServerId, now = Date.now()) {
-  if (!server) return write({})
-  const marks = read(now)
-  if (marks[server] === undefined) return
-  delete marks[server]
-  write(marks)
-}
-
-/** "3 hours", "1 hour", "40 minutes": how long until `at`. */
-export function timeUntil(at: number, now = Date.now()): string {
-  const minutes = Math.max(1, Math.round((at - now) / 60_000))
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`
-  const hours = Math.round(minutes / 60)
-  return `${hours} hour${hours === 1 ? '' : 's'}`
+export function clearLimited() {
+  try {
+    localStorage.removeItem(KEY)
+  } catch {
+    // Nothing saved.
+  }
 }
