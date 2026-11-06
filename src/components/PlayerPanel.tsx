@@ -41,7 +41,7 @@ import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watc
 import { requestSyncNow } from '../account/sync'
 import { embedmasterUrl, serverTiming, type PlayerServerId } from '../config/players'
 import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
-import { clearLimited, isLimited, markLimited } from '../utils/streamLimit'
+import { useServerAdFree } from '../referral/status'
 import { reportPlayer } from '../live/playerStats'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import './PlayerPanel.css'
@@ -69,8 +69,6 @@ type PlayerState =
   | { status: 'loading' }
   | { status: 'playing' }
   | { status: 'error'; message: string }
-  /** This network hit today's limit earlier (src/utils/streamLimit.ts): the message, no player loaded. */
-  | { status: 'limited' }
 
 interface Run {
   itemId: string
@@ -82,35 +80,10 @@ interface Run {
   streamSrc: string | null
   /** The server playing a stream. */
   server?: PlayerServerId
-  /** Moved here by itself after the other server failed: no second switch, and a "Switched to" note. */
-  autoSwitched?: boolean
   attempt: number
   state: PlayerState
   /** Moving on to the next episode: keep the player (and fullscreen) up while it's checked. */
   keepPlayer?: boolean
-  /** No playable start within 10 s: most likely the network's daily limit (the message covers the player). */
-  limitHit?: boolean
-}
-
-/** The friendly message for EmbedMaster's per-network daily limit. */
-export const LIMIT_MESSAGE =
-  'This network has reached today’s streaming limit 😔 Try switching between Wi-Fi and mobile data, or come back in a few hours.'
-
-/**
- * True when this play has opened EmbedMaster's player: always on Server 2,
- * and on Server 1 once its page (ours, same origin) has given its stream
- * frame a source. A page we can't look into (the original player, after a
- * redirect) counts as opened.
- */
-function openedEmbedMaster(frame: HTMLIFrameElement | null, server: PlayerServerId): boolean {
-  if (server === 'embedmaster' || !frame) return true
-  try {
-    const doc = frame.contentDocument
-    if (!doc) return true
-    return Boolean(doc.getElementById('stream-frame')?.getAttribute('src'))
-  } catch {
-    return true
-  }
 }
 
 /** Watched this share of a movie or episode: a strong taste signal. */
@@ -199,12 +172,6 @@ const STREAM_MESSAGES: Record<string, string> = {
   'key-rejected': 'The streaming service couldn’t be reached. Please try again.',
 }
 
-/** A player event that means the video really started: its length, a time, or play. */
-const isPlayableStart = (data: { event?: unknown; info?: unknown }) =>
-  data.event === 'play' ||
-  (data.event === 'time' && typeof data.info === 'number') ||
-  (data.event === 'duration' && typeof data.info === 'number' && data.info > 0)
-
 const trailerUrl = (trailer: Trailer) =>
   `https://www.youtube-nocookie.com/embed/${encodeURIComponent(trailer.key)}?autoplay=1&rel=0`
 
@@ -227,7 +194,9 @@ export function PlayerPanel({
   const episode = validSeason ? selected.episode : 1
   const episodeCount = seasons.find((s) => s.number === season)?.episodeCount ?? 0
   // The servers that can play this title ("Server 1", "Server 2"…), and the one Play uses.
-  const servers = availableServers(isSeries ? availability.tv : availability.movie, item.tmdbId)
+  // Free accounts get Server 1, ad-free ones Server 2 (the server's answer, see availableServers).
+  const adFree = useServerAdFree()
+  const servers = availableServers(isSeries ? availability.tv : availability.movie, item.tmdbId, adFree)
   const [pickedServer, setPickedServer] = useState<PlayerServerId | null>(null)
   const server = pickedServer && servers.includes(pickedServer) ? pickedServer : preferredServer(servers)
   const streamEnabled = servers.length > 0
@@ -439,56 +408,6 @@ export function PlayerPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchingSrc, watchingRun, itemId])
 
-  // A player with no playable start within 10s. EmbedMaster counts every
-  // player opened, per network, and both servers end in it, so the other
-  // server is tried only while this play hasn't opened EmbedMaster yet (Server
-  // 1's page never got that far): one open per play. Otherwise it's most
-  // likely the network's daily limit, and the message covers the player.
-  // (`switchServer` is defined below the early return; the ref is set once it exists.)
-  const switchServerRef = useRef<((to: PlayerServerId, how: 'picked' | 'auto') => void) | null>(null)
-  const startingRun =
-    active?.choice === 'stream' && (active.state.status === 'loading' || active.state.status === 'playing')
-      ? active.attempt
-      : null
-  const startingServer = active?.server
-  const startingAuto = active?.autoSwitched ?? false
-  useEffect(() => {
-    if (startingRun === null || !startingServer) return
-    const setLimitHit = (limitHit: boolean) =>
-      setRun((r) => (r && r.attempt === startingRun && Boolean(r.limitHit) !== limitHit ? { ...r, limitHit } : r))
-    const onMessage = (ev: MessageEvent) => {
-      const data = ev.data as { source?: unknown; event?: unknown; info?: unknown } | null
-      if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
-      if (!isPlayableStart(data)) return
-      // Playing (even after the message): no limit on this network after all.
-      window.clearTimeout(timer)
-      window.removeEventListener('message', onMessage)
-      clearLimited()
-      setLimitHit(false)
-    }
-    const timer = window.setTimeout(() => {
-      reportPlayer(startingServer, 'nostart')
-      const to = startingAuto ? null : servers.find((id) => id !== startingServer)
-      if (to && !openedEmbedMaster(frameRef.current, startingServer)) {
-        window.removeEventListener('message', onMessage)
-        reportPlayer(startingServer, 'fallback')
-        switchServerRef.current?.(to, 'auto')
-        return
-      }
-      // Still listening: a late start takes the message away again.
-      reportPlayer(startingServer, 'limited')
-      markLimited()
-      setLimitHit(true)
-    }, serverTiming.startMs)
-    window.addEventListener('message', onMessage)
-    return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('message', onMessage)
-    }
-    // Once per run; the server list doesn't change while it plays.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startingRun])
-
   // The player's iframe, unloaded (about:blank) as it leaves the page: Close
   // player, leaving the title, another server or episode, or the hidden-tab
   // close below. Stable, so a re-render never reloads it.
@@ -657,7 +576,7 @@ export function PlayerPanel({
     choice: Choice,
     ep: EpisodeRef = { season, episode },
     keepPlayer = false,
-    via: { server: PlayerServerId; autoSwitched: boolean; switching?: boolean } | null = null,
+    via: { server: PlayerServerId; switching?: boolean } | null = null,
   ) => {
     const attempt = (attemptRef.current = Math.max(attemptRef.current, run?.attempt ?? 0) + 1)
     pausedRef.current = false
@@ -682,32 +601,15 @@ export function PlayerPanel({
     const onServer = via?.server ?? server
     if (!src || !onServer) return
     setClosedAway(false)
-    // This network hit today's limit earlier: the message, without opening (and counting) another player.
-    if (!via && isLimited()) {
-      reportPlayer(onServer, 'limited')
-      setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, attempt, state: { status: 'limited' } })
-      return
-    }
     dismissResume()
-    const autoSwitched = via?.autoSwitched ?? false
     if (onServer === 'embedmaster') {
       // Played straight from embedmaster.link: nothing to check first.
       if (isSeries) saveLastEpisode(item.id, ep)
       reportPlayer(onServer, 'load')
-      setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'loading' }, keepPlayer })
+      setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, attempt, state: { status: 'loading' }, keepPlayer })
       return
     }
-    setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, autoSwitched, attempt, state: { status: 'checking' }, keepPlayer })
-    // This server can't play it: the other one tries, once.
-    const fallBack = () => {
-      // Its check failed before any player opened: the other server is still the play's first open.
-      const to = autoSwitched ? null : servers.find((id) => id !== onServer)
-      if (!to) return false
-      reportPlayer(onServer, 'fallback')
-      trackServerSwitch(to, 'auto')
-      void start(choice, ep, true, { server: to, autoSwitched: true, switching: true })
-      return true
-    }
+    setRun({ itemId: item.id, choice, streamSrc: src, server: onServer, attempt, state: { status: 'checking' }, keepPlayer })
     try {
       const response = await fetchImpl(`${src}?check=1`)
       const body = (await response.json().catch(() => ({}))) as {
@@ -716,7 +618,6 @@ export function PlayerPanel({
       }
       if (body.available && isSeries) saveLastEpisode(item.id, ep)
       if (body.available) reportPlayer(onServer, 'load')
-      if (!body.available && fallBack()) return
       update(
         attempt,
         body.available
@@ -727,18 +628,15 @@ export function PlayerPanel({
             },
       )
     } catch {
-      if (fallBack()) return
       update(attempt, { status: 'error', message: STREAM_MESSAGES.unreachable })
     }
   }
 
-  /** Plays the current movie or episode on `to`: picked by the viewer (and remembered), or after the other failed. */
-  const switchServer = (to: PlayerServerId, how: 'picked' | 'auto') => {
-    if (how === 'picked') {
-      savePreferredServer(to)
-      setPickedServer(to)
-    }
-    trackServerSwitch(to, how)
+  /** Plays the current movie or episode on `to`, picked by the viewer (and remembered). */
+  const switchServer = (to: PlayerServerId) => {
+    savePreferredServer(to)
+    setPickedServer(to)
+    trackServerSwitch(to, 'picked')
     if (!active || active.choice !== 'stream' || !active.streamSrc) return
     // Saved now, not at the next 10-second save, then the other server opens
     // the same movie or episode at that point.
@@ -751,9 +649,8 @@ export function PlayerPanel({
     const from = now?.src === active.streamSrc ? now.at : savedProgressOf(item.id, ep)
     resumeAtRef.current = from !== null && from > RESUME_MIN_S ? { src: active.streamSrc, at: from } : null
     const at = ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined
-    void start('stream', at, true, { server: to, autoSwitched: how === 'auto', switching: true })
+    void start('stream', at, true, { server: to, switching: true })
   }
-  switchServerRef.current = switchServer
 
   /**
    * A Play button: the first play on a phone, tablet or TV asks to join the
@@ -852,7 +749,7 @@ export function PlayerPanel({
             if (id === playingServer) return
             // An ad only before Play: never while a player is open.
             serverAd(event.nativeEvent, item)
-            switchServer(id, 'picked')
+            switchServer(id)
           }}
         >
           {serverLabel(servers, id)}
@@ -962,8 +859,7 @@ export function PlayerPanel({
   if (
     !active ||
     (active.state.status === 'checking' && !active.keepPlayer) ||
-    active.state.status === 'error' ||
-    active.state.status === 'limited'
+    active.state.status === 'error'
   ) {
     return (
       <section ref={sectionRef} className={sectionClass} aria-label="Watch">
@@ -985,29 +881,8 @@ export function PlayerPanel({
         )}
         {closedAway && !active && (
           <p className="player__switched" role="status">
-            The player was closed while you were away, to save this network’s streaming limit. Press Play to carry on
-            where you left off.
+            The player was closed while you were away. Press Play to carry on where you left off.
           </p>
-        )}
-        {active?.state.status === 'limited' && (
-          <div className="player__limit" role="alert">
-            <p>{LIMIT_MESSAGE}</p>
-            <div className="player__limit-actions">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => {
-                  // Another network may have its own limit: every server is tried again.
-                  clearLimited()
-                  const ep = active.streamSrc ? episodeOfSrc(active.streamSrc) : {}
-                  void start('stream', ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined)
-                }}
-              >
-                <RotateCcw aria-hidden="true" /> Try again
-              </button>
-              <WatchLaterButton item={item} />
-            </div>
-          </div>
         )}
         {actions}
         {howTo}
@@ -1035,11 +910,6 @@ export function PlayerPanel({
     <section ref={sectionRef} className={sectionClass} aria-label="Watch" {...{ [QUIET_ADS_ATTR]: '' }}>
       {active.choice === 'stream' && pickers}
       {active.choice === 'stream' && serverSwitch}
-      {active.choice === 'stream' && active.autoSwitched && active.server && (
-        <p className="player__switched" role="status">
-          Switched to {serverLabel(servers, active.server)}
-        </p>
-      )}
       <div
         ref={frameBoxRef}
         className="player__frame"
@@ -1113,28 +983,6 @@ export function PlayerPanel({
               onLoad={loaded}
             />
           )
-        )}
-        {active.limitHit && (
-          <div className="player__limit player__limit--over" role="alert">
-            <p>{LIMIT_MESSAGE}</p>
-            <div className="player__limit-actions">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => {
-                  // On another network now: one more try.
-                  clearLimited()
-                  const ep = active.streamSrc ? episodeOfSrc(active.streamSrc) : {}
-                  void start('stream', ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined)
-                }}
-              >
-                <RotateCcw aria-hidden="true" /> Try again
-              </button>
-              <button type="button" className="btn btn--ghost" onClick={closePlayer}>
-                <X aria-hidden="true" /> Close player
-              </button>
-            </div>
-          </div>
         )}
         {tv && paused && active.choice !== 'trailer' && (
           <div className="player__paused" role="status">

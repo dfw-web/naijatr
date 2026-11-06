@@ -243,42 +243,6 @@
   color: var(--accent);
 }
 
-/* The viewer's daily streaming limit: in place of the player. */
-.player__limit {
-  display: grid;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.player__limit p {
-  margin: 0;
-  line-height: 1.5;
-}
-
-/* Over a player that didn't start (most likely EmbedMaster's limit screen behind it). */
-.player__limit--over {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  margin: 0;
-  align-content: center;
-  justify-items: center;
-  text-align: center;
-  border: 0;
-  border-radius: 0;
-  background: rgba(0, 0, 0, 0.92);
-}
-
-.player__limit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 .player__unavailable {
   margin-top: 1rem;
   color: var(--text-faint);

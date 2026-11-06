@@ -1,14 +1,8 @@
 import { isDevHost } from '../ads/directLink'
 import type { PlayerServerId } from '../config/players'
 
-/**
- * Today's player stats on /admin/live (server/live/handlers.ts), per server:
- * - load:     a player opened (after Play, a switch or a retry);
- * - nostart:  no playable start within 10 s (most likely the viewer's daily limit);
- * - fallback: switched away from it by itself, to the other server;
- * - limited:  the "daily streaming limit" message shown, this server tried last.
- */
-export type PlayerStat = 'load' | 'nostart' | 'fallback' | 'limited'
+/** Today's player opens on /admin/live (server/live/handlers.ts), per server: a player opened (after Play, or a retry). */
+export type PlayerStat = 'load'
 
 const REPORT_URL = '/api/live/player'
 

@@ -4,15 +4,20 @@ import { embedmasterPlayerId, PLAYER_SERVERS, type PlayerServerId } from '../con
 const KEY = 'naijatr.playerServer'
 
 /**
- * The servers that can play this title, in the config's order: NextStream when
- * its movie (or TV) template is set up on the server, EmbedMaster when its
- * player id is. Both need the TMDB id.
+ * The server this account plays on: free accounts (signed out, or signed in
+ * without ad-free) Server 1 (NextStream), ad-free ones (paid, referral or
+ * AD_FREE_EMAILS) Server 2 (EmbedMaster), by the server's answer (see
+ * isServerAdFree). One server each, so no switching or fallback between them.
+ * A server that isn't set up at all (no NextStream template, no EmbedMaster
+ * player id) leaves the account the other one. Both need the TMDB id.
  */
-export function availableServers(nextStream: boolean, tmdbId: number | undefined): PlayerServerId[] {
+export function availableServers(nextStream: boolean, tmdbId: number | undefined, adFree = false): PlayerServerId[] {
   if (tmdbId === undefined) return []
-  return PLAYER_SERVERS.filter(
+  const ready = PLAYER_SERVERS.filter(
     (server) => server.enabled && (server.id === 'nextstream' ? nextStream : embedmasterPlayerId() !== ''),
   ).map((server) => server.id)
+  const own: PlayerServerId = adFree ? 'embedmaster' : 'nextstream'
+  return ready.includes(own) ? [own] : ready.slice(0, 1)
 }
 
 /** "Server 1", "Server 2"…: the label follows the server's place in the list. */

@@ -180,7 +180,6 @@ const SERVER_ROWS = [
 function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undefined) {
   const total = (event: PlayerEvent) => (players ? players.nextstream[event] + players.embedmaster[event] : null)
   $('player-opens').textContent = players ? String(total('load')) : '–'
-  $('player-limits').textContent = players ? String(total('nostart')) : '–'
   $('servers').replaceChildren(
     ...SERVER_ROWS.map(({ id, label }) => {
       const c = players?.[id]
@@ -189,7 +188,7 @@ function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undef
       name.textContent = label
       const numbers = document.createElement('span')
       numbers.textContent = c
-        ? `${c.load} opens · ${c.nostart} hit the limit screen · ${c.fallback} switched away · ${c.limited} limit msg` +
+        ? `${c.load} opens` +
           (id === 'nextstream' && players ? ` · ${players.calls} key calls` : '')
         : '–'
       li.append(name, numbers)
@@ -200,7 +199,7 @@ function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undef
   $('key-warning').hidden = !warning
   $('key-warning').textContent = warning ?? ''
   $('key-note').textContent = key?.expiresAt
-    ? `CodeSpecter key issued ${key.issued}, valid until ${new Date(key.expiresAt).toLocaleDateString()}.`
+    ? `Server 1 key expires on ${new Date(key.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })} (issued ${key.issued}, 30 days).`
     : 'Set NEXTSTREAM_KEY_ISSUED=YYYY-MM-DD (the day the CodeSpecter key was issued) on Vercel to get an expiry warning.'
 }
 

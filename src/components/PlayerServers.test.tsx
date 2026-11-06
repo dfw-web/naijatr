@@ -3,12 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findPlayer } from '../test/player'
 import type { MediaItem } from '../types/media'
-import { HIDDEN_CLOSE_MS, SERVER_START_TIMEOUT_MS, serverTiming } from '../config/players'
+import { HIDDEN_CLOSE_MS, serverTiming } from '../config/players'
+import { resetReferralStatus, type ReferralStatus } from '../referral/status'
 import { readContinueWatching } from '../utils/continueWatching'
-import { LIMIT_MESSAGE, PlayerPanel } from './PlayerPanel'
+import { PlayerPanel } from './PlayerPanel'
 
 const PLAYER_ID = 'v2pxn252iu6ornvs8i'
 const OPTIONS = 'skin=onyx&welcome_page=off&autoplay=on'
+const EMBEDMASTER_MOVIE = `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`
 
 const movie: MediaItem = {
   id: 'tmdb-movie-550',
@@ -51,7 +53,17 @@ const post = (frame: HTMLElement, event: string, info: number | null = null, ori
     )
   })
 
-const server = (name: string) => screen.getByRole('button', { name })
+/** The server's answers (/api/referral/status). */
+const SIGNED_IN_FREE: ReferralStatus = { goal: 5, signedIn: true, userId: 'u1', adFree: false }
+const PAID: ReferralStatus = { ...SIGNED_IN_FREE, adFree: true, adFreeUntil: new Date(Date.now() + 30 * 86_400_000).toISOString() }
+/** AD_FREE_EMAILS: ad-free for good. */
+const ALLOWLISTED: ReferralStatus = { ...SIGNED_IN_FREE, adFree: true, permanent: true }
+const answer = (status: ReferralStatus | null) => act(() => resetReferralStatus(status))
+
+const seekTo = (value: number) => ({ source: 'embedmaster_player_command', command: 'seek', value })
+const commands = (frame: HTMLElement) =>
+  vi.spyOn((frame as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => undefined)
+const play = (name = 'Play') => userEvent.click(screen.getByRole('button', { name }))
 
 beforeEach(() => {
   vi.stubEnv('VITE_EMBEDMASTER_PLAYER_ID', PLAYER_ID)
@@ -60,242 +72,131 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
-  serverTiming.startMs = SERVER_START_TIMEOUT_MS
   serverTiming.hiddenCloseMs = HIDDEN_CLOSE_MS
 })
 
-describe('Server 1 / Server 2', () => {
-  it('offers both servers, Server 1 (NextStream) first', async () => {
+describe('one server per account', () => {
+  it('free (signed out): Server 1 only, no server buttons', async () => {
+    const fetchImpl = checks(true)
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
+    expect(screen.queryByRole('group', { name: 'Server' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Server 2' })).not.toBeInTheDocument()
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+    expect(fetchImpl).toHaveBeenCalledWith('/api/play/movie/550?check=1')
+  })
+
+  it('free (signed in without ad-free): Server 1 only', async () => {
+    resetReferralStatus(SIGNED_IN_FREE)
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    expect(server('Server 1')).toHaveAttribute('aria-pressed', 'true')
-    expect(server('Server 2')).toHaveAttribute('aria-pressed', 'false')
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(screen.queryByRole('group', { name: 'Server' })).not.toBeInTheDocument()
+    await play()
     expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
   })
 
-  it('plays a movie on EmbedMaster with its options, no sandbox, and remembers the pick', async () => {
+  it('ad-free (paid until a later date): Server 2 only, with its options and no sandbox', async () => {
+    resetReferralStatus(PAID)
     const fetchImpl = checks(true)
     render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
-    await userEvent.click(server('Server 2'))
-    expect(localStorage.getItem('naijatr.playerServer')).toBe('embedmaster')
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(screen.queryByRole('group', { name: 'Server' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Server 1' })).not.toBeInTheDocument()
+    await play()
     const frame = await findPlayer('Fight Club player')
-    expect(frame).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`)
-    expect(frame).toHaveAttribute('allow', 'autoplay *; fullscreen *; picture-in-picture *; encrypted-media *')
-    expect(frame).toHaveAttribute('allowfullscreen')
+    expect(frame).toHaveAttribute('src', EMBEDMASTER_MOVIE)
     expect(frame).not.toHaveAttribute('sandbox')
-    // Nothing to check first on EmbedMaster.
+    // Nothing to check first, and no Server 1 behind it.
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('plays the chosen episode on EmbedMaster, and Server 2 stays picked next time', async () => {
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
+  it('ad-free (AD_FREE_EMAILS): Server 2, the chosen episode', async () => {
+    resetReferralStatus(ALLOWLISTED)
     render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
-    expect(server('Server 2')).toHaveAttribute('aria-pressed', 'true')
     await userEvent.selectOptions(screen.getByLabelText('Episode'), '2')
-    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E2' }))
-    expect(await findPlayer('Game of Thrones player')).toHaveAttribute(
-      'src',
-      `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/2?${OPTIONS}`,
-    )
+    await play('Play S1 E2')
+    expect(await findPlayer('Game of Thrones player')).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/2?${OPTIONS}`)
   })
 
-  it('switches the playing episode between servers, carrying on from the same point', async () => {
-    render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E1' }))
-    const first = await findPlayer('Game of Thrones player')
-    expect(first).toHaveAttribute('src', '/api/play/tv/1399/1/1')
-    post(first, 'time', 300, 'https://embdmstrplayer.com')
-
-    await userEvent.click(server('Server 2'))
-    const second = await findPlayer('Game of Thrones player')
-    expect(second).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/1?${OPTIONS}`)
-    expect(server('Server 2')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByText(/Switched to/)).not.toBeInTheDocument()
-
-    const send = vi.spyOn((second as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => undefined)
-    post(second, 'time', 0)
-    expect(send).toHaveBeenCalledWith({ source: 'embedmaster_player_command', command: 'seek', value: 300 }, 'https://embedmaster.link')
-    // Still one Continue watching entry, on the same episode.
-    expect(readContinueWatching()).toHaveLength(1)
-  })
-
-  it('saves EmbedMaster progress for Continue watching and finishes at the end', async () => {
+  it('goes by the server’s answer, not this device’s saved copy or an old pick', async () => {
+    localStorage.setItem('naijatr.adFree', JSON.stringify({ userId: 'u1', adFree: true, until: null, permanent: true, at: Date.now() }))
     localStorage.setItem('naijatr.playerServer', 'embedmaster')
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const frame = await findPlayer('Fight Club player')
-    post(frame, 'duration', 6000)
-    post(frame, 'time', 120)
-    expect(readContinueWatching()[0]).toMatchObject({ id: 'tmdb-movie-550', progressSeconds: 120, durationSeconds: 6000 })
-    post(frame, 'ended')
-    expect(readContinueWatching()).toHaveLength(0)
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
   })
 
-  it('moves to Server 2 by itself when Server 1 can’t play the title', async () => {
+  it('moves to Server 2 as soon as the account is ad-free, and back to Server 1 when it runs out', async () => {
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    answer({ ...PAID, adFreeUntil: new Date(Date.now() + 300).toISOString() })
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+    await userEvent.click(screen.getByRole('button', { name: /Close player/ }))
+    // Its ad-free ends: the status re-reads the moment it does (plus a second).
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+  })
+
+  it('never falls back to the other server: a title Server 1 can’t play says so', async () => {
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(false)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const frame = await findPlayer('Fight Club player')
-    expect(frame).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`)
-    expect(screen.getByText('Switched to Server 2')).toBeInTheDocument()
-    // Not remembered: Server 1 stays the viewer's server.
-    expect(localStorage.getItem('naijatr.playerServer')).toBeNull()
-  })
-
-  it('Server 2 silent: the limit message over it, and no second player (Server 1 is EmbedMaster too)', async () => {
-    serverTiming.startMs = 50
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
-    const fetchImpl = checks(true)
-    render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const frame = await findPlayer('Fight Club player')
-    expect(await screen.findByText(LIMIT_MESSAGE)).toBeInTheDocument()
-    // The same player stays (EmbedMaster's own screen behind the message); Server 1 never opens.
-    expect(screen.getByTitle('Fight Club player')).toBe(frame)
-    expect(screen.queryByText(/Switched to/)).not.toBeInTheDocument()
-    expect(fetchImpl).not.toHaveBeenCalled()
-    expect(localStorage.getItem('naijatr.streamLimit')).not.toBeNull()
-    // It starts after all: the message goes, and so does the mark.
-    post(frame, 'time', 2)
-    expect(screen.queryByText(LIMIT_MESSAGE)).not.toBeInTheDocument()
-    expect(localStorage.getItem('naijatr.streamLimit')).toBeNull()
-  })
-
-  it('Server 1 silent before it opened EmbedMaster: Server 2, once, at the same episode and time', async () => {
-    serverTiming.startMs = 80
-    render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.selectOptions(screen.getByLabelText('Episode'), '2')
-    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E2' }))
-    const one = await findPlayer('Game of Thrones player')
-    expect(one).toHaveAttribute('src', '/api/play/tv/1399/1/2')
-    // Saved earlier on this device: 10:00 into S1 E2.
-    const entry = readContinueWatching()[0]
-    localStorage.setItem('naijatr:continueWatching', JSON.stringify([{ ...entry, progressSeconds: 600 }]))
-    // A message that isn't a playable start doesn't count.
-    post(one, 'ready', null, 'https://embdmstrplayer.com')
-    expect(await screen.findByText('Switched to Server 2')).toBeInTheDocument()
-    const two = await findPlayer('Game of Thrones player')
-    expect(two).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/2?${OPTIONS}`)
-    // Server 1's player was unloaded, not left running beside it.
-    expect(one).not.toBeInTheDocument()
-    expect(one.getAttribute('src')).toBe('about:blank')
-    const send = vi.spyOn((two as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => undefined)
-    post(two, 'duration', 3600)
-    expect(send).toHaveBeenCalledWith({ source: 'embedmaster_player_command', command: 'seek', value: 600 }, 'https://embedmaster.link')
-  })
-
-  it('Server 1 silent after it opened EmbedMaster: the limit message, not a second player', async () => {
-    serverTiming.startMs = 80
-    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const one = (await findPlayer('Fight Club player')) as HTMLIFrameElement
-    // Its page gave the stream frame EmbedMaster's player.
-    const inner = one.contentDocument!.createElement('iframe')
-    inner.id = 'stream-frame'
-    inner.setAttribute('src', 'https://embedmaster.link/movie/550')
-    const doc = one.contentDocument!
-    if (!doc.documentElement) doc.append(doc.createElement('html'))
-    doc.documentElement.append(inner)
-    expect(await screen.findByText(LIMIT_MESSAGE)).toBeInTheDocument()
-    expect(screen.getByTitle('Fight Club player')).toBe(one)
-    expect(screen.queryByText(/Switched to/)).not.toBeInTheDocument()
-  })
-
-  it('this network limited earlier: Play shows the message without opening a player; Try again plays', async () => {
-    localStorage.setItem('naijatr.streamLimit', JSON.stringify({ until: Date.now() + 60 * 60_000 }))
-    const fetchImpl = checks(true)
-    render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    expect(screen.getByRole('alert')).toHaveTextContent(LIMIT_MESSAGE)
+    await play()
+    expect(await screen.findByRole('alert')).toHaveTextContent('This title isn’t available to stream right now.')
     expect(screen.queryByTitle('Fight Club player')).not.toBeInTheDocument()
-    expect(fetchImpl).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '＋ My List' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
-    expect(localStorage.getItem('naijatr.streamLimit')).toBeNull()
   })
 
-  it('stays put once the player reports in', async () => {
-    serverTiming.startMs = 100
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
-    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    post(await findPlayer('Fight Club player'), 'duration', 6000)
-    await new Promise((resolve) => setTimeout(resolve, 250))
-    expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`)
-    expect(screen.queryByText(/Switched to/)).not.toBeInTheDocument()
-  })
-
-  it('offers only Server 1, with no switcher, without an EmbedMaster player id', async () => {
+  it('keeps an ad-free account on Server 1 when there is no EmbedMaster player id', async () => {
     vi.stubEnv('VITE_EMBEDMASTER_PLAYER_ID', '')
+    resetReferralStatus(PAID)
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    expect(screen.queryByRole('group', { name: 'Server' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await play()
     expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
   })
 
-  it('plays on EmbedMaster alone when NextStream isn’t set up', async () => {
+  it('plays on EmbedMaster when NextStream isn’t set up', async () => {
     render(<PlayerPanel item={movie} availability={{ movie: false, tv: false }} fetchImpl={checks(true)} />)
-    expect(screen.queryByRole('group', { name: 'Server' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`)
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE)
   })
 })
 
 describe('progress shared between Server 1 and Server 2', () => {
-  const S1 = 'https://embdmstrplayer.com'
-  const S2 = 'https://embedmaster.link'
-  const seekTo = (value: number) => ({ source: 'embedmaster_player_command', command: 'seek', value })
-  const commands = (frame: HTMLElement) =>
-    vi.spyOn((frame as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => undefined)
-  const saved = () => readContinueWatching()[0]
-
-  it('S1E3: 20:00 on Server 1 → Server 2 from 20:00 → 25:00 → back to Server 1 from 25:00', async () => {
+  it('S1E3 to 20:00 on Server 1, then ad-free: Server 2 carries on from 20:00', async () => {
     render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
     await userEvent.selectOptions(screen.getByLabelText('Episode'), '3')
-    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E3' }))
+    await play('Play S1 E3')
     const one = await findPlayer('Game of Thrones player')
     expect(one).toHaveAttribute('src', '/api/play/tv/1399/1/3')
-    post(one, 'duration', 3600, S1)
-    post(one, 'time', 1190, S1)
-    post(one, 'time', 1200, S1)
-    // Within the 10-second throttle: not saved yet…
-    expect(saved()).toMatchObject({ season: 1, episode: 3, progressSeconds: 1190 })
+    post(one, 'duration', 3600, 'https://embdmstrplayer.com')
+    post(one, 'time', 1200, 'https://embdmstrplayer.com')
+    await userEvent.click(screen.getByRole('button', { name: /Close player/ }))
+    expect(readContinueWatching()[0]).toMatchObject({ season: 1, episode: 3, progressSeconds: 1200 })
 
-    await userEvent.click(server('Server 2'))
-    // …but saved the moment the server is switched.
-    expect(saved()).toMatchObject({ season: 1, episode: 3, progressSeconds: 1200 })
+    answer(PAID)
+    await play('Play S1 E3')
     const two = await findPlayer('Game of Thrones player')
     expect(two).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/3?${OPTIONS}`)
     const send = commands(two)
     post(two, 'duration', 3600)
-    expect(send).toHaveBeenCalledWith(seekTo(1200), S2)
-    // Its own early times (0, or the spot it remembers) don't count.
+    expect(send).toHaveBeenCalledWith(seekTo(1200), 'https://embedmaster.link')
+    // Its own early times (0, or a spot it remembers) don't count.
     post(two, 'time', 0)
     post(two, 'time', 300)
-    expect(saved().progressSeconds).toBe(1200)
+    expect(readContinueWatching()[0].progressSeconds).toBe(1200)
     post(two, 'time', 1201)
     post(two, 'time', 1500)
     post(two, 'pause')
-    expect(saved()).toMatchObject({ season: 1, episode: 3, progressSeconds: 1500 })
-
-    await userEvent.click(server('Server 1'))
-    const back = await findPlayer('Game of Thrones player')
-    expect(back).toHaveAttribute('src', '/api/play/tv/1399/1/3')
-    const sendBack = commands(back)
-    post(back, 'time', 0, S1)
-    expect(sendBack).toHaveBeenCalledWith(seekTo(1500), S1)
-    expect(saved()).toMatchObject({ season: 1, episode: 3, progressSeconds: 1500 })
+    expect(readContinueWatching()[0]).toMatchObject({ season: 1, episode: 3, progressSeconds: 1500 })
     expect(readContinueWatching()).toHaveLength(1)
   })
 
   it('a smaller time right after the seek is sent back, not saved', async () => {
+    resetReferralStatus(PAID)
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const one = await findPlayer('Fight Club player')
-    post(one, 'duration', 6000, S1)
-    post(one, 'time', 1200, S1)
-    await userEvent.click(server('Server 2'))
+    await play()
+    const first = await findPlayer('Fight Club player')
+    post(first, 'duration', 6000)
+    post(first, 'time', 1200)
+    await userEvent.click(screen.getByRole('button', { name: /Close player/ }))
+    await play()
     const two = await findPlayer('Fight Club player')
     const send = commands(two)
     post(two, 'duration', 6000)
@@ -303,29 +204,20 @@ describe('progress shared between Server 1 and Server 2', () => {
     // The player jumps back to a spot of its own just after.
     post(two, 'time', 400)
     post(two, 'pause')
-    expect(saved().progressSeconds).toBe(1200)
-    expect(send).toHaveBeenLastCalledWith(seekTo(1200), S2)
+    expect(readContinueWatching()[0].progressSeconds).toBe(1200)
+    expect(send).toHaveBeenLastCalledWith(seekTo(1200), 'https://embedmaster.link')
   })
 
-  it('a movie resumes on the other server after a page reload (or from another device’s synced entry)', async () => {
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
-    const { unmount } = render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const two = await findPlayer('Fight Club player')
-    post(two, 'duration', 6000)
-    post(two, 'time', 1500)
-    unmount()
-    expect(saved().progressSeconds).toBe(1500)
-
-    // Reloaded, and Server 1 picked this time.
-    localStorage.setItem('naijatr.playerServer', 'nextstream')
+  it('saves EmbedMaster progress for Continue watching and finishes at the end', async () => {
+    resetReferralStatus(PAID)
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
-    const one = await findPlayer('Fight Club player')
-    expect(one).toHaveAttribute('src', '/api/play/movie/550')
-    const send = commands(one)
-    post(one, 'duration', 6000, S1)
-    expect(send).toHaveBeenCalledWith(seekTo(1500), S1)
+    await play()
+    const frame = await findPlayer('Fight Club player')
+    post(frame, 'duration', 6000)
+    post(frame, 'time', 120)
+    expect(readContinueWatching()[0]).toMatchObject({ id: 'tmdb-movie-550', progressSeconds: 120, durationSeconds: 6000 })
+    post(frame, 'ended')
+    expect(readContinueWatching()).toHaveLength(0)
   })
 
   it('offers the episode Continue watching is on, whichever server played it', async () => {
@@ -340,31 +232,42 @@ describe('progress shared between Server 1 and Server 2', () => {
         },
       ]),
     )
+    resetReferralStatus(PAID)
     render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Continue S1 E3' }))
-    const one = await findPlayer('Game of Thrones player')
-    expect(one).toHaveAttribute('src', '/api/play/tv/1399/1/3')
-    const send = commands(one)
-    post(one, 'duration', 3600, S1)
-    expect(send).toHaveBeenCalledWith(seekTo(900), S1)
+    await play('Continue S1 E3')
+    const two = await findPlayer('Game of Thrones player')
+    expect(two).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/3?${OPTIONS}`)
+    const send = commands(two)
+    post(two, 'duration', 3600)
+    expect(send).toHaveBeenCalledWith(seekTo(900), 'https://embedmaster.link')
   })
 })
 
-describe('one EmbedMaster open per play, and players closed properly', () => {
+describe('players closed properly', () => {
   const setHidden = (hidden: boolean) => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') })
     act(() => {
       document.dispatchEvent(new Event('visibilitychange'))
     })
   }
+  beforeEach(() => resetReferralStatus(PAID))
   afterEach(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
   })
 
-  it('Close player unloads the iframe (about:blank) and removes it, saving the progress first', async () => {
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
+  it('shows the provider’s player straight away, with nothing of ours over it, even if it sends nothing', async () => {
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await play()
+    const frame = await findPlayer('Fight Club player')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(screen.getByTitle('Fight Club player')).toBe(frame)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(localStorage.getItem('naijatr.streamLimit')).toBeNull()
+  })
+
+  it('Close player unloads the iframe (about:blank) and removes it, saving the progress first', async () => {
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
     const frame = await findPlayer('Fight Club player')
     post(frame, 'duration', 6000)
     post(frame, 'time', 700)
@@ -376,9 +279,8 @@ describe('one EmbedMaster open per play, and players closed properly', () => {
 
   it('keeps the same player through re-renders, fullscreen and a short trip to another tab', async () => {
     serverTiming.hiddenCloseMs = 150
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
     const { rerender } = render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await play()
     const frame = await findPlayer('Fight Club player')
     const src = frame.getAttribute('src')
     post(frame, 'duration', 6000)
@@ -395,9 +297,8 @@ describe('one EmbedMaster open per play, and players closed properly', () => {
 
   it('closes a player left in a hidden tab for 2 minutes; Play carries on from the saved time', async () => {
     serverTiming.hiddenCloseMs = 80
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await play()
     const frame = await findPlayer('Fight Club player')
     post(frame, 'duration', 6000)
     post(frame, 'time', 900)
@@ -407,23 +308,22 @@ describe('one EmbedMaster open per play, and players closed properly', () => {
     expect(readContinueWatching()[0].progressSeconds).toBe(900)
     setHidden(false)
     expect(screen.getByRole('status')).toHaveTextContent('The player was closed while you were away')
-    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await play()
     const again = await findPlayer('Fight Club player')
-    const send = vi.spyOn((again as HTMLIFrameElement).contentWindow!, 'postMessage').mockImplementation(() => undefined)
+    const send = commands(again)
     post(again, 'duration', 6000)
-    expect(send).toHaveBeenCalledWith({ source: 'embedmaster_player_command', command: 'seek', value: 900 }, 'https://embedmaster.link')
+    expect(send).toHaveBeenCalledWith(seekTo(900), 'https://embedmaster.link')
   })
 
   it('another episode picked: the playing one is unloaded, and the new one loads only on Play', async () => {
-    localStorage.setItem('naijatr.playerServer', 'embedmaster')
     render(<PlayerPanel item={show} availability={on} fetchImpl={checks(true)} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E1' }))
+    await play('Play S1 E1')
     const first = await findPlayer('Game of Thrones player')
     await userEvent.selectOptions(screen.getByLabelText('Episode'), '2')
     expect(first).not.toBeInTheDocument()
     expect(first.getAttribute('src')).toBe('about:blank')
     expect(screen.queryByTitle('Game of Thrones player')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Play S1 E2' }))
+    await play('Play S1 E2')
     expect(await findPlayer('Game of Thrones player')).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/2?${OPTIONS}`)
   })
 })

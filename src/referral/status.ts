@@ -84,6 +84,28 @@ export function isAdFreeNow(now = Date.now()): boolean {
   return Boolean(cached && now - cached.at < CACHE_MAX_AGE_MS && stillValid(cached.adFree, cached.permanent, cached.until, now))
 }
 
+/**
+ * Ad-free by the server's answer alone (never the cached copy): which movie
+ * server the account gets (src/utils/playerServer.ts). False until it answers.
+ */
+export function isServerAdFree(now = Date.now()): boolean {
+  return status !== null && status.signedIn && stillValid(status.adFree, status.permanent, status.adFreeUntil, now)
+}
+
+// Ad-free that runs out: everything re-reads the status the moment it does.
+let expiryTimer: number | undefined
+const MAX_TIMER_MS = 2 ** 31 - 1
+function scheduleExpiry() {
+  window.clearTimeout(expiryTimer)
+  if (!status?.adFree || status.permanent || !status.adFreeUntil) return
+  const left = Date.parse(status.adFreeUntil) - Date.now()
+  if (!(left > 0)) return
+  expiryTimer = window.setTimeout(() => {
+    emit()
+    scheduleExpiry()
+  }, Math.min(left + 1000, MAX_TIMER_MS))
+}
+
 function apply(next: ReferralStatus) {
   status = next
   if (next.signedIn && next.userId) {
@@ -104,7 +126,26 @@ function apply(next: ReferralStatus) {
     }
   }
   if (next.goal > 0) storage.set(GOAL_KEY, next.goal)
+  scheduleExpiry()
   emit()
+}
+
+/** How often a signed-in, visible tab asks again (ad-free given or ended meanwhile). */
+export const STATUS_REFRESH_MS = 5 * 60 * 1000
+let watching = false
+
+/**
+ * Keeps a signed-in device's status fresh: when the tab comes back into view
+ * and every 5 minutes while it's visible. Started once from the app's roots.
+ */
+export function watchReferralStatus(): void {
+  if (watching || typeof document === 'undefined') return
+  watching = true
+  const refreshIfSignedIn = () => {
+    if (document.visibilityState === 'visible' && hasStoredSession()) void refreshReferralStatus()
+  }
+  document.addEventListener('visibilitychange', refreshIfSignedIn)
+  window.setInterval(refreshIfSignedIn, STATUS_REFRESH_MS)
 }
 
 let loading: Promise<ReferralStatus | null> | null = null
@@ -198,6 +239,7 @@ export async function reportReferralPlay(): Promise<void> {
 // ---- The account's sign-in and sign-out (src/account/account.ts). ----
 
 export function referralSignedIn() {
+  watchReferralStatus()
   void claimReferral().then(() => refreshReferralStatus())
 }
 
@@ -231,12 +273,15 @@ const subscribe = (listener: () => void) => {
 export const useReferralStatus = () => useSyncExternalStore(subscribe, () => status, () => null)
 /** Ad-free right now (re-read whenever the status changes). */
 export const useAdFree = () => useSyncExternalStore(subscribe, () => isAdFreeNow(), () => false)
+/** Ad-free by the server's answer (re-read whenever it changes, or runs out). */
+export const useServerAdFree = () => useSyncExternalStore(subscribe, () => isServerAdFree(), () => false)
 export const useUnlockDue = () => useSyncExternalStore(subscribe, () => unlockDue, () => false)
 export const useActivationDue = () => useSyncExternalStore(subscribe, () => activationDue, () => false)
 
 /** Test helper. */
 export function resetReferralStatus(next: ReferralStatus | null = null) {
   status = next
+  scheduleExpiry()
   unlockDue = false
   activationDue = false
   loading = null
