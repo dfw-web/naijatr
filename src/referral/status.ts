@@ -263,20 +263,21 @@ export function dismissActivation() {
   emit()
 }
 
-const subscribe = (listener: () => void) => {
+/** Calls `listener` whenever the status changes; returns the unsubscribe. */
+export const subscribeReferralStatus = (listener: () => void) => {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
   }
 }
 
-export const useReferralStatus = () => useSyncExternalStore(subscribe, () => status, () => null)
+export const useReferralStatus = () => useSyncExternalStore(subscribeReferralStatus, () => status, () => null)
 /** Ad-free right now (re-read whenever the status changes). */
-export const useAdFree = () => useSyncExternalStore(subscribe, () => isAdFreeNow(), () => false)
+export const useAdFree = () => useSyncExternalStore(subscribeReferralStatus, () => isAdFreeNow(), () => false)
 /** Ad-free by the server's answer (re-read whenever it changes, or runs out). */
-export const useServerAdFree = () => useSyncExternalStore(subscribe, () => isServerAdFree(), () => false)
-export const useUnlockDue = () => useSyncExternalStore(subscribe, () => unlockDue, () => false)
-export const useActivationDue = () => useSyncExternalStore(subscribe, () => activationDue, () => false)
+export const useServerAdFree = () => useSyncExternalStore(subscribeReferralStatus, () => isServerAdFree(), () => false)
+export const useUnlockDue = () => useSyncExternalStore(subscribeReferralStatus, () => unlockDue, () => false)
+export const useActivationDue = () => useSyncExternalStore(subscribeReferralStatus, () => activationDue, () => false)
 
 /** Test helper. */
 export function resetReferralStatus(next: ReferralStatus | null = null) {

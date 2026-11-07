@@ -16,7 +16,7 @@ import { adsDisabled, isDevHost, openAd } from './directLink'
  * - server:   Server 1 / Server 2 picked.
  *
  * Which of them, and how often, is set in AD_RULES (src/config/ads.ts): each
- * trigger on or off, at least 30 seconds apart, at most 20 a day. Always:
+ * trigger on or off, at least 20 seconds apart, at most 30 a day. Always:
  * nothing while a player is open (so never on its controls), nothing while the
  * sign-in sheet, the Telegram gate, the invite guide or a contest popup is
  * open, and nothing on the tap that opens or closes one of those. A tap held

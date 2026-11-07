@@ -46,9 +46,9 @@ export const DIRECT_LINK_URL = 'https://uplcm.com/4/12033849'
  */
 export const AD_RULES = {
   /** At least this long between any two direct-link ads (0: no gap). */
-  cooldownMs: 30_000,
+  cooldownMs: 20_000,
   /** At most this many per visitor per day, midnight to midnight Lagos time (Infinity: no cap). */
-  dailyCap: 20,
+  dailyCap: 30,
   /** Which taps may open the ad. */
   triggers: {
     /** A title's card (or View Details), every time. */
@@ -85,6 +85,6 @@ export const AD_UPSELL = { every: 5, perDay: 2 }
  * /admin/live. Update it with every change to AD_RULES.
  */
 export const AD_LEVEL = {
-  changedAt: '2026-11-06T18:30:00Z',
-  summary: 'Every card, Play, football Watch, search, list item, episode and server pick; 30 s apart, 20 a day',
+  changedAt: '2026-11-07T09:00:00Z',
+  summary: 'Every card, Play, football Watch, search, list item, episode and server pick; 20 s apart, 30 a day',
 }

@@ -3,7 +3,7 @@ import { ADS_ENABLED, MULTITAG, MULTITAG_2 } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { isPlaybackOpen } from './adManager'
 import { adsDisabled, isDevHost } from './directLink'
-import { adFreeReady } from '../referral/status'
+import { adFreeReady, isAdFreeNow, subscribeReferralStatus } from '../referral/status'
 
 /**
  * Adds the Monetag Multitag to the page, once:
@@ -67,6 +67,40 @@ function addTag(tag: { zone: string; src: string; id: string }) {
   return script
 }
 
+/** How often a page waiting to drop the Multitag (see dropMultitagIfAdFree) checks whether a player is still open. */
+export const AD_FREE_RELOAD_RETRY_MS = 5000
+/** A page reloaded to drop the Multitag, this tab (sessionStorage): never twice within this time. */
+const RELOAD_KEY = 'naijatr.adFreeReload'
+const RELOAD_GUARD_MS = 10 * 60 * 1000
+let reloadTimer: number | undefined
+
+const multitagOnPage = () => document.querySelector(`script[data-zone="${MULTITAG.zone}"], script[data-zone="${MULTITAG_2.zone}"]`) !== null
+
+/**
+ * The account turned out ad-free with a Multitag already on the page (signed
+ * in on this page, or the server answered after the 4-second wait). Monetag
+ * can't be taken off a page, so the page reloads, once no player is open; the
+ * fresh page knows the account is ad-free and never loads it. Returns whether
+ * it reloaded.
+ */
+export function dropMultitagIfAdFree(reload: () => void = () => window.location.reload()): boolean {
+  window.clearTimeout(reloadTimer)
+  if (!isAdFreeNow() || !multitagOnPage()) return false
+  if (isPlaybackOpen()) {
+    reloadTimer = window.setTimeout(() => dropMultitagIfAdFree(reload), AD_FREE_RELOAD_RETRY_MS)
+    return false
+  }
+  try {
+    const last = Number(window.sessionStorage.getItem(RELOAD_KEY))
+    if (last && Date.now() - last < RELOAD_GUARD_MS) return false
+    window.sessionStorage.setItem(RELOAD_KEY, String(Date.now()))
+  } catch {
+    // No sessionStorage: reload anyway (the ad-free answer is kept in localStorage).
+  }
+  reload()
+  return true
+}
+
 /** Counted on /api/live/ad (shown on /admin/live): which Multitags loaded today. Never from a developer's machine. */
 function reportTag(event: string) {
   if (isDevHost()) return
@@ -81,7 +115,8 @@ function reportTag(event: string) {
  * Loads the Multitag once from a root component (App, Football), unless
  * `enabled` is false. A signed-in device first waits (up to 4 seconds) for the
  * server to say whether the account is ad-free: Monetag can't be taken back
- * once it's on the page.
+ * once it's on the page; if the answer comes later and says ad-free, the page
+ * reloads without it.
  */
 export function useMultitag(enabled = true) {
   useEffect(() => {
@@ -90,8 +125,11 @@ export function useMultitag(enabled = true) {
     void adFreeReady().then(() => {
       if (live) loadMultitag()
     })
+    // Ad-free after it loaded: off the page (dropMultitagIfAdFree).
+    const unsubscribe = subscribeReferralStatus(() => dropMultitagIfAdFree())
     return () => {
       live = false
+      unsubscribe()
     }
   }, [enabled])
 }

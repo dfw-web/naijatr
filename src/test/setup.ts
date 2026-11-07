@@ -43,7 +43,7 @@ afterEach(() => {
   document.cookie = 'naijatr_ref=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')
   adTiming.blockCheckMs = Infinity
-  // Back to the shipped ad settings (src/config/ads.ts): both sections, 30 seconds apart, 20 a day.
+  // Back to the shipped ad settings (src/config/ads.ts): both sections, 20 seconds apart, 30 a day.
   AD_SECTIONS.movies = true
   Object.assign(AD_RULES, SHIPPED_AD_RULES, { triggers: { ...SHIPPED_AD_RULES.triggers } })
   vi.mocked(HTMLAnchorElement.prototype.click).mockClear()

@@ -45,9 +45,9 @@ afterEach(() => {
   document.querySelectorAll('.player__frame, .fb-stream__player, script[data-zone]').forEach((node) => node.remove())
 })
 
-describe('as shipped: every trigger, 30 seconds apart, 20 a day', () => {
+describe('as shipped: every trigger, 20 seconds apart, 30 a day', () => {
   const SECONDS = 1000
-  const next = () => void (now += 30 * SECONDS)
+  const next = () => void (now += 20 * SECONDS)
 
   it('opens on every card tap and every Play (not just the first per title), football Watch and search', async () => {
     for (const tapIt of [() => card('dune'), () => card('dune'), () => play('dune'), () => play('dune'), () => search(), () => watch('1'), () => watch('1')]) {
@@ -76,9 +76,9 @@ describe('as shipped: every trigger, 30 seconds apart, 20 a day', () => {
     await vi.waitFor(() => expect(reported()).toEqual(['list', 'episode', 'episode', 'server']))
   })
 
-  it('leaves 30 seconds between two ads', async () => {
+  it('leaves 20 seconds between two ads', async () => {
     card('a')
-    now += 29 * SECONDS
+    now += 19 * SECONDS
     play('a')
     expect(ads()).toBe(1)
     now += SECONDS
@@ -87,12 +87,12 @@ describe('as shipped: every trigger, 30 seconds apart, 20 a day', () => {
     await vi.waitFor(() => expect(reported()).toEqual(['card', 'cooldown', 'play']))
   })
 
-  it('opens at most 20 a day', async () => {
-    for (let i = 0; i < 22; i++) {
+  it('opens at most 30 a day', async () => {
+    for (let i = 0; i < 32; i++) {
       card(`t${i}`)
       next()
     }
-    expect(ads()).toBe(20)
+    expect(ads()).toBe(30)
     await vi.waitFor(() => expect(reported().filter((event) => event === 'cap')).toHaveLength(2))
   })
 
