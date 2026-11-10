@@ -4,7 +4,7 @@ import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices } from '../ui/noticeQueue'
 import { holdAdsThisTap, useOverlayOpen } from './adManager'
 import { goToPage } from '../account/pages'
-import { goalNow } from '../referral/status'
+import { goalNow, usePromoState } from '../referral/status'
 import { requestBuyOption } from '../referral/copy'
 import { FROM_PRICE, naira } from '../config/adFree'
 import '../referral/referral.css'
@@ -43,9 +43,11 @@ export function AdsBackNotice() {
   const [due, setDue] = useState(noticeDue)
   const [ready, setReady] = useState(false)
   const overlayOpen = useOverlayOpen()
-  const visible = due && ready && !overlayOpen
+  // Paused (and not counted as seen) during the Free Ad-Free Week.
+  const promoWeek = usePromoState() === 'active'
+  const visible = due && ready && !overlayOpen && !promoWeek
   // Later cards (the monthly greeting) wait until this one is done.
-  useHoldNotices(due)
+  useHoldNotices(due && !promoWeek)
 
   useEffect(() => {
     if (!due) return

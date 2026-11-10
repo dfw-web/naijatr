@@ -379,15 +379,40 @@ export async function refresh(): Promise<boolean> {
   return true
 }
 
+const PROMO_STATES = { upcoming: '⏳ Upcoming', active: '🟢 Active', ended: '⏹ Ended' } as const
+const lagosTime = (iso: string) =>
+  new Date(iso).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
+
+/** The Free Ad-Free Week: its state (by the server's clock), sign-ups since it started and today's. */
+function renderPromo(promo: { state: keyof typeof PROMO_STATES; start: string; end: string; signups: number } | null, today: number) {
+  if (!promo) {
+    $('promo-state').textContent = 'Off'
+    $('promo-when').textContent = 'no PROMO_START / PROMO_END set'
+    $('promo-signups').textContent = '–'
+    $('promo-today').textContent = '–'
+    return
+  }
+  $('promo-state').textContent = PROMO_STATES[promo.state]
+  $('promo-when').textContent = `${lagosTime(promo.start)} → ${lagosTime(promo.end)} (Lagos)`
+  $('promo-signups').textContent = promo.state === 'upcoming' ? '0' : promo.signups.toLocaleString()
+  $('promo-today').textContent = String(today)
+}
+
 /** Registered users and today's sign-ups (/api/account/stats); needs SUPABASE_SERVICE_ROLE_KEY on the server. */
 async function loadAccounts() {
   const note = $('acc-note')
   try {
     const response = await fetch('/api/account/stats', { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' })
-    const body = (await response.json().catch(() => ({}))) as { users?: number; today?: number; error?: string }
+    const body = (await response.json().catch(() => ({}))) as {
+      users?: number
+      today?: number
+      promo?: { state: 'upcoming' | 'active' | 'ended'; start: string; end: string; signups: number } | null
+      error?: string
+    }
     if (response.ok && typeof body.users === 'number') {
       $('acc-users').textContent = body.users.toLocaleString()
       $('acc-today').textContent = String(body.today ?? 0)
+      renderPromo(body.promo ?? null, body.today ?? 0)
       note.textContent = 'Optional sign-in (Supabase). Today: since midnight, Lagos time.'
       return
     }

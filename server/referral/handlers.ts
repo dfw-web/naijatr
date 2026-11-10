@@ -20,6 +20,7 @@ import {
   weeklyWinner,
   type ReferralConfig,
 } from './rules.js'
+import { promoActive, promoInfo, readPromo, type PromoWindow } from '../promo.js'
 import { supabaseStore, type AdFreeGrant, type AuthUser, type Profile, type ReferralStore } from './store.js'
 
 /**
@@ -50,6 +51,8 @@ export interface ReferralEnv {
   resendKey: string
   resendFrom: string
   config: ReferralConfig
+  /** The Free Ad-Free Week (PROMO_START, PROMO_END), or null. */
+  promo: PromoWindow | null
 }
 
 export function readReferralEnv(env: Record<string, string | undefined>): ReferralEnv {
@@ -61,6 +64,7 @@ export function readReferralEnv(env: Record<string, string | undefined>): Referr
     resendKey: (env.RESEND_API_KEY ?? '').trim(),
     resendFrom: (env.RESEND_FROM ?? '').trim(),
     config: readReferralConfig(env),
+    promo: readPromo(env),
   }
 }
 
@@ -166,11 +170,16 @@ export async function handleReferral(
     if (action === 'status' || action === 'ad-free') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
       const token = bearer(req)
-      if (!token || !store) return sendJson(res, 200, { goal, signedIn: false, adFree: false })
+      // The promo and the server's clock, for everyone: the page counts down and switches by them, never by the device's clock.
+      const promo = promoInfo(env.promo, now)
+      if (!token || !store) return sendJson(res, 200, { goal, signedIn: false, adFree: false, promo, serverNow: now })
       const user = await store.userFromToken(token)
-      if (!user) return sendJson(res, 401, { error: 'unauthorized', goal })
+      if (!user) return sendJson(res, 401, { error: 'unauthorized', goal, promo, serverNow: now })
       const profile = await ensureProfile(store, user, hashIp(env.config.salt, clientIp(req)))
-      const ad = adFreeState(user.email, profile.ad_free_until, env.config, now)
+      const own = adFreeState(user.email, profile.ad_free_until, env.config, now)
+      // Promo on: ad-free too, without touching ad_free_until (own time keeps its own end date).
+      const promoAdFree = !own.adFree && promoActive(env.promo, now)
+      const ad = promoAdFree ? { adFree: true, until: promo!.end, permanent: false } : own
       // The grant log is optional here: without it (003 not run yet) the ad-free check still works.
       const [referrals, lastGrants] = await Promise.all([store.referralsOf(user.id), store.grants({ userId: user.id, limit: 1 }).catch(() => [])])
       const counted = referrals.filter((r) => r.status === 'counted')
@@ -183,6 +192,11 @@ export async function handleReferral(
         adFree: ad.adFree,
         adFreeUntil: ad.until,
         permanent: ad.permanent,
+        // Ad-free of their own (paid, referral, AD_FREE_EMAILS): it carries on after the promo.
+        ownAdFree: own.adFree,
+        promoAdFree,
+        promo,
+        serverNow: now,
         code: profile.invite_code,
         link: `${env.siteUrl}/r/${profile.invite_code}`,
         counted: counted.length,

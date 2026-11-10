@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAdmin, lagosDay } from '../live/handlers.js'
+import { promoInfo, readPromo, type PromoInfo, type PromoWindow } from '../promo.js'
 
 /**
  * /api/account/{delete,stats}: the parts of the optional accounts that need
@@ -7,8 +8,9 @@ import { isAdmin, lagosDay } from '../live/handlers.js'
  *
  * - POST /api/account/delete (the user's own access token): deletes the login;
  *   the database deletes its rows with it (on delete cascade).
- * - GET /api/account/stats (ADMIN_PASSWORD): registered users and today's
- *   sign-ups (Lagos time), for /admin/live.
+ * - GET /api/account/stats (ADMIN_PASSWORD): registered users, today's
+ *   sign-ups (Lagos time) and, with a Free Ad-Free Week set (PROMO_START,
+ *   PROMO_END), its state and the sign-ups since it started, for /admin/live.
  *
  * Needs SUPABASE_SERVICE_ROLE_KEY in Vercel (Settings → Environment
  * Variables, Production + Preview). No VITE_ prefix: it must never reach the
@@ -19,6 +21,7 @@ export interface AccountEnv {
   url: string
   serviceKey: string
   adminPassword: string
+  promo: PromoWindow | null
 }
 
 export function readAccountEnv(env: Record<string, string | undefined>): AccountEnv {
@@ -26,6 +29,7 @@ export function readAccountEnv(env: Record<string, string | undefined>): Account
     url: (env.SUPABASE_URL || env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, ''),
     serviceKey: (env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim(),
     adminPassword: env.ADMIN_PASSWORD ?? '',
+    promo: readPromo(env),
   }
 }
 
@@ -46,11 +50,20 @@ async function userOf(env: AccountEnv, token: string, fetchImpl: typeof fetch): 
   return typeof body?.id === 'string' ? body.id : null
 }
 
-/** Registered users and today's sign-ups; reads at most 10 pages of 1000. */
-export async function countUsers(env: AccountEnv, now: number, fetchImpl: typeof fetch): Promise<{ users: number; today: number } | null> {
+export interface AccountCounts {
+  users: number
+  today: number
+  /** The Free Ad-Free Week, with the accounts made since it started (up to now, or its end). */
+  promo: (PromoInfo & { signups: number }) | null
+}
+
+/** Registered users, today's sign-ups and the promo's; reads at most 10 pages of 1000. */
+export async function countUsers(env: AccountEnv, now: number, fetchImpl: typeof fetch): Promise<AccountCounts | null> {
   const today = lagosDay(now)
   let users = 0
   let signups = 0
+  let promoSignups = 0
+  const promo = env.promo
   for (let page = 1; page <= 10; page++) {
     const response = await fetchImpl(`${env.url}/auth/v1/admin/users?page=${page}&per_page=1000`, { headers: asService(env) })
     if (!response.ok) return null
@@ -58,9 +71,16 @@ export async function countUsers(env: AccountEnv, now: number, fetchImpl: typeof
     const list = body?.users ?? []
     users += list.length
     signups += list.filter((user) => user.created_at && lagosDay(Date.parse(user.created_at)) === today).length
+    if (promo) {
+      promoSignups += list.filter((user) => {
+        const at = user.created_at ? Date.parse(user.created_at) : NaN
+        return at >= promo.start && at <= promo.end
+      }).length
+    }
     if (list.length < 1000) break
   }
-  return { users, today: signups }
+  const info = promoInfo(promo, now)
+  return { users, today: signups, promo: info ? { ...info, signups: promoSignups } : null }
 }
 
 export async function handleAccount(

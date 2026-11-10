@@ -26,6 +26,8 @@ import type { MediaItem } from './types/media'
 import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } from './account/AccountPages'
 import { pageFromPath, type Page } from './account/pages'
 import { SignInHost } from './account/SignInSheet'
+import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekPopupHost, PromoWeekWelcomeHost } from './promo/PromoWeek'
+import { loadPromo } from './referral/status'
 import { PasswordReminderHost, SyncPromptHost } from './account/SyncPrompt'
 import './App.css'
 
@@ -89,6 +91,9 @@ function App() {
   // On a browse page with filters, a text search is filtered too (see BrowseView).
   const isFilteredSearch = isSearching && view !== 'home' && hasNarrowingFilters(filters)
 
+  // The Free Ad-Free Week's times, for a signed-out visitor (signed in: with the account's status).
+  useEffect(() => loadPromo(), [])
+
   // Browser Back/Forward between views.
   useEffect(() => {
     const onPopState = () => {
@@ -147,6 +152,7 @@ function App() {
 
   return (
     <>
+      <PromoWeekBanner />
       <Navbar
         links={NAV_LINKS}
         activeId={activeId}
@@ -225,6 +231,10 @@ function App() {
       {/* Paid ad-free: "active until…" after a grant, and the renew reminder in its last 3 days. */}
       <ActivationNoticeHost />
       <RenewReminderHost />
+      {/* The Free Ad-Free Week: its popup and messages (the daily popup and "Ads are back" wait while it's on). */}
+      <PromoWeekPopupHost />
+      <PromoWeekWelcomeHost />
+      <PromoWeekEndedHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

@@ -370,3 +370,79 @@ describe('players closed properly', () => {
     expect(await findPlayer('Game of Thrones player')).toHaveAttribute('src', `https://embedmaster.link/${PLAYER_ID}/tv/1399/1/2?${OPTIONS}`)
   })
 })
+
+describe('the Free Ad-Free Week', () => {
+  /** The server's answer during the week: started a day ago, ending in `leftMs`. */
+  const promo = (leftMs: number) => ({
+    start: new Date(Date.now() - 86_400_000).toISOString(),
+    end: new Date(Date.now() + leftMs).toISOString(),
+    state: 'active' as const,
+  })
+  const promoOnly = (leftMs: number): ReferralStatus => {
+    const week = promo(leftMs)
+    return { ...SIGNED_IN_FREE, adFree: true, adFreeUntil: week.end, ownAdFree: false, promoAdFree: true, promo: week, serverNow: Date.now() }
+  }
+  beforeEach(() => {
+    // The status is asked again when the week ends: no network here, so the last answer stands.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('no network in tests'))))
+  })
+
+  it('signed in, during the week: Server 2 only', async () => {
+    resetReferralStatus(promoOnly(3 * 86_400_000))
+    const fetchImpl = checks(true)
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('signed out, during the week: still Server 1', async () => {
+    resetReferralStatus({ goal: 5, signedIn: false, adFree: false, promo: promo(3 * 86_400_000), serverNow: Date.now() })
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+  })
+
+  it('goes by the server’s clock: a device two days behind still gets Server 2', async () => {
+    const serverNow = Date.now() + 2 * 86_400_000
+    const week = { start: new Date(serverNow - 3_600_000).toISOString(), end: new Date(serverNow + 86_400_000).toISOString(), state: 'active' as const }
+    resetReferralStatus({ ...SIGNED_IN_FREE, adFree: true, adFreeUntil: week.end, ownAdFree: false, promoAdFree: true, promo: week, serverNow })
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+  })
+
+  it('the week ends mid-movie: back to Server 1 at once, from the same point', async () => {
+    resetReferralStatus(promoOnly(1000))
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
+    const two = await findPlayer('Fight Club player')
+    expect(two).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+    post(two, 'duration', 6000)
+    post(two, 'time', 2400)
+    // The end (plus the timer's second): Server 1 opens the same movie.
+    await vi.waitFor(() => expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550'), { timeout: 4000 })
+    const one = screen.getByTitle('Fight Club player')
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    const send = commands(one)
+    post(one, 'duration', 6000, 'https://embdmstrplayer.com')
+    expect(send).toHaveBeenCalledWith(seekTo(2400), 'https://embdmstrplayer.com')
+    // Continue watching kept the time, and the next Play stays on Server 1.
+    expect(readContinueWatching()[0].progressSeconds).toBe(2400)
+    await userEvent.click(screen.getByRole('button', { name: /Close player/ }))
+    await play()
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+  })
+
+  it('paid accounts stay on Server 2 when the week ends', async () => {
+    const week = promo(1000)
+    resetReferralStatus({ ...PAID, ownAdFree: true, promoAdFree: false, promo: week, serverNow: Date.now() })
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
+    const two = await findPlayer('Fight Club player')
+    expect(two).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2300)))
+    expect(screen.getByTitle('Fight Club player')).toBe(two)
+    expect(two).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+  })
+})

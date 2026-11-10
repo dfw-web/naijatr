@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { handleAccount, readAccountEnv, type AccountEnv } from './handlers'
 
 const NOW = Date.parse('2026-11-01T12:00:00Z')
-const ENV: AccountEnv = { url: 'https://proj.supabase.co', serviceKey: 'service-key', adminPassword: 'open sesame' }
+const ENV: AccountEnv = { url: 'https://proj.supabase.co', serviceKey: 'service-key', adminPassword: 'open sesame', promo: null }
 
 function fakeResponse() {
   const res = {
@@ -32,6 +32,7 @@ describe('/api/account', () => {
       url: 'https://x.supabase.co',
       serviceKey: 'k',
       adminPassword: '',
+      promo: null,
     })
   })
 
@@ -68,7 +69,35 @@ describe('/api/account', () => {
       ),
     ) as unknown as typeof fetch
     // 23:30 UTC on the 31st is already the 1st in Lagos.
-    expect(await call('stats', request('GET', 'Bearer open sesame'), fetchImpl)).toEqual({ status: 200, json: { users: 3, today: 2 } })
+    expect(await call('stats', request('GET', 'Bearer open sesame'), fetchImpl)).toEqual({ status: 200, json: { users: 3, today: 2, promo: null } })
     expect((await call('stats', request('GET', 'Bearer wrong'), fetchImpl)).status).toBe(401)
+  })
+
+  it('shows the Free Ad-Free Week state and the sign-ups since it started', async () => {
+    const env = readAccountEnv({
+      SUPABASE_URL: ENV.url,
+      SUPABASE_SERVICE_ROLE_KEY: ENV.serviceKey,
+      ADMIN_PASSWORD: ENV.adminPassword,
+      PROMO_START: '2026-10-30T00:00:00+01:00',
+      PROMO_END: '2026-11-05T23:59:59+01:00',
+    })
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          users: [
+            { created_at: '2026-11-01T08:00:00Z' },
+            { created_at: '2026-10-30T10:00:00Z' },
+            // 23:30 UTC on the 29th is already the 30th in Lagos: counted.
+            { created_at: '2026-10-29T23:30:00Z' },
+            { created_at: '2026-10-29T22:30:00Z' },
+          ],
+        }),
+      ),
+    ) as unknown as typeof fetch
+    expect((await call('stats', request('GET', 'Bearer open sesame'), fetchImpl, env)).json).toEqual({
+      users: 4,
+      today: 1,
+      promo: { state: 'active', start: '2026-10-29T23:00:00.000Z', end: '2026-11-05T22:59:59.000Z', signups: 3 },
+    })
   })
 })

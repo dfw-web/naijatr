@@ -168,7 +168,7 @@ async function invite(code: string, n: number, opts: { ip?: string; confirmed?: 
 
 describe('/api/referral/status: the ad-free check', () => {
   it('without a session: only the goal, never ad-free', async () => {
-    expect((await call(fake, 'status')).json).toEqual({ goal: 5, signedIn: false, adFree: false })
+    expect((await call(fake, 'status')).json).toEqual({ goal: 5, signedIn: false, adFree: false, promo: null, serverNow: NOW })
   })
 
   it('refuses a forged token', async () => {
@@ -192,6 +192,78 @@ describe('/api/referral/status: the ad-free check', () => {
     expect(fake.profiles.get('ada')?.email_normalized).toBe('ada@gmail.com')
     // The same code next time.
     expect(await codeOf('ada')).toBe(json.code)
+  })
+})
+
+describe('the Free Ad-Free Week', () => {
+  const promoEnv = { ...env, promo: { start: Date.parse('2026-11-11T00:00:00+01:00'), end: Date.parse('2026-11-17T23:59:59+01:00') } }
+  const BEFORE = Date.parse('2026-11-10T23:59:59+01:00')
+  const DURING = Date.parse('2026-11-11T00:00:00+01:00')
+  const AFTER = Date.parse('2026-11-18T00:00:00+01:00')
+  const END = '2026-11-17T22:59:59.000Z'
+  const status = async (token: string | undefined, now: number) => {
+    fake.clock.now = now
+    return (await call(fake, 'status', { token, env: promoEnv })).json
+  }
+
+  it('makes every signed-in account ad-free during the week only, on the server clock', async () => {
+    fake.addUser('ada', 'ada@gmail.com', NOW - 100 * DAY_MS)
+    expect(await status('token-ada', BEFORE)).toMatchObject({ adFree: false, promoAdFree: false, ownAdFree: false, promo: { state: 'upcoming' } })
+    expect(await status('token-ada', DURING)).toMatchObject({
+      adFree: true,
+      adFreeUntil: END,
+      permanent: false,
+      promoAdFree: true,
+      ownAdFree: false,
+      promo: { state: 'active', end: END },
+      serverNow: DURING,
+    })
+    expect(await status('token-ada', AFTER)).toMatchObject({ adFree: false, adFreeUntil: null, promoAdFree: false, promo: { state: 'ended' } })
+    // A rule, not a grant: nothing is written to their ad-free time.
+    expect(fake.profiles.get('ada')?.ad_free_until).toBeNull()
+    expect(fake.grants).toHaveLength(0)
+  })
+
+  it('includes accounts made during the week', async () => {
+    fake.addUser('new', 'new@gmail.com', DURING + 60_000)
+    expect(await status('token-new', DURING + 120_000)).toMatchObject({ adFree: true, promoAdFree: true })
+  })
+
+  it('leaves paid, referral and allowlisted ad-free as it is, before, during and after', async () => {
+    fake.addUser('paid', 'paid@gmail.com', NOW - 100 * DAY_MS)
+    fake.addUser('owner', 'aaabswag@gmail.com', NOW - 100 * DAY_MS)
+    fake.addUser('ref', 'ref@gmail.com', NOW - 100 * DAY_MS)
+    // Paid until after the week; a referral reward that ends in the middle of it.
+    const paidUntil = '2026-12-01T10:00:00.000Z'
+    const rewardUntil = '2026-11-13T10:00:00.000Z'
+    await fake.store.saveProfile('paid', { ad_free_until: paidUntil })
+    await fake.store.saveProfile('ref', { ad_free_until: rewardUntil })
+    for (const now of [BEFORE, DURING, AFTER]) {
+      expect(await status('token-paid', now)).toMatchObject({ adFree: true, adFreeUntil: paidUntil, ownAdFree: true, promoAdFree: false })
+      expect(await status('token-owner', now)).toMatchObject({ adFree: true, permanent: true, ownAdFree: true, promoAdFree: false })
+    }
+    expect(await status('token-ref', DURING)).toMatchObject({ adFree: true, adFreeUntil: rewardUntil, ownAdFree: true })
+    // Their reward over, the week carries them to its end; then ads.
+    expect(await status('token-ref', Date.parse('2026-11-15T10:00:00Z'))).toMatchObject({ adFree: true, adFreeUntil: END, ownAdFree: false, promoAdFree: true })
+    expect(await status('token-ref', AFTER)).toMatchObject({ adFree: false })
+    expect(fake.profiles.get('paid')?.ad_free_until).toBe(paidUntil)
+    expect(fake.profiles.get('ref')?.ad_free_until).toBe(rewardUntil)
+  })
+
+  it('tells signed-out visitors about the week, but they keep ads', async () => {
+    expect(await status(undefined, DURING)).toEqual({
+      goal: 5,
+      signedIn: false,
+      adFree: false,
+      promo: { start: '2026-11-10T23:00:00.000Z', end: END, state: 'active' },
+      serverNow: DURING,
+    })
+  })
+
+  it('is off without PROMO_START / PROMO_END', async () => {
+    fake.addUser('ada', 'ada@gmail.com', NOW - 100 * DAY_MS)
+    fake.clock.now = DURING
+    expect((await call(fake, 'status', { token: 'token-ada' })).json).toMatchObject({ adFree: false, promo: null })
   })
 })
 

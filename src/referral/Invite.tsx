@@ -7,6 +7,7 @@ import { holdAdsThisTap, isPlaybackOpen, useAdOverlay, useOverlayOpen } from '..
 import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices, useNoticesHeld } from '../ui/noticeQueue'
 import { readRef } from './capture'
+import { promoEndText } from '../promo/promoText'
 import { AD_FREE_PLANS, buyLink, FROM_PRICE, naira } from '../config/adFree'
 import {
   dismissRenewToday,
@@ -28,6 +29,7 @@ import {
   refreshReferralStatus,
   useActivationDue,
   useAdFree,
+  usePromoState,
   useReferralStatus,
   useUnlockDue,
   type ReferralStatus,
@@ -179,7 +181,8 @@ export function BuyAdFree() {
 export function InvitePage() {
   const { status: account } = useAccount()
   const status = useReferralStatus()
-  const adFree = useAdFree()
+  // Ad-free through the Free Ad-Free Week only: both ways to keep it are still offered.
+  const adFree = useAdFree() && !status?.promoAdFree
   const [option, setOption] = useState<'invite' | 'buy'>(() => (takeBuyRequest() ? 'buy' : 'invite'))
   useEffect(() => {
     if (account === 'signedIn') void refreshReferralStatus()
@@ -399,7 +402,9 @@ export function DailyPromoHost() {
   const known = !hasStoredSession() || status !== null || account === 'signedOut'
   const onInvitePages = /^\/(invite|auth)(\/|$)/.test(window.location.pathname)
   const [alreadyToday] = useState(() => promoShownToday())
-  const due = on && !adFree && known && !onInvitePages && !alreadyToday
+  // Paused during the Free Ad-Free Week (src/promo): its own popup shows instead.
+  const promoWeek = usePromoState() === 'active'
+  const due = on && !adFree && known && !onInvitePages && !alreadyToday && !promoWeek
 
   useEffect(() => {
     if (!due) return
@@ -513,6 +518,25 @@ export function AdFreeCard() {
     void refreshReferralStatus()
   }, [])
   if (!status?.signedIn) return null
+  if (status.promoAdFree && status.promo) {
+    return (
+      <div className="account-card">
+        <h2 className="account-card__title">Ad-free</h2>
+        <p className="account-card__value">
+          <Sparkles aria-hidden="true" /> Free ad-free week: ends {promoEndText(status.promo.end)}
+        </p>
+        <p className="account-card__muted">Keep it after that:</p>
+        <div className="account-card__actions">
+          <button type="button" className="account-page__ghost" onClick={openInvite}>
+            <Gift aria-hidden="true" /> Invite {status.goal} friends (free)
+          </button>
+          <button type="button" className="account-page__primary" onClick={openBuy}>
+            💳 Buy ad-free from {naira(FROM_PRICE)}
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (status.adFree) {
     const timed = !status.permanent && status.adFreeUntil
     return (
@@ -588,7 +612,8 @@ export function RenewReminderHost() {
   const unlock = useUnlockDue()
   const [closed, setClosed] = useState(() => renewDismissedToday())
   const [now] = useState(() => Date.now())
-  const until = status?.signedIn && status.adFree && !status.permanent && status.adFreeUntil ? Date.parse(status.adFreeUntil) : NaN
+  // Their own timed ad-free (the Free Ad-Free Week's end isn't something to renew).
+  const until = status?.signedIn && status.adFree && !status.promoAdFree && !status.permanent && status.adFreeUntil ? Date.parse(status.adFreeUntil) : NaN
   const due = !closed && !activation && !unlock && until > now && until - now <= RENEW_REMINDER_MS
   useHoldNotices(due)
   if (!due) return null

@@ -116,17 +116,23 @@ function reportTag(event: string) {
  * `enabled` is false. A signed-in device first waits (up to 4 seconds) for the
  * server to say whether the account is ad-free: Monetag can't be taken back
  * once it's on the page; if the answer comes later and says ad-free, the page
- * reloads without it.
+ * reloads without it. Ad-free ending on an open page loads it then.
  */
 export function useMultitag(enabled = true) {
   useEffect(() => {
     if (!enabled) return
     let live = true
+    let ready = false
     void adFreeReady().then(() => {
+      ready = true
       if (live) loadMultitag()
     })
-    // Ad-free after it loaded: off the page (dropMultitagIfAdFree).
-    const unsubscribe = subscribeReferralStatus(() => dropMultitagIfAdFree())
+    // Ad-free after it loaded: off the page (dropMultitagIfAdFree). Ad-free
+    // over (the Free Ad-Free Week ended, or their own time): on the page now.
+    const unsubscribe = subscribeReferralStatus(() => {
+      if (dropMultitagIfAdFree() || !ready || !live || isAdFreeNow()) return
+      loadMultitag()
+    })
     return () => {
       live = false
       unsubscribe()

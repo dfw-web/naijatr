@@ -27,6 +27,20 @@ export interface ReferralStatus {
   rewards?: number
   /** The latest paid grant (/admin/ad-free). */
   lastGrant?: { id: number; at: string } | null
+  /** Ad-free of their own (paid, referral, AD_FREE_EMAILS), which carries on after the promo. Missing: same as adFree. */
+  ownAdFree?: boolean
+  /** Ad-free only through the Free Ad-Free Week. */
+  promoAdFree?: boolean
+  /** The Free Ad-Free Week (server/promo.ts), for everyone; null when none is set. */
+  promo?: PromoInfo | null
+  /** The server's clock when it answered (ms): promo times are read on it, not on the device's. */
+  serverNow?: number
+}
+
+export interface PromoInfo {
+  start: string
+  end: string
+  state: 'upcoming' | 'active' | 'ended'
 }
 
 export const DEFAULT_GOAL = 5
@@ -50,6 +64,10 @@ interface Cached {
 }
 
 let status: ReferralStatus | null = null
+/** The server's clock minus this device's, from the last answer. */
+let clockOffset = 0
+/** Now, on the server's clock (as of the last answer). */
+export const serverTime = () => Date.now() + clockOffset
 let unlockDue = false
 let activationDue = false
 const listeners = new Set<() => void>()
@@ -76,9 +94,37 @@ const storage = {
 const stillValid = (adFree: boolean, permanent: boolean | undefined, until: string | null | undefined, now: number) =>
   adFree && (permanent === true || (until != null && Date.parse(until) > now))
 
+/** The promo is on at `now` (server time), by the times the server sent. */
+export function promoOn(promo: PromoInfo | null | undefined = status?.promo, now = serverTime()): boolean {
+  if (!promo) return false
+  const start = Date.parse(promo.start)
+  const end = Date.parse(promo.end)
+  return now >= start && now <= end
+}
+
+/** The promo as it stands now (server time): upcoming, active, ended, or null without one. */
+export function promoStateNow(now = serverTime()): PromoInfo['state'] | null {
+  const promo = status?.promo
+  if (!promo) return null
+  if (now < Date.parse(promo.start)) return 'upcoming'
+  return now <= Date.parse(promo.end) ? 'active' : 'ended'
+}
+
+/**
+ * Ad-free from this answer at `now`: their own time (until it ends), or the
+ * promo while it's on. Own time is told apart from the promo's (ownAdFree), so
+ * the moment the promo ends a promo-only account is back to ads and Server 1.
+ */
+function answerAdFree(s: ReferralStatus, now: number): boolean {
+  if (!s.signedIn) return false
+  const own = s.ownAdFree ?? s.adFree
+  if (own && stillValid(true, s.permanent, s.adFreeUntil, now)) return true
+  return promoOn(s.promo, now + clockOffset)
+}
+
 /** True when the signed-in account is ad-free: no Multitag, no direct-link ad, no ad break. */
 export function isAdFreeNow(now = Date.now()): boolean {
-  if (status) return status.signedIn && stillValid(status.adFree, status.permanent, status.adFreeUntil, now)
+  if (status) return answerAdFree(status, now)
   if (!hasStoredSession()) return false
   const cached = storage.get<Cached>(CACHE_KEY)
   return Boolean(cached && now - cached.at < CACHE_MAX_AGE_MS && stillValid(cached.adFree, cached.permanent, cached.until, now))
@@ -89,25 +135,39 @@ export function isAdFreeNow(now = Date.now()): boolean {
  * server the account gets (src/utils/playerServer.ts). False until it answers.
  */
 export function isServerAdFree(now = Date.now()): boolean {
-  return status !== null && status.signedIn && stillValid(status.adFree, status.permanent, status.adFreeUntil, now)
+  return status !== null && answerAdFree(status, now)
 }
 
-// Ad-free that runs out: everything re-reads the status the moment it does.
+// Ad-free that runs out, and the promo's start and end: everything re-reads
+// the status the moment it does (an open player moves server), and the server
+// is asked again about the promo.
 let expiryTimer: number | undefined
 const MAX_TIMER_MS = 2 ** 31 - 1
 function scheduleExpiry() {
   window.clearTimeout(expiryTimer)
-  if (!status?.adFree || status.permanent || !status.adFreeUntil) return
-  const left = Date.parse(status.adFreeUntil) - Date.now()
-  if (!(left > 0)) return
+  if (!status) return
+  const now = Date.now()
+  const moments: { at: number; ask: boolean }[] = []
+  if (status.signedIn && (status.ownAdFree ?? status.adFree) && !status.permanent && status.adFreeUntil) {
+    moments.push({ at: Date.parse(status.adFreeUntil), ask: false })
+  }
+  if (status.promo) {
+    // Promo times are on the server's clock: on this device's, they're offset.
+    moments.push({ at: Date.parse(status.promo.start) - clockOffset, ask: true })
+    moments.push({ at: Date.parse(status.promo.end) - clockOffset, ask: true })
+  }
+  const next = moments.filter((m) => m.at - now > -1000).sort((a, b) => a.at - b.at)[0]
+  if (!next) return
   expiryTimer = window.setTimeout(() => {
     emit()
+    if (next.ask) void refreshReferralStatus()
     scheduleExpiry()
-  }, Math.min(left + 1000, MAX_TIMER_MS))
+  }, Math.min(Math.max(0, next.at - now) + 1000, MAX_TIMER_MS))
 }
 
 function apply(next: ReferralStatus) {
   status = next
+  if (typeof next.serverNow === 'number' && Number.isFinite(next.serverNow)) clockOffset = next.serverNow - Date.now()
   if (next.signedIn && next.userId) {
     storage.set(CACHE_KEY, { userId: next.userId, adFree: next.adFree, until: next.adFreeUntil ?? null, permanent: next.permanent === true, at: Date.now() } satisfies Cached)
     // "You've unlocked NAIJA TR ad-free!": once per unlock, per device.
@@ -184,6 +244,15 @@ export function adFreeReady(waitMs = AD_FREE_WAIT_MS): Promise<void> {
   })
 }
 
+/**
+ * A signed-out visitor: the promo's times (and the server's clock) once, for
+ * the promo popup and banner; timers then follow its start and end.
+ */
+export function loadPromo(): void {
+  if (status || hasStoredSession()) return
+  void refreshReferralStatus()
+}
+
 /** The number of friends that unlock ad-free (the server's REFERRAL_GOAL). */
 export const goalNow = () => status?.goal ?? storage.get<number>(GOAL_KEY) ?? DEFAULT_GOAL
 
@@ -253,7 +322,10 @@ export function referralSignedOut() {
   reportedThisVisit = false
   storage.set(CACHE_KEY, null)
   storage.set(REPORT_KEY, null)
+  scheduleExpiry()
   emit()
+  // Signed out now: the promo's times again, for its popup and banner.
+  void refreshReferralStatus()
 }
 
 export function dismissUnlock() {
@@ -279,12 +351,16 @@ export const useReferralStatus = () => useSyncExternalStore(subscribeReferralSta
 export const useAdFree = () => useSyncExternalStore(subscribeReferralStatus, () => isAdFreeNow(), () => false)
 /** Ad-free by the server's answer (re-read whenever it changes, or runs out). */
 export const useServerAdFree = () => useSyncExternalStore(subscribeReferralStatus, () => isServerAdFree(), () => false)
+/** The promo now (re-read when the status changes, and at its start and end). */
+export const usePromoState = () => useSyncExternalStore(subscribeReferralStatus, () => promoStateNow(), () => null)
+export const usePromo = () => useSyncExternalStore(subscribeReferralStatus, () => status?.promo ?? null, () => null)
 export const useUnlockDue = () => useSyncExternalStore(subscribeReferralStatus, () => unlockDue, () => false)
 export const useActivationDue = () => useSyncExternalStore(subscribeReferralStatus, () => activationDue, () => false)
 
 /** Test helper. */
 export function resetReferralStatus(next: ReferralStatus | null = null) {
   status = next
+  clockOffset = typeof next?.serverNow === 'number' ? next.serverNow - Date.now() : 0
   scheduleExpiry()
   unlockDue = false
   activationDue = false
