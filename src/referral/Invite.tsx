@@ -8,7 +8,7 @@ import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices, useNoticesHeld } from '../ui/noticeQueue'
 import { readRef } from './capture'
 import { promoEndText } from '../promo/promoText'
-import { AD_FREE_PLANS, buyLink, FROM_PRICE, naira } from '../config/adFree'
+import { AD_FREE_PLANS, buyLink, FROM_PRICE, invitePromos, naira } from '../config/adFree'
 import {
   dismissRenewToday,
   lagosDate,
@@ -353,7 +353,7 @@ export function InviteCard() {
   const adFree = useAdFree()
   const { status: account } = useAccount()
   const status = useReferralStatus()
-  if (!on || adFree) return null
+  if (!on || adFree || !invitePromos.enabled) return null
   const invited = account !== 'signedIn' && readRef() !== null
   return (
     <aside className="invite-card" aria-label="Invite friends">
@@ -404,7 +404,7 @@ export function DailyPromoHost() {
   const [alreadyToday] = useState(() => promoShownToday())
   // Paused during the Free Ad-Free Week (src/promo): its own popup shows instead.
   const promoWeek = usePromoState() === 'active'
-  const due = on && !adFree && known && !onInvitePages && !alreadyToday && !promoWeek
+  const due = on && invitePromos.enabled && !adFree && known && !onInvitePages && !alreadyToday && !promoWeek
 
   useEffect(() => {
     if (!due) return

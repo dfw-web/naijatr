@@ -8,6 +8,7 @@ import { AdsBackNotice } from '../ads/AdsBackNotice'
 import { adsDisabled } from '../ads/directLink'
 import { loadMultitag } from '../ads/monetag'
 import { adLinkClicks } from '../test/ads'
+import { invitePromos } from '../config/adFree'
 import { captureReferral, readRef, REF_TTL_MS } from './capture'
 import { PROMO_DAY_KEY, progressText, promoTiming, shareMessage } from './copy'
 import { ActivationNoticeHost, AdFreeCard, DailyPromoHost, GoAdFreeButton, InvitePage, InviteCard, RenewReminderHost } from './Invite'
@@ -116,9 +117,29 @@ describe('promotion', () => {
     localStorage.removeItem(PROMO_DAY_KEY)
     promoTiming.delayMs = 0
     promoTiming.pollMs = 20
+    invitePromos.enabled = true
     setAccountForTests({ status: 'signedOut' })
   })
-  afterEach(() => Object.assign(promoTiming, delay))
+  afterEach(() => {
+    Object.assign(promoTiming, delay)
+    invitePromos.enabled = false
+  })
+
+  it('shows neither the home card nor the daily popup while they’re switched off (for now)', async () => {
+    invitePromos.enabled = false
+    render(
+      <>
+        <DailyPromoHost />
+        <InviteCard />
+        <GoAdFreeButton />
+      </>,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Invite friends' })).not.toBeInTheDocument()
+    // The header's "Go ad-free" stays.
+    expect(screen.getByRole('button', { name: /Go ad-free/ })).toBeInTheDocument()
+  })
 
   const popup = () => screen.queryByRole('dialog', { name: /Want NAIJA TR ad-free/ })
 

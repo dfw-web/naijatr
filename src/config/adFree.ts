@@ -37,3 +37,10 @@ export function buyLink(plan: AdFreePlan, email?: string | null): string {
   const text = email ? `Hi, I want NAIJA TR ad-free (${plan.label}). My account email is ${email}` : `Hi, I want NAIJA TR ad-free (${plan.label}).`
   return `${BUY_TELEGRAM_URL}?text=${encodeURIComponent(text)}`
 }
+
+/**
+ * The invite-friends promotions: the home page's "Invite 5 friends!" card
+ * and the daily "Want NAIJA TR ad-free?" popup. Off for now; set `enabled`
+ * to true to bring them back. (The header's "Go ad-free" and /invite stay.)
+ */
+export const invitePromos = { enabled: false }
