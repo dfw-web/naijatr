@@ -159,18 +159,24 @@ describe('signed out during the week', () => {
     expect(adsDisabled()).toBe(false)
   })
 
-  it('shows nothing before the week starts or after it', async () => {
-    resetReferralStatus(signedOut(promoFor(-HOUR, 7 * DAY)))
+  it('before the week: a "starts in" banner (last 2 days only), no popup; nothing after it', async () => {
+    resetReferralStatus(signedOut(promoFor(-(HOUR + 45 * 60_000), 7 * DAY)))
     const { unmount } = render(
       <>
         <PromoWeekPopupHost />
         <PromoWeekBanner />
       </>,
     )
+    expect(screen.getByRole('button', { name: /starts in/ }).textContent).toMatch(
+      /^🎉 Free ad-free week starts in 1h (45|44)m: register free and watch with no ads all week$/,
+    )
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Ad-free week/ })).not.toBeInTheDocument()
     unmount()
+    resetReferralStatus(signedOut(promoFor(-3 * DAY, 7 * DAY)))
+    const later = render(<PromoWeekBanner />)
+    expect(screen.queryByRole('button', { name: /Ad-free week|starts in/ })).not.toBeInTheDocument()
+    later.unmount()
     resetReferralStatus(signedOut(promoFor(8 * DAY, -DAY)))
     render(<PromoWeekBanner />)
     expect(screen.queryByRole('button', { name: /Ad-free week/ })).not.toBeInTheDocument()
@@ -208,6 +214,19 @@ describe('signed in during the week', () => {
     render(<PromoWeekWelcomeHost />)
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('before the week: "starts in" for accounts without ad-free of their own, nothing for paid ones', () => {
+    const upcoming = promoFor(-HOUR, 7 * DAY)
+    resetReferralStatus({ goal: 5, signedIn: true, userId: 'u1', adFree: false, ownAdFree: false, promoAdFree: false, promo: upcoming, serverNow: Date.now() })
+    const { unmount } = render(<PromoWeekBanner />)
+    const text = screen.getByRole('status').textContent
+    expect(text).toMatch(/^🎉 Free ad-free week starts in (1h 0m|59m): no ads for you all week, until /)
+    expect(text!.endsWith(promoEndText(upcoming.end))).toBe(true)
+    unmount()
+    resetReferralStatus({ goal: 5, signedIn: true, userId: 'u1', adFree: true, adFreeUntil: iso(Date.now() + 30 * DAY), ownAdFree: true, promo: upcoming, serverNow: Date.now() })
+    render(<PromoWeekBanner />)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('no "Renew" reminder in its last days; the account page offers both ways to keep it', () => {

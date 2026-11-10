@@ -90,6 +90,8 @@ export interface ReferralStore {
   findUserByEmail(email: string): Promise<{ id: string; email: string } | null>
   /** Accounts whose ad_free_until is still ahead, most recently changed first. */
   adFreeProfiles(now: string): Promise<(Pick<Profile, 'user_id' | 'ad_free_until' | 'rewards_granted'> & { updated_at: string })[]>
+  /** Every login's email (at most 20 pages of 1000), for the Free Ad-Free Week email. */
+  allEmails(): Promise<string[]>
   /** Sets the end of the account's ad-free time (null: none). */
   setAdFreeUntil(userId: string, until: string | null): Promise<void>
   insertGrant(row: Omit<AdFreeGrant, 'id' | 'created_at'>): Promise<AdFreeGrant>
@@ -252,6 +254,18 @@ export function supabaseStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch)
         if (users.length < 1000) break
       }
       return null
+    },
+    async allEmails() {
+      const emails: string[] = []
+      for (let page = 1; page <= 20; page++) {
+        const response = await fetchImpl(`${env.url}/auth/v1/admin/users?page=${page}&per_page=1000`, { headers: headers() })
+        if (!response.ok) throw new Error(`supabase ${response.status}`)
+        const body = (await response.json().catch(() => null)) as { users?: { email?: string }[] } | null
+        const users = body?.users ?? []
+        for (const user of users) if (user.email) emails.push(user.email)
+        if (users.length < 1000) break
+      }
+      return emails
     },
     adFreeProfiles(now) {
       return rest(`profiles?select=user_id,ad_free_until,rewards_granted,updated_at&ad_free_until=gt.${q(now)}&order=updated_at.desc&limit=500`)

@@ -161,20 +161,39 @@ export function PromoWeekPopupHost() {
   )
 }
 
-/** Signed out during the week: a slim banner along the top (not a popup: it blocks nothing). */
+/** The banner shows this long before the week starts ("starts in…"). */
+const SOON_MS = 2 * 24 * 60 * 60 * 1000
+
+/**
+ * A slim banner along the top (not a popup: it blocks nothing). Before the
+ * week (its last 2 days): "starts in…" for everyone, signed out with sign-up.
+ * During it: for signed-out visitors, "ends in…" with sign-up.
+ */
 export function PromoWeekBanner() {
   const { status: account } = useAccount()
   const state = usePromoState()
   const promo = usePromo()
-  const shown = state === 'active' && account === 'signedOut' && !isTvMode() && !onPromoPages() && promo !== null
-  const left = useTimeLeft(shown ? promo.end : null)
+  const status = useReferralStatus()
+  const signedOut = account === 'signedOut'
+  // Ad-free of their own already: nothing changes for them, so no "starts in…".
+  const ownAdFree = status?.signedIn === true && (status.ownAdFree ?? status.adFree)
+  const soon = state === 'upcoming' && promo !== null && Date.parse(promo.start) - serverTime() <= SOON_MS
+  const mode = isTvMode() || onPromoPages() || !promo ? null : state === 'active' && signedOut ? 'ends' : soon && (signedOut || (account === 'signedIn' && !ownAdFree)) ? 'starts' : null
+  const left = useTimeLeft(mode === 'ends' ? promo!.end : mode === 'starts' ? promo!.start : null)
   // The navbar moves down under it (PromoWeek.css).
   useEffect(() => {
-    if (!shown) return
+    if (!mode) return
     document.documentElement.classList.add('has-promo-banner')
     return () => document.documentElement.classList.remove('has-promo-banner')
-  }, [shown])
-  if (!shown) return null
+  }, [mode])
+  if (!mode) return null
+  if (mode === 'starts' && !signedOut) {
+    return (
+      <p className="promo-week-banner" role="status">
+        🎉 Free ad-free week starts in {countdownText(left, false)}: no ads for you all week, until {promoEndText(promo!.end)}
+      </p>
+    )
+  }
   return (
     <button
       type="button"
@@ -184,7 +203,9 @@ export function PromoWeekBanner() {
         openSignIn('create')
       }}
     >
-      🎉 Ad-free week: register free and watch with no ads, ends in {countdownText(left, false)}
+      {mode === 'starts'
+        ? `🎉 Free ad-free week starts in ${countdownText(left, false)}: register free and watch with no ads all week`
+        : `🎉 Ad-free week: register free and watch with no ads, ends in ${countdownText(left, false)}`}
     </button>
   )
 }

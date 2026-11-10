@@ -171,11 +171,20 @@
       .af-row button.on {
         outline: 2px solid #f5c518;
       }
-      #af-result.ok {
+      #af-result.ok,
+      #pe-result.ok {
         color: #6fdc8c;
       }
-      #af-result.bad {
+      #af-result.bad,
+      #pe-result.bad {
         color: #ff6b6b;
+      }
+      .pe-preview pre {
+        white-space: pre-wrap;
+        font: inherit;
+        padding: 0.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 8px;
       }
       #af-users li,
       #af-log li {
@@ -256,6 +265,17 @@
           <p class="stat"><strong id="promo-today">–</strong><span>signed up today</span></p>
         </div>
         <p class="muted" id="promo-note">Every signed-in account is ad-free on Server 2 during the week (PROMO_START, PROMO_END in Vercel; checked on the server's clock). Nobody's own ad-free time changes.</p>
+        <button type="button" id="pe-open">📧 Email every account about the week</button>
+        <div id="pe-preview" class="pe-preview" hidden>
+          <p><strong id="pe-subject"></strong></p>
+          <pre id="pe-text"></pre>
+          <p class="muted">One email to each account (one per inbox), from RESEND_FROM.</p>
+          <div class="af-row">
+            <button type="button" id="pe-send">Send</button>
+            <button type="button" class="ghost" id="pe-cancel">Cancel</button>
+          </div>
+        </div>
+        <p id="pe-result" role="status" hidden></p>
 
         <h2>Live Stream API</h2>
         <p class="stat"><strong id="sl-usage">–</strong><span id="sl-usage-note">requests used today</span></p>

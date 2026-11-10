@@ -9,6 +9,7 @@
 
 import { initAdFree, loadAdFree } from './adFree'
 import { AD_LEVEL, AD_RULES, MULTITAG, MULTITAG_2 } from '../config/ads'
+import { initPromoEmail } from './promoEmail'
 
 export const REFRESH_MS = 30_000
 const PASSWORD_KEY = 'naijatr.admin.password'
@@ -441,6 +442,7 @@ async function start() {
 
 export function initAdmin() {
   initAdFree(() => password)
+  initPromoEmail(() => password)
   $('login').addEventListener('submit', (event) => {
     event.preventDefault()
     password = $<HTMLInputElement>('password').value

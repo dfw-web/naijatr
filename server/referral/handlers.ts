@@ -20,7 +20,7 @@ import {
   weeklyWinner,
   type ReferralConfig,
 } from './rules.js'
-import { promoActive, promoInfo, readPromo, type PromoWindow } from '../promo.js'
+import { promoActive, promoEmail, promoInfo, promoState, readPromo, type PromoWindow } from '../promo.js'
 import { supabaseStore, type AdFreeGrant, type AuthUser, type Profile, type ReferralStore } from './store.js'
 
 /**
@@ -37,6 +37,9 @@ import { supabaseStore, type AdFreeGrant, type AuthUser, type Profile, type Refe
  * - POST admin-grant / POST admin-remove / GET admin-ad-free / POST admin-email
  *   (ADMIN_PASSWORD): /admin/live → Give ad-free: paid ad-free given by hand,
  *   every change logged, and the person emailed (Resend).
+ * - GET / POST admin-promo-email (ADMIN_PASSWORD): /admin/live → the Free
+ *   Ad-Free Week email to every account: GET shows it and how many get it;
+ *   POST { confirm: <that number> } sends it, one email each.
  *
  * Needs SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.
  * Optional: AD_FREE_EMAILS, AD_FREE_DAYS, REFERRAL_GOAL, REFERRAL_IP_DAILY_LIMIT,
@@ -388,6 +391,9 @@ export async function sendAdFreeEmail(env: ReferralEnv, to: string, until: strin
   }
 }
 
+/** Emails per Resend batch call (its limit). */
+const PROMO_BATCH = 100
+
 async function handleAdFreeAdmin(
   env: ReferralEnv,
   action: string,
@@ -439,6 +445,44 @@ async function handleAdFreeAdmin(
     // Given: they're told by email too.
     const mail = action === 'admin-grant' ? await sendAdFreeEmail(env, user.email, ad.until, fetchImpl) : null
     return sendJson(res, 200, { userId: user.id, email: user.email, adFree: ad.adFree, adFreeUntil: ad.until, permanent: ad.permanent, mail })
+  }
+
+  // The Free Ad-Free Week email to every account (one each, never a shared list).
+  if (action === 'admin-promo-email') {
+    if (req.method !== 'GET' && req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    if (!env.promo || promoState(env.promo, now) === 'ended') return sendJson(res, 409, { error: 'no-promo' })
+    // One per inbox (Gmail dots and +tags are the same inbox).
+    const byInbox = new Map<string, string>()
+    for (const email of await store.allEmails()) if (!byInbox.has(normalizeEmail(email))) byInbox.set(normalizeEmail(email), email.trim())
+    const recipients = [...byInbox.values()]
+    const mail = promoEmail(env.promo, env.siteUrl, now)
+    if (req.method === 'GET') return sendJson(res, 200, { recipients: recipients.length, subject: mail.subject, text: mail.text })
+    const body = await readBody(req)
+    // The number the admin saw and confirmed: anything else (a new sign-up meanwhile) is shown again first.
+    if (body.confirm !== recipients.length) return sendJson(res, 409, { error: 'count-changed', recipients: recipients.length })
+    if (!env.resendKey || !env.resendFrom) return sendJson(res, 503, { error: 'email isn’t set up (RESEND_API_KEY, RESEND_FROM)' })
+    let sent = 0
+    const errors: string[] = []
+    for (let i = 0; i < recipients.length; i += PROMO_BATCH) {
+      const batch = recipients.slice(i, i + PROMO_BATCH)
+      try {
+        const response = await fetchImpl('https://api.resend.com/emails/batch', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.resendKey}`,
+            'Content-Type': 'application/json',
+            // The same batch twice within 24 hours (a second click) is sent once.
+            'Idempotency-Key': `promo-week-${env.promo.start}-${i / PROMO_BATCH}`,
+          },
+          body: JSON.stringify(batch.map((to) => ({ from: env.resendFrom, to: [to], subject: mail.subject, text: mail.text, html: mail.html }))),
+        })
+        if (response.ok) sent += batch.length
+        else errors.push(((await response.json().catch(() => null)) as { message?: string } | null)?.message ?? `Resend answered ${response.status}`)
+      } catch {
+        errors.push('Resend couldn’t be reached')
+      }
+    }
+    return sendJson(res, errors.length ? 502 : 200, { recipients: recipients.length, sent, errors })
   }
 
   // "📧 Email them": the "ad-free is active" email again, for someone ad-free now.

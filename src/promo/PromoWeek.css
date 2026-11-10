@@ -25,6 +25,10 @@
   text-align: center;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+p.promo-week-banner {
+  cursor: default;
 }
 .promo-week-banner:hover,
 .promo-week-banner:focus-visible {

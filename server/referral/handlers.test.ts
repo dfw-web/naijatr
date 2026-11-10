@@ -90,6 +90,9 @@ function fakeStore() {
       const user = [...users.values()].find((u) => normalizeEmail(u.email) === normalizeEmail(email))
       return user ? { id: user.id, email: user.email } : null
     },
+    async allEmails() {
+      return [...users.values()].map((u) => u.email)
+    },
     async adFreeProfiles(now) {
       return [...profiles.values()]
         .filter((p) => p.ad_free_until && p.ad_free_until > now)
@@ -264,6 +267,73 @@ describe('the Free Ad-Free Week', () => {
     fake.addUser('ada', 'ada@gmail.com', NOW - 100 * DAY_MS)
     fake.clock.now = DURING
     expect((await call(fake, 'status', { token: 'token-ada' })).json).toMatchObject({ adFree: false, promo: null })
+  })
+})
+
+describe('the Free Ad-Free Week email (/admin/live)', () => {
+  const mailEnv = {
+    ...env,
+    resendKey: 're_test',
+    resendFrom: 'NAIJA TR <hello@naijatr.com>',
+    promo: { start: Date.parse('2026-11-11T00:00:00+01:00'), end: Date.parse('2026-11-17T23:59:59+01:00') },
+  }
+  const resend = () => vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ data: [] }))) as unknown as typeof fetch & ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    fake.clock.now = Date.parse('2026-11-10T22:15:00+01:00')
+    fake.addUser('owner', 'aaabswag@gmail.com')
+    fake.addUser('ada', 'ada@gmail.com')
+    // The same inbox as ada's: one email.
+    fake.addUser('ada2', 'A.da+films@gmail.com')
+    fake.addUser('ben', 'ben@yahoo.com')
+  })
+
+  it('is admin-only', async () => {
+    expect((await call(fake, 'admin-promo-email', { env: mailEnv })).status).toBe(401)
+    expect((await call(fake, 'admin-promo-email', { env: mailEnv, token: 'wrong' })).status).toBe(401)
+  })
+
+  it('shows the email and how many accounts get it, one per inbox, without sending', async () => {
+    const fetchImpl = resend()
+    const { status, json } = await call(fake, 'admin-promo-email', { env: mailEnv, token: 'admin-pw', fetchImpl })
+    expect(status).toBe(200)
+    expect(json.recipients).toBe(3)
+    expect(json.subject).toBe('🎉 FREE AD-FREE WEEK on NAIJA TR!')
+    expect(json.text).toContain('from Wednesday, 11 Nov at 12:00 AM until Tuesday, 17 Nov at 11:59 PM (Lagos time), you can watch with NO ADS.')
+    expect(json.text).toContain('sign in at www.naijatr.com with this email')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('sends only with the confirmed number, one email to each person', async () => {
+    const fetchImpl = resend()
+    expect((await call(fake, 'admin-promo-email', { env: mailEnv, token: 'admin-pw', body: { confirm: 2 }, fetchImpl })).json).toEqual({
+      error: 'count-changed',
+      recipients: 3,
+    })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    const { status, json } = await call(fake, 'admin-promo-email', { env: mailEnv, token: 'admin-pw', body: { confirm: 3 }, fetchImpl })
+    expect(status).toBe(200)
+    expect(json).toEqual({ recipients: 3, sent: 3, errors: [] })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.resend.com/emails/batch')
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe(`promo-week-${mailEnv.promo.start}-0`)
+    const emails = JSON.parse(init.body as string) as { to: string[]; from: string }[]
+    expect(emails.map((e) => e.to)).toEqual([['aaabswag@gmail.com'], ['ada@gmail.com'], ['ben@yahoo.com']])
+    expect(emails.every((e) => e.from === mailEnv.resendFrom)).toBe(true)
+  })
+
+  it('sends in batches of 100', async () => {
+    for (let n = 0; n < 150; n++) fake.addUser(`u${n}`, `user${n}@example.com`)
+    const fetchImpl = resend()
+    expect((await call(fake, 'admin-promo-email', { env: mailEnv, token: 'admin-pw', body: { confirm: 153 }, fetchImpl })).json).toMatchObject({ sent: 153 })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('says "from now" once the week is on, and nothing to send after it', async () => {
+    fake.clock.now = Date.parse('2026-11-12T10:00:00Z')
+    expect((await call(fake, 'admin-promo-email', { env: mailEnv, token: 'admin-pw' })).json.text).toContain('from now until Tuesday, 17 Nov at 11:59 PM')
+    fake.clock.now = Date.parse('2026-11-18T00:00:00+01:00')
+    expect((await call(fake, 'admin-promo-email', { env: mailEnv, token: 'admin-pw' })).status).toBe(409)
   })
 })
 
