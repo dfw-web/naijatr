@@ -8,6 +8,13 @@ import { resetReferralStatus, type ReferralStatus } from '../referral/status'
 import { readContinueWatching } from '../utils/continueWatching'
 import { PlayerPanel } from './PlayerPanel'
 
+// The account's Continue watching is here (its wait is tested in src/account/sync.test.ts).
+vi.mock('../account/sync', async (original) => ({
+  ...(await original<typeof import('../account/sync')>()),
+  syncLoading: () => false,
+  syncSettled: () => Promise.resolve(),
+}))
+
 const PLAYER_ID = 'v2pxn252iu6ornvs8i'
 const OPTIONS = 'skin=onyx&welcome_page=off&autoplay=on'
 const EMBEDMASTER_MOVIE = `https://embedmaster.link/${PLAYER_ID}/movie/550?${OPTIONS}`
@@ -71,6 +78,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  resetReferralStatus(null)
+  vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   serverTiming.hiddenCloseMs = HIDDEN_CLOSE_MS
 })
@@ -126,14 +135,48 @@ describe('one server per account', () => {
 
   it('moves to Server 2 as soon as the account is ad-free, and back to Server 1 when it runs out', async () => {
     render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
-    answer({ ...PAID, adFreeUntil: new Date(Date.now() + 300).toISOString() })
+    answer({ ...PAID, adFreeUntil: new Date(Date.now() + 1000).toISOString() })
     await play()
     expect(await findPlayer('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE)
     await userEvent.click(screen.getByRole('button', { name: /Close player/ }))
     // Its ad-free ends: the status re-reads the moment it does (plus a second).
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await new Promise((resolve) => setTimeout(resolve, 2200))
     await play()
     expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
+  })
+
+  it('signed in, Play before the server has answered: waits for it, then opens Server 2', async () => {
+    // A signed-in device: a stored session.
+    localStorage.setItem('naijatr.auth', '{}')
+    let reply: (status: ReferralStatus) => void = () => undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => (reply = (status) => resolve(new Response(JSON.stringify(status)))))),
+    )
+    const fetchImpl = checks(true)
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={fetchImpl} />)
+    await play()
+    // Not on Server 1 meanwhile.
+    expect(screen.queryByTitle('Fight Club player')).not.toBeInTheDocument()
+    await act(async () => reply(PAID))
+    expect(await findPlayer('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('found ad-free while Server 1 plays: Server 2 carries on from the same point', async () => {
+    resetReferralStatus(SIGNED_IN_FREE)
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
+    const one = await findPlayer('Fight Club player')
+    expect(one).toHaveAttribute('src', '/api/play/movie/550')
+    post(one, 'duration', 6000, 'https://embdmstrplayer.com')
+    post(one, 'time', 1300, 'https://embdmstrplayer.com')
+    answer(PAID)
+    await vi.waitFor(() => expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', EMBEDMASTER_MOVIE))
+    const two = screen.getByTitle('Fight Club player')
+    const send = commands(two)
+    post(two, 'duration', 6000)
+    expect(send).toHaveBeenCalledWith(seekTo(1300), 'https://embedmaster.link')
   })
 
   it('never falls back to the other server: a title Server 1 can’t play says so', async () => {

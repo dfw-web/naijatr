@@ -38,10 +38,11 @@ import { reportReferralPlay } from '../referral/status'
 import { WatchLaterButton } from './WatchLater'
 import { useLiveWatching } from '../live/heartbeat'
 import { readLastEpisode, saveLastEpisode, type EpisodeRef } from '../utils/watchHistory'
-import { requestSyncNow } from '../account/sync'
+import { requestSyncNow, syncLoading, syncSettled } from '../account/sync'
 import { embedmasterUrl, serverTiming, type PlayerServerId } from '../config/players'
 import { availableServers, preferredServer, savePreferredServer, serverLabel, trackServerSwitch } from '../utils/playerServer'
-import { useServerAdFree } from '../referral/status'
+import { adFreeReady, isServerAdFree, serverStatusKnown, useServerAdFree } from '../referral/status'
+import { hasStoredSession } from '../account/client'
 import { reportPlayer } from '../live/playerStats'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import './PlayerPanel.css'
@@ -199,6 +200,8 @@ export function PlayerPanel({
   const servers = availableServers(isSeries ? availability.tv : availability.movie, item.tmdbId, adFree)
   const [pickedServer, setPickedServer] = useState<PlayerServerId | null>(null)
   const server = pickedServer && servers.includes(pickedServer) ? pickedServer : preferredServer(servers)
+  // Read when a stream starts, not from this render: the ad-free answer may have come in since.
+  const accountServer = () => preferredServer(availableServers(isSeries ? availability.tv : availability.movie, item.tmdbId, isServerAdFree()))
   const streamEnabled = servers.length > 0
   const tvSrc = (s: number, e: number) => `/api/play/tv/${item.tmdbId}/${s}/${e}`
 
@@ -540,6 +543,18 @@ export function PlayerPanel({
     playRef.current?.(choice, ep)
   }, [itemId])
 
+  // The account's server changed while a movie plays (the ad-free answer came
+  // in after Play, or ad-free ran out): it carries on on that server, from the
+  // same point. (`switchServer` is defined below the early return.)
+  const switchRef = useRef<((to: PlayerServerId, how: 'picked' | 'auto') => void) | null>(null)
+  const runningServer =
+    active?.choice === 'stream' && (active.state.status === 'loading' || active.state.status === 'playing')
+      ? (active.server ?? null)
+      : null
+  useEffect(() => {
+    if (runningServer && server && runningServer !== server) switchRef.current?.(server, 'auto')
+  }, [runningServer, server])
+
   // Bring the resumed player into view once it's on the page (the details above it may still be loading).
   const playerShown = active?.state.status === 'loading' || active?.state.status === 'playing'
   // Counts as watching (for the live viewer count) while the film or episode's player is open.
@@ -582,6 +597,14 @@ export function PlayerPanel({
     pausedRef.current = false
     setPaused(false)
     const src = isSeries && streamSrc ? tvSrc(ep.season, ep.episode) : streamSrc
+    // Signed in, just opened: the account's answers first (at most 4 seconds),
+    // so the movie opens on this account's server (ad-free: Server 2) and at
+    // the time saved on the account, not an older one on this device.
+    if (choice === 'stream' && src && !via?.switching && hasStoredSession() && (!serverStatusKnown() || syncLoading())) {
+      setRun({ itemId: item.id, choice, streamSrc: src, attempt, state: { status: 'checking' }, keepPlayer })
+      await Promise.all([syncSettled(), adFreeReady()])
+      if (attemptRef.current !== attempt) return
+    }
     // Playing a movie or episode again picks up where it was left, on any server
     // (a switch has already set where to carry on from). Read before recordPlay moves it up.
     if (choice === 'stream' && src && !via?.switching) {
@@ -598,7 +621,8 @@ export function PlayerPanel({
       setRun({ itemId: item.id, choice, streamSrc: null, attempt, state: { status: 'loading' } })
       return
     }
-    const onServer = via?.server ?? server
+    // The account's server as it is now (the ad-free answer may have come in while waiting).
+    const onServer = via?.server ?? accountServer()
     if (!src || !onServer) return
     setClosedAway(false)
     dismissResume()
@@ -632,11 +656,13 @@ export function PlayerPanel({
     }
   }
 
-  /** Plays the current movie or episode on `to`, picked by the viewer (and remembered). */
-  const switchServer = (to: PlayerServerId) => {
-    savePreferredServer(to)
-    setPickedServer(to)
-    trackServerSwitch(to, 'picked')
+  /** Plays the current movie or episode on `to`: picked by the viewer (and remembered), or the account's server now. */
+  const switchServer = (to: PlayerServerId, how: 'picked' | 'auto' = 'picked') => {
+    if (how === 'picked') {
+      savePreferredServer(to)
+      setPickedServer(to)
+    }
+    trackServerSwitch(to, how)
     if (!active || active.choice !== 'stream' || !active.streamSrc) return
     // Saved now, not at the next 10-second save, then the other server opens
     // the same movie or episode at that point.
@@ -651,6 +677,7 @@ export function PlayerPanel({
     const at = ep.season !== undefined && ep.episode !== undefined ? { season: ep.season, episode: ep.episode } : undefined
     void start('stream', at, true, { server: to, switching: true })
   }
+  switchRef.current = switchServer
 
   /**
    * A Play button: the first play on a phone, tablet or TV asks to join the
@@ -668,6 +695,8 @@ export function PlayerPanel({
   playRef.current = play
 
   const closePlayer = () => {
+    // A Play still waiting for the account doesn't open after all.
+    attemptRef.current++
     if (fullscreenElement()) exitFullscreen()
     setFilling(false)
     setRun(null)

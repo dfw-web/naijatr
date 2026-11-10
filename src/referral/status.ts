@@ -169,6 +169,9 @@ export function refreshReferralStatus(): Promise<ReferralStatus | null> {
   return loading
 }
 
+/** True once the server has answered this visit (signed in or not): isServerAdFree can be trusted. */
+export const serverStatusKnown = () => status !== null
+
 /** Resolves once ads may start: at once for signed-out devices, else when the server has said (at most 4 seconds). */
 export function adFreeReady(waitMs = AD_FREE_WAIT_MS): Promise<void> {
   if (!hasStoredSession() || status) return Promise.resolve()

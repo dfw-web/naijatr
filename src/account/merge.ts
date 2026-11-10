@@ -114,7 +114,8 @@ export interface Merged<T> {
 /**
  * The account's entries, with this device's pending changes on top: a pending
  * removal stays removed, and a pending change wins unless the account has a
- * newer version of the same title (watched later on another device).
+ * newer version of the same title (watched later on another device). An
+ * entry here that's newer than the account's isn't replaced by it either.
  */
 export function mergeEntries<T extends { id: string }>(
   local: T[],
@@ -138,6 +139,14 @@ export function mergeEntries<T extends { id: string }>(
       byId.set(id, mine)
       upload.push(mine)
     }
+  }
+  // Not pending but newer here than the account's copy: sent while the account
+  // was loading (a pause or the 15-second save), so the copy is from before it.
+  // Ours stays, or the player's last position would go back to an older one.
+  for (const mine of local) {
+    if (pending[mine.id]) continue
+    const theirs = byId.get(mine.id)
+    if (theirs && time(mine) > time(theirs)) byId.set(mine.id, mine)
   }
   const list = [...byId.values()].sort((a, b) => time(b) - time(a))
   return { list, upload, remove }

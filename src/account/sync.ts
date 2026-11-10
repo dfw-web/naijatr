@@ -21,6 +21,7 @@ import {
   type ListRow,
   type PendingMap,
 } from './merge'
+import { hasStoredSession } from './client'
 
 /**
  * Account sync for Continue Watching, My List and the taste profile, while
@@ -247,8 +248,43 @@ const hasPending = (pending = readPending()) =>
 function pull(s: Session): Promise<void> {
   s.pulling ??= load(s).finally(() => {
     s.pulling = null
+    settled()
   })
   return s.pulling
+}
+
+// Waiting for the account's data before a movie starts (syncSettled).
+const waiters = new Set<() => void>()
+const settled = () => {
+  const now = [...waiters]
+  waiters.clear()
+  now.forEach((resolve) => resolve())
+}
+
+/** True while the account's data is being loaded (or the signed-in account is still starting). */
+export const syncLoading = () => (session ? session.pulling !== null : hasStoredSession())
+
+/** How long a Play waits for the account's data at most. */
+export const SYNC_WAIT_MS = 4000
+
+/**
+ * Resolves once the account's Continue watching is here: at once when signed
+ * out or already loaded, else when the load running now (or the first one,
+ * while the account is still starting) ends, at most `waitMs`. A Play waits
+ * for it, so it resumes at the time saved on the account (watched on another
+ * phone), not at an older one here that would then overwrite it.
+ */
+export function syncSettled(waitMs = SYNC_WAIT_MS): Promise<void> {
+  if (!syncLoading()) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => {
+      window.clearTimeout(timer)
+      waiters.delete(done)
+      resolve()
+    }
+    const timer = window.setTimeout(done, waitMs)
+    waiters.add(done)
+  })
 }
 
 async function load(s: Session): Promise<void> {
@@ -373,6 +409,7 @@ export function stopSync(): void {
   window.clearTimeout(s.retry)
   s.cleanup.forEach((fn) => fn())
   setState({ status: 'idle' })
+  settled()
 }
 
 /** Sends pending changes now (player paused or closed, page hidden). Nothing while signed out. */

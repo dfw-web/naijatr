@@ -11,7 +11,7 @@ import {
 } from '../utils/continueWatching'
 import { readWatchLater, removeFromLater, saveForLater } from '../utils/watchLater'
 import { combineTaste, mergeContinue, mergeList, type ContinueRow, type ListRow } from './merge'
-import { requestSyncNow, resetSync, startSync, stopSync, type SyncBackend } from './sync'
+import { requestSyncNow, resetSync, startSync, stopSync, syncSettled, type SyncBackend } from './sync'
 
 const movie = (id: number, title = `Movie ${id}`): MediaItem => ({
   id: `tmdb-movie-${id}`,
@@ -141,6 +141,12 @@ describe('merging', () => {
     expect(merged.remove).toEqual(['b'])
   })
 
+  it('keeps an entry here that’s newer than the account’s copy (sent while the account was loading)', () => {
+    const merged = mergeContinue([entry({ id: 'a', lastWatchedAt: 50, progressSeconds: 1500 })], [entry({ id: 'a', lastWatchedAt: 40, progressSeconds: 1200 })], {})
+    expect(merged.list[0]).toMatchObject({ progressSeconds: 1500 })
+    expect(merged.upload).toEqual([])
+  })
+
   it('joins both My Lists', () => {
     const item = movie(1)
     const merged = mergeList(
@@ -259,6 +265,28 @@ describe('syncing', () => {
     await startSync('user-1', account.backend)
     expect(readContinueWatching()[0]).toMatchObject({ progressSeconds: 4000 })
     expect(account.data.cw.get('tmdb-movie-9')?.progress_seconds).toBe(4000)
+  })
+
+  it('lets a Play wait for the account’s data while it loads', async () => {
+    const account = fakeAccount()
+    useDevice('phone')
+    let release = () => undefined as void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const pull = account.backend.pull
+    account.backend.pull = async () => {
+      await gate
+      return pull()
+    }
+    const started = startSync('user-1', account.backend)
+    let done = false
+    void syncSettled(10_000).then(() => (done = true))
+    await Promise.resolve()
+    expect(done).toBe(false)
+    release()
+    await started
+    await vi.waitFor(() => expect(done).toBe(true))
+    // Loaded: at once.
+    await syncSettled(10_000)
   })
 
   it('sends nothing while signed out', async () => {
