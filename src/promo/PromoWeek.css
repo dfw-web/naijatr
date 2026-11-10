@@ -40,11 +40,11 @@ p.promo-week-banner {
 }
 
 :root {
-  --promo-banner-h: 2.1rem;
+  --promo-banner-h: 2.85rem;
 }
 @media (max-width: 480px) {
   :root {
-    --promo-banner-h: 2.9rem;
+    --promo-banner-h: 3.4rem;
   }
 }
 html.has-promo-banner .navbar {
@@ -52,4 +52,59 @@ html.has-promo-banner .navbar {
 }
 html.has-promo-banner .app-main {
   padding-top: var(--promo-banner-h);
+}
+
+/* Signed out: the text, Sign in and a large ✕ in one row. */
+.promo-week-banner--sign-in {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.4rem 0.3rem 1rem;
+  cursor: default;
+}
+.promo-week-banner__text {
+  margin: 0;
+  min-width: 0;
+}
+.promo-week-banner__action {
+  flex: none;
+  padding: 0.3rem 0.85rem;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  font: 700 0.8rem/1.2 var(--font-body);
+  cursor: pointer;
+}
+.promo-week-banner__action:hover,
+.promo-week-banner__action:focus-visible {
+  background: var(--gold);
+  color: #111;
+}
+.promo-week-banner__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-left: auto;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  cursor: pointer;
+}
+.promo-week-banner__close:hover,
+.promo-week-banner__close:focus-visible {
+  background: rgba(0, 0, 0, 0.45);
+}
+.promo-week-banner__close svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+@media (min-width: 640px) {
+  .promo-week-banner__close {
+    margin-left: 0;
+  }
 }

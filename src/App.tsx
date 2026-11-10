@@ -26,7 +26,7 @@ import type { MediaItem } from './types/media'
 import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } from './account/AccountPages'
 import { pageFromPath, type Page } from './account/pages'
 import { SignInHost } from './account/SignInSheet'
-import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekPopupHost, PromoWeekWelcomeHost } from './promo/PromoWeek'
+import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekWelcomeHost } from './promo/PromoWeek'
 import { loadPromo } from './referral/status'
 import { PasswordReminderHost, SyncPromptHost } from './account/SyncPrompt'
 import './App.css'
@@ -231,8 +231,7 @@ function App() {
       {/* Paid ad-free: "active until…" after a grant, and the renew reminder in its last 3 days. */}
       <ActivationNoticeHost />
       <RenewReminderHost />
-      {/* The Free Ad-Free Week: its popup and messages (the daily popup and "Ads are back" wait while it's on). */}
-      <PromoWeekPopupHost />
+      {/* The Free Ad-Free Week's messages (the daily popup and "Ads are back" wait while it's on). */}
       <PromoWeekWelcomeHost />
       <PromoWeekEndedHost />
 

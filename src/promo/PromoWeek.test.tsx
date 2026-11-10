@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAccount, setAccountForTests, useSignInSheet } from '../account/account'
@@ -11,7 +11,7 @@ import { adLinkClicks } from '../test/ads'
 import { PROMO_DAY_KEY, promoTiming } from '../referral/copy'
 import { AdFreeCard, DailyPromoHost, RenewReminderHost } from '../referral/Invite'
 import { isAdFreeNow, isServerAdFree, promoStateNow, resetReferralStatus, type ReferralStatus } from '../referral/status'
-import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekPopupHost, PromoWeekWelcomeHost } from './PromoWeek'
+import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekWelcomeHost } from './PromoWeek'
 import { countdownText, promoEndText, promoWeekTiming } from './promoText'
 
 const HOUR = 3_600_000
@@ -78,11 +78,13 @@ describe('the wording', () => {
   })
 })
 
-describe('signed out during the week', () => {
+describe('signed out', () => {
   beforeEach(() => setAccountForTests({ status: 'signedOut' }))
 
-  it('shows the popup once a day per device, with a live countdown and "Register free"', async () => {
-    resetReferralStatus(signedOut(promoFor(DAY, 2 * DAY)))
+  const banner = () => screen.queryByRole('region', { name: 'Go ad-free' })
+
+  it('shows "Too many ads?" along the top on every visit; Sign in opens the sheet', async () => {
+    resetReferralStatus(signedOut())
     let sheet: ReturnType<typeof useSignInSheet> = null
     function Sheet() {
       const open = useSignInSheet()
@@ -91,53 +93,43 @@ describe('signed out during the week', () => {
       }, [open])
       return null
     }
-    const { unmount } = render(
+    render(
       <>
-        <PromoWeekPopupHost />
+        <PromoWeekBanner />
         <Sheet />
       </>,
     )
-    const popup = await screen.findByRole('dialog', { name: '🎉 FREE AD-FREE WEEK!' })
-    expect(popup).toHaveTextContent(
-      `Register now and watch NAIJA TR with NO ADS until ${promoEndText(signedOut(promoFor(DAY, 2 * DAY)).promo!.end)}. ⏳ This offer is for one week only.`,
-    )
-    const countdown = screen.getByLabelText('Time left')
-    expect(countdown.textContent).toMatch(/^(2d 0h 0m 0s|1d 23h 59m 5\ds)$/)
-    const before = countdown.textContent
-    await act(() => new Promise((resolve) => setTimeout(resolve, 1100)))
-    expect(screen.getByLabelText('Time left').textContent).not.toBe(before)
-    await userEvent.click(screen.getByRole('button', { name: 'Register free' }))
-    expect(screen.queryByRole('dialog', { name: /FREE AD-FREE WEEK/ })).not.toBeInTheDocument()
-    expect(sheet).toBe('create')
-    unmount()
-    // Same day, a new page: not again.
-    render(<PromoWeekPopupHost />)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(screen.queryByRole('dialog', { name: /FREE AD-FREE WEEK/ })).not.toBeInTheDocument()
-  })
-
-  it('"Not now" closes it; it never shows over another popup or while a video plays', async () => {
-    resetReferralStatus(signedOut())
-    const frame = document.createElement('div')
-    frame.className = 'player__frame'
-    document.body.append(frame)
-    render(<PromoWeekPopupHost />)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    frame.remove()
-    await userEvent.click(await screen.findByRole('button', { name: 'Not now' }))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('shows the banner along the top, counting down; it opens sign-up', async () => {
-    resetReferralStatus(signedOut(promoFor(DAY, 3 * HOUR + 30 * 60_000)))
-    render(<PromoWeekBanner />)
-    const banner = screen.getByRole('button', { name: /Ad-free week/ })
-    expect(banner.textContent).toMatch(/^🎉 Ad-free week: register free and watch with no ads, ends in 3h (30|29)m$/)
+    expect(banner()).toHaveTextContent('Too many ads? 😅 Sign in now and get NAIJA TR ad-free')
+    // Never "for a week", no countdown.
+    expect(banner()!.textContent).not.toMatch(/week|ends in|\dd |\dh /i)
     expect(document.documentElement).toHaveClass('has-promo-banner')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(sheet).toBe('create')
   })
 
-  it('pauses the daily invite popup and the "Ads are back" card, and keeps ads for signed-out visitors', async () => {
+  it('closes with the ✕ for this visit, and is back on the next one', async () => {
+    resetReferralStatus(signedOut())
+    const { unmount } = render(<PromoWeekBanner />)
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(banner()).not.toBeInTheDocument()
+    expect(document.documentElement).not.toHaveClass('has-promo-banner')
+    unmount()
+    // The site opened again.
+    render(<PromoWeekBanner />)
+    expect(banner()).toBeInTheDocument()
+  })
+
+  it('before midnight it says "from midnight"; after the end it’s gone', () => {
+    resetReferralStatus(signedOut(promoFor(-(HOUR + 45 * 60_000), 7 * DAY)))
+    const { unmount } = render(<PromoWeekBanner />)
+    expect(banner()).toHaveTextContent('Too many ads? 😅 Sign in now and get NAIJA TR ad-free from midnight')
+    unmount()
+    resetReferralStatus(signedOut(promoFor(8 * DAY, -DAY)))
+    render(<PromoWeekBanner />)
+    expect(banner()).not.toBeInTheDocument()
+  })
+
+  it('no popup; pauses the daily invite popup and the "Ads are back" card, and keeps ads for signed-out visitors', async () => {
     resetReferralStatus(signedOut())
     localStorage.removeItem(PROMO_DAY_KEY)
     localStorage.removeItem('naijatr.ads.backNotice')
@@ -145,41 +137,19 @@ describe('signed out during the week', () => {
     promoTiming.pollMs = 20
     render(
       <>
+        <PromoWeekBanner />
         <DailyPromoHost />
         <AdsBackNotice />
       </>,
     )
     await new Promise((resolve) => setTimeout(resolve, 1800))
-    expect(screen.queryByRole('dialog', { name: /Want NAIJA TR ad-free/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.queryByText(/Ads are back/)).not.toBeInTheDocument()
     // Paused, not used up: it can still show after the week.
     expect(localStorage.getItem('naijatr.ads.backNotice')).toBeNull()
     expect(isAdFreeNow()).toBe(false)
     expect(isServerAdFree()).toBe(false)
     expect(adsDisabled()).toBe(false)
-  })
-
-  it('before the week: a "starts in" banner (last 2 days only), no popup; nothing after it', async () => {
-    resetReferralStatus(signedOut(promoFor(-(HOUR + 45 * 60_000), 7 * DAY)))
-    const { unmount } = render(
-      <>
-        <PromoWeekPopupHost />
-        <PromoWeekBanner />
-      </>,
-    )
-    expect(screen.getByRole('button', { name: /starts in/ }).textContent).toMatch(
-      /^🎉 Free ad-free week starts in 1h (45|44)m: register free and watch with no ads all week$/,
-    )
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    unmount()
-    resetReferralStatus(signedOut(promoFor(-3 * DAY, 7 * DAY)))
-    const later = render(<PromoWeekBanner />)
-    expect(screen.queryByRole('button', { name: /Ad-free week|starts in/ })).not.toBeInTheDocument()
-    later.unmount()
-    resetReferralStatus(signedOut(promoFor(8 * DAY, -DAY)))
-    render(<PromoWeekBanner />)
-    expect(screen.queryByRole('button', { name: /Ad-free week/ })).not.toBeInTheDocument()
   })
 })
 
@@ -201,14 +171,12 @@ describe('signed in during the week', () => {
     const { unmount } = render(
       <>
         <PromoWeekWelcomeHost />
-        <PromoWeekPopupHost />
         <PromoWeekBanner />
       </>,
     )
     const notice = await screen.findByRole('dialog', { name: "✅ You're watching ad-free this week!" })
     expect(notice).toHaveTextContent(`Ends ${promoEndText(promoUser().promo!.end)}.`)
-    expect(screen.queryByRole('dialog', { name: /FREE AD-FREE WEEK/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Ad-free week/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Go ad-free' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enjoy 🍿' }))
     unmount()
     render(<PromoWeekWelcomeHost />)
@@ -221,7 +189,7 @@ describe('signed in during the week', () => {
     resetReferralStatus({ goal: 5, signedIn: true, userId: 'u1', adFree: false, ownAdFree: false, promoAdFree: false, promo: upcoming, serverNow: Date.now() })
     const { unmount } = render(<PromoWeekBanner />)
     const text = screen.getByRole('status').textContent
-    expect(text).toMatch(/^🎉 Free ad-free week starts in (1h 0m|59m): no ads for you all week, until /)
+    expect(text).toMatch(/^🎉 Ad-free NAIJA TR starts in (1h 0m|59m): no ads for you until /)
     expect(text!.endsWith(promoEndText(upcoming.end))).toBe(true)
     unmount()
     resetReferralStatus({ goal: 5, signedIn: true, userId: 'u1', adFree: true, adFreeUntil: iso(Date.now() + 30 * DAY), ownAdFree: true, promo: upcoming, serverNow: Date.now() })

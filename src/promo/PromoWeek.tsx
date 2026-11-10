@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { openSignIn, useAccount, useSignInSheet } from '../account/account'
 import { goToPage } from '../account/pages'
-import { holdAdsThisTap, isPlaybackOpen, lagosDay, useAdOverlay, useOverlayOpen } from '../ads/adManager'
+import { holdAdsThisTap, isPlaybackOpen, useAdOverlay, useOverlayOpen } from '../ads/adManager'
 import { FROM_PRICE, naira } from '../config/adFree'
 import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices, useNoticesHeld } from '../ui/noticeQueue'
@@ -16,8 +16,8 @@ import './PromoWeek.css'
  * server/promo.ts). Times come from the server, and countdowns run on its
  * clock (serverTime), never the device's.
  *
- * - Signed out, during the week: a popup once a day per device ("Register
- *   free" / "Not now") and a slim banner along the top, both counting down.
+ * - Signed out: a banner along the top on every visit, easy to close
+ *   (PromoWeekBanner). No popup.
  * - Signed in and ad-free through the week only: "✅ You're watching ad-free
  *   this week!" once per account per device.
  * - After it, signed in without ad-free of their own: "The free ad-free week
@@ -27,7 +27,6 @@ import './PromoWeek.css'
  * while a player is open.
  */
 
-const POPUP_DAY_KEY = 'naijatr.promoWeek.day'
 const WELCOME_KEY = 'naijatr.promoWeek.welcome'
 const ENDED_KEY = 'naijatr.promoWeek.ended'
 /** The ended message only shows this long after the week. */
@@ -107,79 +106,36 @@ function useFreeMoment(eligible: boolean, unseen: boolean, show: () => boolean) 
 
 const onPromoPages = () => /^\/(auth|admin)(\/|$)/.test(window.location.pathname)
 
-/** Signed out during the week: once a day per device. */
-export function PromoWeekPopupHost() {
-  const { status: account } = useAccount()
-  const state = usePromoState()
-  const promo = usePromo()
-  const eligible = state === 'active' && account === 'signedOut' && !isTvMode() && !onPromoPages()
-  const [open, close] = useFreeMoment(eligible, read(POPUP_DAY_KEY) !== lagosDay(serverTime()), () => {
-    if (read(POPUP_DAY_KEY) === lagosDay(serverTime())) return false
-    write(POPUP_DAY_KEY, lagosDay(serverTime()))
-    return true
-  })
-  const left = useTimeLeft(open && promo ? promo.end : null)
-  useAdOverlay(open)
-  useHoldNotices(open)
-  if (!open || !promo) return null
-  const dismiss = () => {
-    holdAdsThisTap()
-    close()
-  }
-  return (
-    <div className="promo promo-week" role="dialog" aria-modal="true" aria-labelledby="promo-week-title">
-      <div className="promo__panel">
-        <button type="button" className="promo__close" aria-label="Close" onClick={dismiss}>
-          <X aria-hidden="true" />
-        </button>
-        <p id="promo-week-title" className="promo__title">
-          🎉 FREE AD-FREE WEEK!
-        </p>
-        <p className="promo__text">
-          Register now and watch NAIJA TR with NO ADS until {promoEndText(promo.end)}. ⏳ This offer is for one week only.
-        </p>
-        <p className="promo-week__countdown" aria-label="Time left">
-          {countdownText(left)}
-        </p>
-        <div className="promo__actions">
-          <button
-            type="button"
-            className="promo__primary"
-            onClick={() => {
-              dismiss()
-              openSignIn('create')
-            }}
-          >
-            Register free
-          </button>
-          <button type="button" className="promo__ghost" onClick={dismiss}>
-            Not now
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** The banner shows this long before the week starts ("starts in…"). */
+/** Signed-in accounts: their "starts in…" line shows this long before the start. */
 const SOON_MS = 2 * 24 * 60 * 60 * 1000
 
 /**
- * A slim banner along the top (not a popup: it blocks nothing). Before the
- * week (its last 2 days): "starts in…" for everyone, signed out with sign-up.
- * During it: for signed-out visitors, "ends in…" with sign-up.
+ * A slim banner along the top (it blocks nothing).
+ *
+ * - Signed out: "Too many ads? 😅 Sign in now and get NAIJA TR ad-free", on
+ *   every visit (each page load) while the offer stands (from before the start
+ *   to its end), with Sign in and an easy ✕ that hides it for this visit.
+ * - Signed in without ad-free of their own, before the start: when it starts.
  */
 export function PromoWeekBanner() {
   const { status: account } = useAccount()
   const state = usePromoState()
   const promo = usePromo()
   const status = useReferralStatus()
+  const [closed, setClosed] = useState(false)
   const signedOut = account === 'signedOut'
-  // Ad-free of their own already: nothing changes for them, so no "starts in…".
+  // Ad-free of their own already: nothing changes for them.
   const ownAdFree = status?.signedIn === true && (status.ownAdFree ?? status.adFree)
   const soon = state === 'upcoming' && promo !== null && Date.parse(promo.start) - serverTime() <= SOON_MS
-  const mode = isTvMode() || onPromoPages() || !promo ? null : state === 'active' && signedOut ? 'ends' : soon && (signedOut || (account === 'signedIn' && !ownAdFree)) ? 'starts' : null
-  const left = useTimeLeft(mode === 'ends' ? promo!.end : mode === 'starts' ? promo!.start : null)
+  const mode =
+    closed || isTvMode() || onPromoPages() || !promo
+      ? null
+      : signedOut && (state === 'active' || state === 'upcoming')
+        ? 'sign-in'
+        : soon && account === 'signedIn' && !ownAdFree
+          ? 'starts'
+          : null
+  const left = useTimeLeft(mode === 'starts' ? promo!.start : null)
   // The navbar moves down under it (PromoWeek.css).
   useEffect(() => {
     if (!mode) return
@@ -187,26 +143,40 @@ export function PromoWeekBanner() {
     return () => document.documentElement.classList.remove('has-promo-banner')
   }, [mode])
   if (!mode) return null
-  if (mode === 'starts' && !signedOut) {
+  if (mode === 'starts') {
     return (
       <p className="promo-week-banner" role="status">
-        🎉 Free ad-free week starts in {countdownText(left, false)}: no ads for you all week, until {promoEndText(promo!.end)}
+        🎉 Ad-free NAIJA TR starts in {countdownText(left, false)}: no ads for you until {promoEndText(promo!.end)}
       </p>
     )
   }
   return (
-    <button
-      type="button"
-      className="promo-week-banner"
-      onClick={() => {
-        holdAdsThisTap()
-        openSignIn('create')
-      }}
-    >
-      {mode === 'starts'
-        ? `🎉 Free ad-free week starts in ${countdownText(left, false)}: register free and watch with no ads all week`
-        : `🎉 Ad-free week: register free and watch with no ads, ends in ${countdownText(left, false)}`}
-    </button>
+    <div className="promo-week-banner promo-week-banner--sign-in" role="region" aria-label="Go ad-free">
+      <p className="promo-week-banner__text">
+        Too many ads? 😅 Sign in now and get NAIJA TR ad-free{state === 'upcoming' ? ' from midnight' : ''}
+      </p>
+      <button
+        type="button"
+        className="promo-week-banner__action"
+        onClick={() => {
+          holdAdsThisTap()
+          openSignIn()
+        }}
+      >
+        Sign in
+      </button>
+      <button
+        type="button"
+        className="promo-week-banner__close"
+        aria-label="Close"
+        onClick={() => {
+          holdAdsThisTap()
+          setClosed(true)
+        }}
+      >
+        <X aria-hidden="true" />
+      </button>
+    </div>
   )
 }
 
