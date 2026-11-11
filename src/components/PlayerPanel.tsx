@@ -539,6 +539,8 @@ export function PlayerPanel({
           tmdbId: item.tmdbId,
           type: isSeries ? 'tv' : 'movie',
           episode: subtitleEpisode?.season !== undefined ? (subtitleEpisode as EpisodeRef) : undefined,
+          title: item.title,
+          server: active?.server,
         }
       : null
   const subs = usePlayerSubtitles(subtitleTarget, frameRef, subtitleTarget && active ? `${active.server}-${active.attempt}-${active.streamSrc}` : null)

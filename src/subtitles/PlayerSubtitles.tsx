@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { Captions, Check } from 'lucide-react'
 import { isIos } from '../pwa'
 import {
@@ -6,16 +6,29 @@ import {
   DEFAULT_LANG,
   loadLanguages,
   loadSubtitle,
+  loadVersions,
   offsetKey,
+  reportOutOfSync,
+  savedOffset,
+  savedSpeed,
+  savedVersion,
   saveSubtitleOffset,
+  saveSubtitleSpeed,
+  saveSubtitleVersion,
   setSubtitleChoice,
+  SPEEDS,
   subscribeSubtitleChoice,
   subtitleChoice,
-  subtitleOffset,
+  subtitleTime,
   takeIphoneTip,
+  versionKey,
+  voteSync,
   type Cue,
+  type LoadedSubtitle,
+  type SpeedId,
   type SubtitleLanguage,
   type SubtitleTarget,
+  type SubtitleVersion,
 } from './subtitles'
 import './PlayerSubtitles.css'
 
@@ -25,6 +38,11 @@ import './PlayerSubtitles.css'
  * (`{ source: 'embedmaster_player', event: 'time', info: seconds }`), so the CC
  * button only shows once a player has reported its time. Nothing is fetched
  * until the video is playing: subtitles never hold up playback.
+ *
+ * Sync: another version of the file, an offset (±0.5s / ±5s, per title) and a
+ * speed (frame-rate stretch, per title). A setting the viewer changed and then
+ * kept for VOTE_AFTER_MS of watching counts as one vote for the episode's
+ * community default (3 viewers on the same one: everyone gets it).
  */
 
 const PLAYER_EVENTS = 'embedmaster_player'
@@ -32,6 +50,9 @@ const PLAYER_EVENTS = 'embedmaster_player'
 const MAX_COAST_S = 1.5
 const TICK_MS = 100
 export const SYNC_STEP_S = 0.5
+export const BIG_SYNC_STEP_S = 5
+/** A changed setting kept this long while watching "works". */
+export const VOTE_AFTER_MS = 2 * 60 * 1000
 
 type Status = 'off' | 'loading' | 'ready' | 'none'
 
@@ -46,6 +67,9 @@ const isInside = (source: MessageEventSource | null, frame: Window | null | unde
   return false
 }
 
+/** "+2.5s", "−0.5s", "0.0s". */
+export const formatOffset = (offset: number) => `${offset > 0 ? '+' : offset < 0 ? '−' : ''}${Math.abs(offset).toFixed(1)}s`
+
 export interface PlayerSubtitles {
   /** The player reports its time: the CC button can show. */
   supported: boolean
@@ -53,10 +77,22 @@ export interface PlayerSubtitles {
   status: Status
   languages: SubtitleLanguage[]
   offset: number
+  speed: SpeedId
+  /** The community's offset and speed are in use (the viewer hasn't set their own). */
+  community: boolean
+  /** The file showing, and the others ("Try another version"); null until asked for. */
+  version: string | null
+  versions: SubtitleVersion[] | null
+  reported: boolean
   shown: Cue[]
   iphoneTip: boolean
   choose: (choice: string) => void
   nudge: (by: number) => void
+  resetSync: () => void
+  setSpeed: (speed: SpeedId) => void
+  chooseVersion: (id: string) => void
+  wantVersions: () => void
+  report: () => void
 }
 
 /**
@@ -99,6 +135,8 @@ export function usePlayerSubtitles(target: SubtitleTarget | null, frameRef: RefO
 
   const targetKey = target ? `${target.type}:${target.tmdbId}:${target.episode?.season ?? ''}:${target.episode?.episode ?? ''}` : null
   const active = supported && targetKey !== null
+  const titleKey = target ? offsetKey(target) : null
+  const episodeKey = target && choice !== 'off' ? versionKey(target, choice) : null
 
   // The languages, once it plays.
   const [languages, setLanguages] = useState<SubtitleLanguage[]>([])
@@ -112,28 +150,104 @@ export function usePlayerSubtitles(target: SubtitleTarget | null, frameRef: RefO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, targetKey])
 
-  // The subtitle itself.
-  const [loaded, setLoaded] = useState<{ key: string; cues: Cue[] | null } | null>(null)
-  const loadKey = active && choice !== 'off' ? `${targetKey}:${choice}` : null
+  // The version the viewer picked for this episode (null: the best one, or the community's).
+  const [pickedVersion, setPickedVersion] = useState<string | null>(null)
+  useEffect(() => setPickedVersion(episodeKey ? savedVersion(episodeKey) : null), [episodeKey])
+
+  // The subtitle itself. Each version stays in memory, so switching back is instant.
+  const loadedRef = useRef(new Map<string, LoadedSubtitle | null>())
+  const [, setLoadedTick] = useState(0)
+  const loadKey = active && episodeKey ? `${episodeKey}:${pickedVersion ?? 'auto'}` : null
   useEffect(() => {
-    if (!loadKey || !target) return
-    if (loaded?.key === loadKey) return
+    if (!loadKey || !target || loadedRef.current.has(loadKey)) return
     const ctrl = new AbortController()
-    void loadSubtitle(target, choice, ctrl.signal).then((cues) => !ctrl.signal.aborted && setLoaded({ key: loadKey, cues }))
+    void loadSubtitle(target, choice, pickedVersion, ctrl.signal).then((sub) => {
+      if (ctrl.signal.aborted) return
+      loadedRef.current.set(loadKey, sub)
+      setLoadedTick((n) => n + 1)
+    })
     return () => ctrl.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey])
+  const loaded = loadKey && loadedRef.current.has(loadKey) ? loadedRef.current.get(loadKey)! : undefined
+  const status: Status = choice === 'off' || !active ? 'off' : loaded === undefined ? 'loading' : loaded ? 'ready' : 'none'
 
-  const status: Status = choice === 'off' || !active ? 'off' : loaded?.key !== loadKey ? 'loading' : loaded.cues ? 'ready' : 'none'
+  // Offset and speed, per title: the viewer's own, else the community's for this episode, else none.
+  const [own, setOwn] = useState<{ offset: number | null; speed: SpeedId | null }>({ offset: null, speed: null })
+  useEffect(() => setOwn(titleKey ? { offset: savedOffset(titleKey), speed: savedSpeed(titleKey) } : { offset: null, speed: null }), [titleKey])
+  const communitySetting = !pickedVersion ? (loaded?.community ?? null) : null
+  const offset = own.offset ?? communitySetting?.offset ?? 0
+  const speed = own.speed ?? communitySetting?.speed ?? '1'
+  const community = communitySetting !== null && own.offset === null && own.speed === null
+  const version = loaded?.version ?? pickedVersion
 
-  // The sync offset, per title.
-  const titleKey = target ? offsetKey(target) : null
-  const [offset, setOffset] = useState(0)
-  useEffect(() => setOffset(titleKey ? subtitleOffset(titleKey) : 0), [titleKey])
+  // A change the viewer made, then kept while watching: one vote (once per setting and episode).
+  const [changed, setChanged] = useState(0)
+  const voted = useRef(new Set<string>())
+  useEffect(() => {
+    if (!changed || status !== 'ready' || !target || !version || choice === 'off') return
+    const setting = { version, offset, speed }
+    const signature = `${targetKey}:${choice}:${version}:${offset}:${speed}`
+    if (voted.current.has(signature)) return
+    const timer = window.setTimeout(() => {
+      if (!clock.current.playing) return
+      voted.current.add(signature)
+      void voteSync(target, choice, setting)
+    }, VOTE_AFTER_MS)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changed, status, version, offset, speed, choice, targetKey])
+
   const nudge = (by: number) => {
     const next = Math.round((offset + by) * 10) / 10
-    setOffset(next)
-    if (titleKey) saveSubtitleOffset(titleKey, next)
+    setOwn((o) => ({ ...o, offset: next, speed: o.speed ?? speed }))
+    if (titleKey) {
+      saveSubtitleOffset(titleKey, next)
+      saveSubtitleSpeed(titleKey, own.speed ?? speed)
+    }
+    setChanged((n) => n + 1)
+  }
+  const resetSync = () => {
+    setOwn({ offset: 0, speed: '1' })
+    if (titleKey) {
+      saveSubtitleOffset(titleKey, 0)
+      saveSubtitleSpeed(titleKey, '1')
+    }
+    setChanged((n) => n + 1)
+  }
+  const setSpeed = (next: SpeedId) => {
+    setOwn((o) => ({ offset: o.offset ?? offset, speed: next }))
+    if (titleKey) {
+      saveSubtitleSpeed(titleKey, next)
+      saveSubtitleOffset(titleKey, own.offset ?? offset)
+    }
+    setChanged((n) => n + 1)
+  }
+  const chooseVersion = (id: string) => {
+    setPickedVersion(id)
+    if (episodeKey) saveSubtitleVersion(episodeKey, id)
+    setChanged((n) => n + 1)
+  }
+
+  // "Try another version": asked for when the menu opens, per episode and language.
+  const [versionsFor, setVersionsFor] = useState<{ key: string; list: SubtitleVersion[] } | null>(null)
+  const [wanted, setWanted] = useState(false)
+  useEffect(() => {
+    if (!wanted || !active || !target || !episodeKey || versionsFor?.key === episodeKey) return
+    const ctrl = new AbortController()
+    const key = episodeKey
+    void loadVersions(target, choice, ctrl.signal).then((list) => !ctrl.signal.aborted && setVersionsFor({ key, list }))
+    return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, active, episodeKey])
+  const versions = versionsFor?.key === episodeKey ? versionsFor.list : null
+
+  // "Subtitles out of sync?": once per episode and language.
+  const [reportedFor, setReportedFor] = useState<string | null>(null)
+  const report = () => {
+    if (!target || !episodeKey || reportedFor === episodeKey) return
+    setReportedFor(episodeKey)
+    void reportOutOfSync(target, choice, { version: version ?? undefined, offset, speed })
   }
 
   // iPhone: the player's own fullscreen is the video alone, without our text. Said once.
@@ -145,14 +259,34 @@ export function usePlayerSubtitles(target: SubtitleTarget | null, frameRef: RefO
     return () => window.clearTimeout(timer)
   }, [status])
 
-  const shown = status === 'ready' && loaded?.cues ? cuesAt(loaded.cues, time - offset) : []
-  return { supported: active, choice, status, languages, offset, shown, iphoneTip, choose: (c) => setSubtitleChoice(c), nudge }
+  const shown = status === 'ready' && loaded ? cuesAt(loaded.cues, subtitleTime(time, offset, speed)) : []
+  return {
+    supported: active,
+    choice,
+    status,
+    languages,
+    offset,
+    speed,
+    community,
+    version,
+    versions,
+    reported: reportedFor !== null && reportedFor === episodeKey,
+    shown,
+    iphoneTip,
+    choose: (c) => setSubtitleChoice(c),
+    nudge,
+    resetSync,
+    setSpeed,
+    chooseVersion,
+    wantVersions: () => setWanted(true),
+    report,
+  }
 }
 
 /** <i>, <b> and <u> stay; any other markup shows as text. */
 function CueLine({ line }: { line: string }) {
   const parts = line.split(/(<\/?[ibu]>)/i)
-  const out: React.ReactNode[] = []
+  const out: ReactNode[] = []
   const style = { i: false, b: false, u: false }
   parts.forEach((part, n) => {
     const tag = /^<(\/)?([ibu])>$/i.exec(part)
@@ -161,7 +295,7 @@ function CueLine({ line }: { line: string }) {
       return
     }
     if (!part) return
-    let node: React.ReactNode = part.replace(/<[^>]*>/g, '')
+    let node: ReactNode = part.replace(/<[^>]*>/g, '')
     if (style.u) node = <u>{node}</u>
     if (style.b) node = <b>{node}</b>
     if (style.i) node = <i>{node}</i>
@@ -197,7 +331,7 @@ export function SubtitleOverlay({ subs }: { subs: PlayerSubtitles }) {
   )
 }
 
-/** The CC button (in the player's bar) and its menu: Off, English, the other languages, sync. */
+/** The CC button (in the player's bar) and its menu: languages, sync, speed, versions and "out of sync?". */
 export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
   const [open, setOpen] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -219,6 +353,12 @@ export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
       document.removeEventListener('keydown', onKey, true)
     }
   }, [open])
+  const { wantVersions, choice } = subs
+  useEffect(() => {
+    if (open && choice !== 'off') wantVersions()
+    // wantVersions only sets a flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, choice])
   if (!subs.supported) return null
 
   const others = subs.languages.filter((l) => l.code !== 'en' && l.available)
@@ -228,7 +368,7 @@ export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
     ...others.map((l) => ({ code: l.code, name: l.name })),
   ]
   const current = options.find((o) => o.code === subs.choice)?.name ?? subs.choice
-  const sign = subs.offset > 0 ? '+' : subs.offset < 0 ? '−' : ''
+  const on = subs.choice !== 'off'
 
   return (
     <div className="subs-menu" ref={boxRef}>
@@ -237,10 +377,10 @@ export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
         className="btn btn--ghost subs-menu__button"
         aria-haspopup="true"
         aria-expanded={open}
-        aria-pressed={subs.choice !== 'off'}
+        aria-pressed={on}
         onClick={() => setOpen((o) => !o)}
       >
-        <Captions aria-hidden="true" /> CC{subs.choice !== 'off' ? `: ${current}` : ''}
+        <Captions aria-hidden="true" /> CC{on ? `: ${current}` : ''}
       </button>
       {open && (
         <div className="subs-menu__panel" role="group" aria-label="Subtitles">
@@ -253,7 +393,7 @@ export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
                   aria-pressed={subs.choice === o.code}
                   onClick={() => {
                     subs.choose(o.code)
-                    setOpen(false)
+                    if (o.code === 'off') setOpen(false)
                   }}
                 >
                   {subs.choice === o.code ? <Check aria-hidden="true" /> : <span className="subs-menu__space" />}
@@ -262,18 +402,71 @@ export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
               </li>
             ))}
           </ul>
-          {subs.choice !== 'off' && (
-            <div className="subs-menu__sync">
-              <button type="button" className="btn btn--ghost" onClick={() => subs.nudge(-SYNC_STEP_S)} aria-label="Subtitles 0.5 seconds earlier">
-                −0.5s
+
+          {on && (
+            <>
+              <p className="subs-menu__heading">
+                Sync <span className="subs-menu__offset" aria-live="polite">{formatOffset(subs.offset)}</span>
+                {subs.community && <span className="subs-menu__badge">Fixed by viewers</span>}
+              </p>
+              <div className="subs-menu__sync">
+                <button type="button" className="btn btn--ghost" onClick={() => subs.nudge(-BIG_SYNC_STEP_S)} aria-label="Subtitles 5 seconds earlier">
+                  −5s
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={() => subs.nudge(-SYNC_STEP_S)} aria-label="Subtitles 0.5 seconds earlier">
+                  −0.5s
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={() => subs.nudge(SYNC_STEP_S)} aria-label="Subtitles 0.5 seconds later">
+                  +0.5s
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={() => subs.nudge(BIG_SYNC_STEP_S)} aria-label="Subtitles 5 seconds later">
+                  +5s
+                </button>
+              </div>
+              <button type="button" className="btn btn--ghost subs-menu__reset" onClick={subs.resetSync} disabled={subs.offset === 0 && subs.speed === '1'}>
+                Reset
               </button>
-              <span className="subs-menu__offset" aria-live="polite">
-                {subs.offset === 0 ? 'In sync' : `${sign}${Math.abs(subs.offset).toFixed(1)}s`}
-              </span>
-              <button type="button" className="btn btn--ghost" onClick={() => subs.nudge(SYNC_STEP_S)} aria-label="Subtitles 0.5 seconds later">
-                +0.5s
+
+              <label className="subs-menu__heading" htmlFor="subs-speed">
+                Subtitle speed
+              </label>
+              <select id="subs-speed" className="subs-menu__select" value={subs.speed} onChange={(e) => subs.setSpeed(e.target.value as SpeedId)}>
+                {SPEEDS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <p className="subs-menu__hint">For subtitles that drift further off as the video goes on.</p>
+
+              <p className="subs-menu__heading">Try another version</p>
+              {subs.versions === null ? (
+                <p className="subs-menu__hint">Looking for other versions…</p>
+              ) : subs.versions.length <= 1 ? (
+                <p className="subs-menu__hint">No other versions found.</p>
+              ) : (
+                <ul className="subs-menu__list">
+                  {subs.versions.map((v) => (
+                    <li key={v.id}>
+                      <button
+                        type="button"
+                        className="subs-menu__option"
+                        aria-pressed={subs.version === v.id}
+                        title={v.release || undefined}
+                        onClick={() => subs.chooseVersion(v.id)}
+                      >
+                        {subs.version === v.id ? <Check aria-hidden="true" /> : <span className="subs-menu__space" />}
+                        {v.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <button type="button" className="btn btn--ghost subs-menu__report" onClick={subs.report} disabled={subs.reported}>
+                {subs.reported ? 'Thanks, we’ll look at it' : 'Subtitles out of sync?'}
               </button>
-            </div>
+            </>
           )}
         </div>
       )}

@@ -24,6 +24,9 @@ export interface SubtitleTarget {
   tmdbId: number
   type: 'movie' | 'tv'
   episode?: { season: number; episode: number }
+  /** For "Subtitles out of sync?" reports: the title's name and the server playing. */
+  title?: string
+  server?: string
 }
 
 const seconds = (t: string): number | null => {
@@ -72,19 +75,98 @@ const query = (t: SubtitleTarget) => {
   return q
 }
 
-/** The subtitle in `lang`, or null (none found, rate-limited, offline, turned off on the server). */
-export async function loadSubtitle(target: SubtitleTarget, lang: string, signal?: AbortSignal): Promise<Cue[] | null> {
+/** Subtitles timed for one frame rate, played at another: Normal, or stretched by from/to. */
+export const SPEEDS = [
+  { id: '1', label: 'Normal', factor: 1 },
+  { id: '23.976-25', label: '23.976 → 25', factor: 23.976 / 25 },
+  { id: '25-23.976', label: '25 → 23.976', factor: 25 / 23.976 },
+  { id: '24-25', label: '24 → 25', factor: 24 / 25 },
+  { id: '25-24', label: '25 → 24', factor: 25 / 24 },
+] as const
+export type SpeedId = (typeof SPEEDS)[number]['id']
+export const speedFactor = (id: string) => SPEEDS.find((s) => s.id === id)?.factor ?? 1
+export const isSpeed = (id: unknown): id is SpeedId => SPEEDS.some((s) => s.id === id)
+
+/** The subtitle time showing at player time `time`: shifted by `offset` seconds, stretched by the speed. */
+export const subtitleTime = (time: number, offset: number, speed: string) => (time - offset) / speedFactor(speed)
+
+export interface SyncSetting {
+  version: string
+  offset: number
+  speed: SpeedId
+}
+
+export interface LoadedSubtitle {
+  cues: Cue[]
+  /** The file it is (for "Try another version"); null from an older cache entry. */
+  version: string | null
+  /** Viewers fixed this episode together: their offset and speed come with it. */
+  community: { offset: number; speed: SpeedId } | null
+}
+
+/** The subtitle in `lang` (a given version of it, or the best one), or null (none found, rate-limited, offline, off). */
+export async function loadSubtitle(target: SubtitleTarget, lang: string, version?: string | null, signal?: AbortSignal): Promise<LoadedSubtitle | null> {
   try {
     const q = query(target)
     q.set('lang', lang)
+    if (version) q.set('version', version)
     const response = await fetch(`/api/subtitles?${q}`, { signal })
     if (!response.ok) return null
     const cues = parseVtt(await response.text())
-    return cues.length ? cues : null
+    if (!cues.length) return null
+    const header = (name: string) => response.headers?.get?.(name) ?? null
+    const speed = header('X-Subtitle-Speed')
+    const offset = Number(header('X-Subtitle-Offset'))
+    return {
+      cues,
+      version: header('X-Subtitle-Version') ?? version ?? null,
+      community: header('X-Subtitle-Community') === '1' && Number.isFinite(offset) ? { offset, speed: isSpeed(speed) ? speed : '1' } : null,
+    }
   } catch {
     return null
   }
 }
+
+export interface SubtitleVersion {
+  id: string
+  label: string
+  release: string
+}
+
+/** The files for this episode and language ("Try another version"), the one playing first. [] on failure. */
+export async function loadVersions(target: SubtitleTarget, lang: string, signal?: AbortSignal): Promise<SubtitleVersion[]> {
+  try {
+    const q = query(target)
+    q.set('lang', lang)
+    const response = await fetch(`/api/subtitles/versions?${q}`, { signal })
+    if (!response.ok) return []
+    const body = (await response.json()) as { versions?: SubtitleVersion[] }
+    return Array.isArray(body.versions) ? body.versions : []
+  } catch {
+    return []
+  }
+}
+
+const post = (path: string, body: unknown) =>
+  fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true })
+    .then((r) => r.ok)
+    .catch(() => false)
+
+const bodyOf = (target: SubtitleTarget, lang: string, setting: Partial<SyncSetting>) => ({
+  tmdbId: target.tmdbId,
+  type: target.type,
+  season: target.episode?.season,
+  episode: target.episode?.episode,
+  lang,
+  ...setting,
+})
+
+/** This setting worked for this viewer: one vote toward the episode's community default. */
+export const voteSync = (target: SubtitleTarget, lang: string, setting: SyncSetting) => post('/api/subtitles/vote', bodyOf(target, lang, setting))
+
+/** "Subtitles out of sync?": logged for /admin/live. */
+export const reportOutOfSync = (target: SubtitleTarget, lang: string, setting: Partial<SyncSetting>) =>
+  post('/api/subtitles/report', { ...bodyOf(target, lang, setting), title: target.title, server: target.server })
 
 /** The languages there are subtitles in (English always listed first). Never throws. */
 export async function loadLanguages(target: SubtitleTarget, signal?: AbortSignal): Promise<SubtitleLanguage[]> {
@@ -103,6 +185,8 @@ export async function loadLanguages(target: SubtitleTarget, signal?: AbortSignal
 const LANG_KEY = 'naijatr.subs.lang'
 const OFFSETS_KEY = 'naijatr.subs.offsets'
 const IPHONE_TIP_KEY = 'naijatr.subs.iphoneTip'
+const SPEEDS_KEY = 'naijatr.subs.speeds'
+const VERSIONS_KEY = 'naijatr.subs.versions'
 export const DEFAULT_LANG = 'en'
 /** "off", or a language code. */
 export type SubtitleChoice = string
@@ -154,29 +238,53 @@ export function adoptAccountSubtitleChoice(choice: unknown) {
 /** "movie:550" or "tv:1399": one offset per title (episodes share their show's). */
 export const offsetKey = (t: SubtitleTarget) => `${t.type}:${t.tmdbId}`
 
-export function subtitleOffset(key: string): number {
+function readMap<T>(storageKey: string): Record<string, T> {
   try {
-    const all = JSON.parse(read(OFFSETS_KEY) ?? '{}') as Record<string, number>
-    return typeof all[key] === 'number' ? all[key] : 0
+    const all = JSON.parse(read(storageKey) ?? '{}') as unknown
+    return all && typeof all === 'object' ? (all as Record<string, T>) : {}
   } catch {
-    return 0
+    return {}
   }
 }
 
-export function saveSubtitleOffset(key: string, offset: number) {
-  let all: Record<string, number> = {}
-  try {
-    all = JSON.parse(read(OFFSETS_KEY) ?? '{}') as Record<string, number>
-  } catch {
-    // Start again.
-  }
-  if (offset === 0) delete all[key]
-  else all[key] = offset
-  // The last 200 titles are plenty.
+/** Sets (or, with null, removes) one entry; the last 200 are kept. */
+function writeMap<T>(storageKey: string, key: string, value: T | null) {
+  const all = readMap<T>(storageKey)
+  delete all[key]
+  if (value !== null) all[key] = value
   const keys = Object.keys(all)
   for (const old of keys.slice(0, Math.max(0, keys.length - 200))) delete all[old]
-  write(OFFSETS_KEY, JSON.stringify(all))
+  write(storageKey, JSON.stringify(all))
 }
+
+/** The viewer's own sync offset for a title (seconds); null when they never moved it. */
+export function savedOffset(key: string): number | null {
+  const value = readMap<number>(OFFSETS_KEY)[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+export const subtitleOffset = (key: string) => savedOffset(key) ?? 0
+
+/** Kept even at 0 ("Reset"): the viewer's own choice beats the community's. */
+export const saveSubtitleOffset = (key: string, offset: number) => writeMap(OFFSETS_KEY, key, offset)
+
+/** The viewer's own subtitle speed for a title; null when never set. */
+export function savedSpeed(key: string): SpeedId | null {
+  const value = readMap<string>(SPEEDS_KEY)[key]
+  return isSpeed(value) ? value : null
+}
+
+export const saveSubtitleSpeed = (key: string, speed: SpeedId) => writeMap(SPEEDS_KEY, key, speed)
+
+/** "tv:1399:3:9:en": the version chosen for one episode in one language. */
+export const versionKey = (t: SubtitleTarget, lang: string) => `${t.type}:${t.tmdbId}:${t.episode?.season ?? 0}:${t.episode?.episode ?? 0}:${lang}`
+
+export function savedVersion(key: string): string | null {
+  const value = readMap<string>(VERSIONS_KEY)[key]
+  return typeof value === 'string' ? value : null
+}
+
+export const saveSubtitleVersion = (key: string, version: string | null) => writeMap(VERSIONS_KEY, key, version)
 
 /** The iPhone tip, once per device. True the first time. */
 export function takeIphoneTip(): boolean {

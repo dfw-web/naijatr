@@ -126,7 +126,7 @@ export async function searchOpenSubtitles(apiKey: string, search: OsSearch, fetc
         downloads: a.download_count ?? 0,
         hearingImpaired: Boolean(a.hearing_impaired),
         machine: Boolean(a.machine_translated || a.ai_translated),
-        release: a.release ?? '',
+        release: (a.release ?? '').normalize('NFKC'),
       })
     }
     if (page >= (body.total_pages ?? 1)) break
@@ -208,6 +208,8 @@ interface SubdlSubtitle {
   url?: string
   season?: number | null
   episode?: number | null
+  episode_from?: number | null
+  episode_end?: number | null
   full_season?: boolean
   hi?: boolean
 }
@@ -229,31 +231,61 @@ export async function searchSubdl(apiKey: string, search: SubdlSearch, fetchImpl
     const body = (await response.json()) as { status?: boolean; subtitles?: SubdlSubtitle[]; totalPages?: number }
     if (!body.status) break
     for (const s of body.subtitles ?? []) {
-      if (!s.url) continue
+      if (!s.url || !subdlPath(s.url)) continue
       const ep = search.episode
       if (ep && s.season && s.season !== ep.season) continue
-      if (ep && s.episode && s.episode !== ep.episode && !s.full_season) continue
+      // A pack of episodes 1-6 is listed as episode 1, its range in episode_from / episode_end.
+      const from = s.episode_from ?? s.episode ?? null
+      const to = s.episode_end && from && s.episode_end >= from ? s.episode_end : from
+      const inRange = ep !== undefined && from !== null && to !== null && ep.episode >= from && ep.episode <= to
+      if (ep && s.episode && !inRange && !s.full_season) continue
       const candidate: Candidate = {
         provider: 'subdl',
-        ref: `${SUBDL_DL}${s.url.startsWith('/') ? '' : '/'}${s.url}`,
+        // The path only: SubDL's URL carries our API key in its query, and versions go to the browser.
+        ref: subdlPath(s.url),
         lang: fromSubdlLang(s.language ?? s.lang ?? ''),
         downloads: 0,
         hearingImpaired: Boolean(s.hi) || /\b(HI|SDH)\b/.test(`${s.release_name ?? ''} ${s.name ?? ''}`),
-        machine: /machine|auto[- ]?translat|google translat/i.test(`${s.release_name ?? ''} ${s.name ?? ''}`),
-        release: s.release_name ?? s.name ?? '',
+        machine: /machine|auto[- ]?translat|google translat/i.test(`${s.release_name ?? ''} ${s.name ?? ''}`.normalize('NFKC')),
+        release: (s.release_name ?? s.name ?? '').normalize('NFKC'),
       }
-      ;(ep && (s.full_season || !s.episode) ? packs : exact).push(candidate)
+      ;(ep && (s.full_season || !s.episode || from !== to) ? packs : exact).push(candidate)
     }
     if (page >= (body.totalPages ?? 1)) break
   }
   return [...exact, ...packs]
 }
 
-export async function downloadSubdl(url: string, fetchImpl: Fetch): Promise<Uint8Array | null> {
-  if (!url.startsWith(SUBDL_DL)) return null
-  const response = await fetchImpl(url, { signal: signal() })
+const SUBDL_PATH = /^\/subtitle\/[\w.-]+\.zip$/
+
+/** "/subtitle/3595858-8513190.zip" from SubDL's url (its query, with the API key, dropped); '' when it isn't one. */
+export function subdlPath(url: string): string {
+  const path = (url.startsWith('/') ? url : `/${url}`).split('?')[0]
+  return SUBDL_PATH.test(path) ? path : ''
+}
+
+export async function downloadSubdl(path: string, apiKey: string, fetchImpl: Fetch): Promise<Uint8Array | null> {
+  if (!SUBDL_PATH.test(path)) return null
+  const response = await fetchImpl(`${SUBDL_DL}${path}?api_key=${encodeURIComponent(apiKey)}`, { signal: signal() })
   if (!response.ok) return null
   return new Uint8Array(await response.arrayBuffer())
+}
+
+/** The release's source, for "Version 2 (WEB-DL)". */
+export function releaseTag(release: string): string | null {
+  const tags: [RegExp, string][] = [
+    [/web[-. ]?dl/i, 'WEB-DL'],
+    [/web[-. ]?rip/i, 'WEBRip'],
+    [/blu[-. ]?ray|bdrip|brrip|\bbd\b/i, 'BluRay'],
+    [/hdtv/i, 'HDTV'],
+    [/dvd[-. ]?rip|\bdvd\b/i, 'DVD'],
+    [/hd[-. ]?rip/i, 'HDRip'],
+    [/\b(nf|netflix)\b/i, 'Netflix'],
+    [/\b(amzn|amazon)\b/i, 'Amazon'],
+    [/\bweb\b/i, 'WEB'],
+  ]
+  for (const [pattern, tag] of tags) if (pattern.test(release)) return tag
+  return null
 }
 
 /**

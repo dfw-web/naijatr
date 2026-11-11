@@ -295,6 +295,16 @@
         </div>
         <p class="muted" id="sb-steps"></p>
         <p class="muted" id="sb-note"></p>
+        <h3>Subtitles out of sync? <span class="muted" id="sb-sync-count"></span></h3>
+        <p class="muted">Titles viewers reported most (all time), then the latest reports: version, offset and speed they had.</p>
+        <ol id="sb-bad"></ol>
+        <ol id="sb-reports"></ol>
+        <form id="sb-flush" class="inline-form">
+          <label for="sb-flush-id">Clear a title's cached subtitles (TMDB id)</label>
+          <input id="sb-flush-id" inputmode="numeric" pattern="[0-9]+" required placeholder="307853" />
+          <button type="submit">Clear</button>
+        </form>
+        <p class="muted" id="sb-flush-result" role="status"></p>
 
         <h2>Live Stream API</h2>
         <p class="stat"><strong id="sl-usage">–</strong><span id="sl-usage-note">requests used today</span></p>

@@ -442,6 +442,11 @@ async function loadSubtitles() {
       osLimited?: boolean
       steps?: Record<string, number>
       configured?: { opensubtitles: boolean; login: boolean; subdl: boolean; redis: boolean }
+      outOfSyncToday?: number
+      versionSwitches?: number
+      communityDefaults?: number
+      badTitles?: { slot: string; title: string; reports: number }[]
+      reports?: { at: string; title: string; lang: string; version: string | null; offset: number; speed: string; server: string | null }[]
     }
     if (!response.ok || typeof body.served !== 'number') {
       note.textContent = 'Couldn’t load the subtitle numbers.'
@@ -453,6 +458,26 @@ async function loadSubtitles() {
     $('sb-subdl').textContent = String(body.subdlFallbacks ?? 0)
     const steps = Object.entries(body.steps ?? {}).sort((a, b) => b[1] - a[1])
     $('sb-steps').textContent = steps.length ? `Found by: ${steps.map(([step, n]) => `${step} ${n}`).join(' · ')}` : 'Found by: nothing new yet today.'
+    $('sb-sync-count').textContent = `(${body.outOfSyncToday ?? 0} today · ${body.versionSwitches ?? 0} version switches · ${body.communityDefaults ?? 0} fixed by viewers)`
+    const list = (id: string, items: string[], empty: string) => {
+      const ol = $(id)
+      ol.replaceChildren(
+        ...(items.length ? items : [empty]).map((text) => {
+          const li = document.createElement('li')
+          li.textContent = text
+          return li
+        }),
+      )
+    }
+    list('sb-bad', (body.badTitles ?? []).map((t) => `${t.title}: ${t.reports} report${t.reports === 1 ? '' : 's'}`), 'No reports yet.')
+    list(
+      'sb-reports',
+      (body.reports ?? []).slice(0, 10).map((r) => {
+        const speed = r.speed === '1' ? 'normal speed' : `speed ${r.speed.replace('-', '→')}`
+        return `${lagosTime(r.at)}: ${r.title} (${r.lang}), ${r.version ?? 'version ?'}, offset ${r.offset > 0 ? '+' : ''}${r.offset}s, ${speed}${r.server ? `, ${r.server}` : ''}`
+      }),
+      'No recent reports.',
+    )
     const c = body.configured
     const missing = c ? [!c.opensubtitles && 'OPENSUBTITLES_API_KEY', !c.login && 'OpenSubtitles login', !c.subdl && 'SUBDL_API_KEY', !c.redis && 'Upstash'].filter(Boolean) : []
     note.textContent = `${body.enabled ? '🟢 On' : '⚪ Off (SUBTITLES_ENABLED)'} · ${(body.notFound ?? 0).toLocaleString()} "No subtitles found" today${missing.length ? ` · Missing: ${missing.join(', ')}` : ''}. Today: since midnight, Lagos time; the OpenSubtitles quota resets at midnight UTC.`
@@ -517,6 +542,22 @@ async function start() {
 export function initAdmin() {
   initAdFree(() => password)
   initPromoEmail(() => password)
+  // Clears one title's cached subtitles on the server (a stale "No subtitles found", a bad file).
+  $('sb-flush').addEventListener('submit', (event) => {
+    event.preventDefault()
+    const id = ($('sb-flush-id') as HTMLInputElement).value.trim()
+    const result = $('sb-flush-result')
+    result.textContent = 'Clearing…'
+    void fetch(`/api/subtitles/admin-flush?tmdbId=${encodeURIComponent(id)}`, { method: 'POST', headers: { Authorization: `Bearer ${password}` } })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as { deleted?: number }
+        result.textContent = response.ok ? `Cleared ${body.deleted ?? 0} cached entries for ${id}: the next play searches again.` : 'Couldn’t clear it.'
+      })
+      .catch(() => {
+        result.textContent = 'Couldn’t clear it.'
+      })
+  })
+
   $('login').addEventListener('submit', (event) => {
     event.preventDefault()
     password = $<HTMLInputElement>('password').value

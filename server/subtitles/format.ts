@@ -34,7 +34,7 @@ function cleanText(line: string): string {
 }
 
 /** Uploaders' ad lines ("Downloaded from YTS.MX", "Support us and become VIP member"): left out. */
-const AD_CUE = /(yts\.(mx|am|lt|ag)|yify|opensubtitles\.(org|com)|subscene|addic7ed|subdl\.com|become vip member|advertise your product|ripped by|subtitles? by|www\.[a-z0-9-]+\.(com|org|net))/i
+const AD_CUE = /(yts\.(mx|am|lt|ag)|yify|opensubtitles\.(org|com)|subscene|addic7ed|subdl\.com|become vip member|advertise your product|ripped by|subtitles? by\b|(re)?sync(ed|hed)?( and corrected)? by|corrected by|www\.[a-z0-9-]+\.(com|org|net))/i
 
 /** .srt (or a .vtt already) → WebVTT. Null when there's not one cue in it. */
 export function toVtt(text: string): string | null {
