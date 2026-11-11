@@ -101,17 +101,32 @@ describe('👑 the crown', () => {
     expect(document.querySelectorAll('.premium-crown').length).toBe(2)
   })
 
-  it('never for normal accounts, or accounts ad-free through the promo week only', async () => {
+  it('never for normal accounts', async () => {
     signIn()
     resetReferralStatus(base())
     render(<AccountMenu />)
-    expect(crown()).toBeNull()
-    act(() => resetReferralStatus(promoOnly()))
-    expect(isAdFreeNow()).toBe(true)
     expect(isPremiumNow()).toBe(false)
     expect(crown()).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Account: ada@gmail.com' }))
     expect(screen.queryByText('👑 Premium')).toBeNull()
+  })
+
+  it('for every signed-in account while the promo week is on, gone once it ends', () => {
+    signIn()
+    resetReferralStatus(promoOnly())
+    render(<AccountMenu />)
+    expect(isAdFreeNow()).toBe(true)
+    expect(isPremiumNow()).toBe(true)
+    expect(crown()).not.toBeNull()
+    const ended = { start: iso(Date.now() - 8 * DAY), end: iso(Date.now() - DAY), state: 'ended' as const }
+    act(() => resetReferralStatus(base({ promo: ended })))
+    expect(isPremiumNow()).toBe(false)
+    expect(crown()).toBeNull()
+  })
+
+  it('never for signed-out visitors, even during the promo', () => {
+    resetReferralStatus({ ...promoOnly(), signedIn: false })
+    expect(isPremiumNow()).toBe(false)
   })
 
   it('never from this device’s cached copy alone, before the server has answered', () => {

@@ -144,12 +144,14 @@ function answerAdFree(s: ReferralStatus, now: number): boolean {
 
 /**
  * 👑 Premium now, by the server's answer only (never the cached copy): own
- * ad-free or the welcome trial, until it ends. Not the promo week.
+ * ad-free or the welcome trial, until it ends; and every signed-in account
+ * while the Free Ad-Free Week is on (it goes the moment the promo ends).
  */
 export function isPremiumNow(now = Date.now()): boolean {
   const s = status
-  if (!s?.signedIn || s.premium !== true || s.ownAdFree === false) return false
-  return stillValid(true, s.permanent, s.adFreeUntil, now)
+  if (!s?.signedIn) return false
+  if (s.premium === true && s.ownAdFree !== false && stillValid(true, s.permanent, s.adFreeUntil, now)) return true
+  return promoOn(s.promo, now + clockOffset)
 }
 
 /** The welcome trial runs now (server time): the Play popup may show. */
