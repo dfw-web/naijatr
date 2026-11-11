@@ -1,3 +1,4 @@
+import { adoptAccountSubtitleChoice } from '../subtitles/subtitles'
 import { useSyncExternalStore } from 'react'
 import { pageview } from '@vercel/analytics'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
@@ -121,6 +122,8 @@ function signedIn(client: SupabaseClient, user: User) {
   }
   sheet = null
   set({ status: 'signedIn', user: next, linkError: null })
+  // The subtitle language chosen on another device (kept in the account's user metadata).
+  adoptAccountSubtitleChoice(user.user_metadata?.subtitle_lang)
   void startSync(next.id, supabaseBackend(client, next.id))
   // Ad-free status, and the invite link this device came by.
   referralSignedIn()

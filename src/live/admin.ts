@@ -372,7 +372,7 @@ export async function refresh(): Promise<boolean> {
       return true
     }
     error.hidden = true
-    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts(), loadPremium()])
+    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts(), loadPremium(), loadSubtitles()])
   } catch {
     error.textContent = "Couldn't load the numbers. Trying again shortly."
     error.hidden = false
@@ -423,6 +423,41 @@ async function loadAccounts() {
         : 'Couldn’t load the account numbers.'
   } catch {
     note.textContent = 'Couldn’t load the account numbers.'
+  }
+}
+
+/** 💬 Subtitles today: served, cache hits vs downloads, the OpenSubtitles quota, SubDL fallbacks and which step found them. */
+async function loadSubtitles() {
+  const note = $('sb-note')
+  try {
+    const response = await fetch('/api/subtitles/admin', { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' })
+    const body = (await response.json().catch(() => ({}))) as {
+      enabled?: boolean
+      served?: number
+      cacheHits?: number
+      downloads?: number
+      notFound?: number
+      subdlFallbacks?: number
+      osRemaining?: number | null
+      osLimited?: boolean
+      steps?: Record<string, number>
+      configured?: { opensubtitles: boolean; login: boolean; subdl: boolean; redis: boolean }
+    }
+    if (!response.ok || typeof body.served !== 'number') {
+      note.textContent = 'Couldn’t load the subtitle numbers.'
+      return
+    }
+    $('sb-served').textContent = body.served.toLocaleString()
+    $('sb-hits').textContent = `${(body.cacheHits ?? 0).toLocaleString()} / ${(body.downloads ?? 0).toLocaleString()}`
+    $('sb-os').textContent = body.osLimited ? '0 (limit reached)' : body.osRemaining === null || body.osRemaining === undefined ? '–' : String(body.osRemaining)
+    $('sb-subdl').textContent = String(body.subdlFallbacks ?? 0)
+    const steps = Object.entries(body.steps ?? {}).sort((a, b) => b[1] - a[1])
+    $('sb-steps').textContent = steps.length ? `Found by: ${steps.map(([step, n]) => `${step} ${n}`).join(' · ')}` : 'Found by: nothing new yet today.'
+    const c = body.configured
+    const missing = c ? [!c.opensubtitles && 'OPENSUBTITLES_API_KEY', !c.login && 'OpenSubtitles login', !c.subdl && 'SUBDL_API_KEY', !c.redis && 'Upstash'].filter(Boolean) : []
+    note.textContent = `${body.enabled ? '🟢 On' : '⚪ Off (SUBTITLES_ENABLED)'} · ${(body.notFound ?? 0).toLocaleString()} "No subtitles found" today${missing.length ? ` · Missing: ${missing.join(', ')}` : ''}. Today: since midnight, Lagos time; the OpenSubtitles quota resets at midnight UTC.`
+  } catch {
+    note.textContent = 'Couldn’t load the subtitle numbers.'
   }
 }
 

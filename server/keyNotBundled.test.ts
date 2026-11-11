@@ -29,3 +29,19 @@ describe('the Server 1 API key', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/** The subtitle keys and login (server/subtitles) stay on the server just the same. */
+describe('the subtitle API keys', () => {
+  const env = loadEnv('production', process.cwd(), '')
+  const secrets = ['OPENSUBTITLES_API_KEY', 'OPENSUBTITLES_PASSWORD', 'SUBDL_API_KEY'].map((name) => env[name]?.trim() ?? '').filter((v) => v.length >= 8)
+
+  it.skipIf(secrets.length === 0 || !existsSync('dist'))('are in no file of the built site (dist/)', () => {
+    const holding = files('dist').filter((path) => secrets.some((secret) => readFileSync(path).includes(secret)))
+    expect(holding).toEqual([])
+  })
+
+  it('are never read from src/', () => {
+    const offenders = files('src').filter((path) => /(import\.meta\.env|process\.env)(\.|\[['"])(OPENSUBTITLES_|SUBDL_API_KEY)/.test(readFileSync(path, 'utf8')))
+    expect(offenders).toEqual([])
+  })
+})

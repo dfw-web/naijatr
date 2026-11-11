@@ -117,7 +117,7 @@ describe('PlayerPanel', () => {
     // Fullscreen goes through ours, which keeps Skip and Close on screen.
     expect(frame.getAttribute('allow')).not.toContain('fullscreen')
     expect(frame).not.toHaveAttribute('allowfullscreen')
-    expect(screen.getByText(/Subtitles: tap the CC button/)).toBeInTheDocument()
+    expect(screen.getByText(/Subtitles: tap CC below the video/)).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()

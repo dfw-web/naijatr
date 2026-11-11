@@ -46,6 +46,8 @@ import { adFreeReady, isServerAdFree, serverStatusKnown, useServerAdFree } from 
 import { hasStoredSession } from '../account/client'
 import { reportPlayer } from '../live/playerStats'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
+import { SubtitleMenu, SubtitleOverlay, usePlayerSubtitles } from '../subtitles/PlayerSubtitles'
+import type { SubtitleTarget } from '../subtitles/subtitles'
 import './PlayerPanel.css'
 
 export interface PlaybackAvailability {
@@ -529,6 +531,18 @@ export function PlayerPanel({
   }
   const sectionClass = filling ? 'player player--fill' : 'player'
 
+  // Our subtitles over the stream (src/subtitles): both servers report their time, which the text follows.
+  const subtitleEpisode = isSeries && active?.streamSrc ? episodeOfSrc(active.streamSrc) : null
+  const subtitleTarget: SubtitleTarget | null =
+    streamShown && item.tmdbId !== undefined && active?.streamSrc && (!isSeries || subtitleEpisode?.season !== undefined)
+      ? {
+          tmdbId: item.tmdbId,
+          type: isSeries ? 'tv' : 'movie',
+          episode: subtitleEpisode?.season !== undefined ? (subtitleEpisode as EpisodeRef) : undefined,
+        }
+      : null
+  const subs = usePlayerSubtitles(subtitleTarget, frameRef, subtitleTarget && active ? `${active.server}-${active.attempt}-${active.streamSrc}` : null)
+
   // A Continue watching card was tapped: start its movie or episode straight away.
   // (`play` is defined below the early return; the ref is set once it exists.)
   const playRef = useRef<((choice: Choice, ep?: EpisodeRef) => void) | null>(null)
@@ -971,9 +985,9 @@ export function PlayerPanel({
             ref={attachFrame}
             src={embedmasterUrl(item.tmdbId, isSeries ? (episodeOfSrc(active.streamSrc) as EpisodeRef) : undefined)}
             title={titles.stream}
-            // No sandbox: EmbedMaster's player breaks with one.
-            allow="autoplay *; fullscreen *; picture-in-picture *; encrypted-media *"
-            allowFullScreen
+            // No sandbox: EmbedMaster's player breaks with one. No fullscreen of its own
+            // (like Server 1): ours covers the player and our subtitles (toggleFullscreen).
+            allow="autoplay *; picture-in-picture *; encrypted-media *"
             onLoad={loaded}
           />
         ) : active.choice === 'stream' && active.streamSrc ? (
@@ -1015,6 +1029,7 @@ export function PlayerPanel({
             />
           )
         )}
+        {active.choice === 'stream' && <SubtitleOverlay subs={subs} />}
         {tv && paused && active.choice !== 'trailer' && (
           <div className="player__paused" role="status">
             <QrCode url={phoneLink(item)} label="QR code: watch this on your phone" size="8em" />
@@ -1037,6 +1052,7 @@ export function PlayerPanel({
             {fullscreenOn ? 'Exit fullscreen' : 'Fullscreen'}
           </button>
         )}
+        {active.choice === 'stream' && <SubtitleMenu subs={subs} />}
         <WatchLaterButton item={item} />
         <button type="button" className="btn btn--ghost player__close" onClick={closePlayer}>
           <X aria-hidden="true" /> Close player
@@ -1045,7 +1061,7 @@ export function PlayerPanel({
       {active.choice === 'stream' && (
         <p className="player__hint">
           <Captions aria-hidden="true" />
-          Subtitles: tap the CC button in the player to choose a language.
+          Subtitles: tap CC below the video, or the CC button in the player, to choose a language.
         </p>
       )}
       {active.choice === 'stream' && howTo}

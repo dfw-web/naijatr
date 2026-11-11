@@ -19,6 +19,7 @@ import {
   type WorkerDownloadConfig,
 } from './server/workerDownloads.ts'
 import { footballApi } from './server/football/vite.ts'
+import { handleSubtitles, readSubtitlesEnv } from './server/subtitles/handlers.ts'
 import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 
 /**
@@ -93,6 +94,20 @@ function searchIndexApi(env: Record<string, string>): Plugin {
   }
 }
 
+/** /api/subtitles in dev and preview, like the Vercel function in api/subtitles.ts. */
+function subtitlesApi(env: Record<string, string>): Plugin {
+  const subtitles = readSubtitlesEnv(env)
+  const middleware = (req: IncomingMessage, res: ServerResponse) => {
+    const { path, params } = splitApiUrl(req.url ?? '', '')
+    void handleSubtitles(subtitles, path.replace(/^\/+|\/+$/g, ''), params, req, res)
+  }
+  return {
+    name: 'subtitles',
+    configureServer: (server) => void server.middlewares.use('/api/subtitles', middleware),
+    configurePreviewServer: (server) => void server.middlewares.use('/api/subtitles', middleware),
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Load every variable (empty prefix) for use *here*, on the server only.
@@ -131,7 +146,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
