@@ -434,6 +434,23 @@ describe('the Free Ad-Free Week', () => {
     expect(await findPlayer('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550')
   })
 
+  it('the 48-hour welcome trial ends mid-movie: back to Server 1 at once, from the same point', async () => {
+    const until = new Date(Date.now() + 1000).toISOString()
+    resetReferralStatus({ ...SIGNED_IN_FREE, adFree: true, adFreeUntil: until, ownAdFree: true, promoAdFree: false, premium: true, trialOnly: true, trialUntil: until, serverNow: Date.now() })
+    render(<PlayerPanel item={movie} availability={on} fetchImpl={checks(true)} />)
+    await play()
+    const two = await findPlayer('Fight Club player')
+    expect(two).toHaveAttribute('src', EMBEDMASTER_MOVIE)
+    post(two, 'duration', 6000)
+    post(two, 'time', 1800)
+    await vi.waitFor(() => expect(screen.getByTitle('Fight Club player')).toHaveAttribute('src', '/api/play/movie/550'), { timeout: 4000 })
+    const one = screen.getByTitle('Fight Club player')
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    const send = commands(one)
+    post(one, 'duration', 6000, 'https://embdmstrplayer.com')
+    expect(send).toHaveBeenCalledWith(seekTo(1800), 'https://embdmstrplayer.com')
+  })
+
   it('paid accounts stay on Server 2 when the week ends', async () => {
     const week = promo(1000)
     resetReferralStatus({ ...PAID, ownAdFree: true, promoAdFree: false, promo: week, serverNow: Date.now() })

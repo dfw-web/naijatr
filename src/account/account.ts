@@ -162,9 +162,11 @@ export async function sendConfirmLink(email: string): Promise<EmailResult> {
   try {
     const client = await getClient()
     listen(client)
+    const source = signupSource()
     const { error } = await client.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: authUrl('confirm'), shouldCreateUser: true },
+      // How a new account came (the Play popup), kept on the login for /admin/live. Ignored for existing accounts.
+      options: { emailRedirectTo: authUrl('confirm'), shouldCreateUser: true, ...(source ? { data: { signup_source: source } } : {}) },
     })
     if (error) {
       if (isRateLimit(error)) {
@@ -317,6 +319,30 @@ export async function deleteAccount(): Promise<{ loginDeleted: boolean }> {
 
 // ---- The sign-in sheet. ----
 
+const SOURCE_KEY = 'naijatr.signupSource'
+/** "Sign up free" from a popup counts for it this long. */
+const SOURCE_FOR_MS = 24 * 60 * 60 * 1000
+
+/** Where the sheet was opened from, if a popup's "Sign up free" opened it lately. */
+export function signupSource(now = Date.now()): string | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SOURCE_KEY) ?? 'null') as { source?: unknown; at?: unknown } | null
+    return typeof saved?.source === 'string' && typeof saved.at === 'number' && now - saved.at < SOURCE_FOR_MS ? saved.source : null
+  } catch {
+    return null
+  }
+}
+
+/** Opens the sheet on "Create account" for a popup's "Sign up free", noting where it came from. */
+export function openSignUpFrom(source: 'play-popup'): void {
+  try {
+    localStorage.setItem(SOURCE_KEY, JSON.stringify({ source, at: Date.now() }))
+  } catch {
+    // Not counted.
+  }
+  openSignIn('create')
+}
+
 /** Opens the sheet on "Create account", or "Log in" for someone who's had an account on this device. */
 export function openSignIn(tab?: SheetTab): void {
   let known = false
@@ -345,6 +371,8 @@ const subscribe = (listener: () => void) => {
   }
 }
 
+/** The account's status now (outside React). */
+export const accountStatusNow = () => state.status
 export const useAccount = () => useSyncExternalStore(subscribe, () => state, () => state)
 /** The sheet's tab, or null while it's closed. */
 export const useSignInSheet = () => useSyncExternalStore(subscribe, () => sheet, () => null)

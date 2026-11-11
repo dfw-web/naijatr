@@ -6,6 +6,7 @@ import type { MediaItem } from '../types/media'
 import { savedItem, useWatchLater } from '../utils/watchLater'
 import { deleteAccount, downloadMyData, openSignIn, setPassword, signOut, useAccount } from './account'
 import { PasswordForm } from './authParts'
+import { AccountIdentity } from './PremiumAvatar'
 import { goHome } from './pages'
 import { snooze } from './reminders'
 import { refreshSync, useSyncState } from './sync'
@@ -114,7 +115,7 @@ export function AccountPage() {
       )}
       <div className="account-card">
         <h2 className="account-card__title">Signed in</h2>
-        <p className="account-card__value">{user.email}</p>
+        <AccountIdentity email={user.email} />
         <p className="account-card__muted">
           Sync: {syncLabels[sync.status]}
           {sync.lastSyncedAt && sync.status === 'idle' ? ` · ${new Date(sync.lastSyncedAt).toLocaleTimeString()}` : ''}

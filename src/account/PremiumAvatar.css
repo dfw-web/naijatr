@@ -1,0 +1,95 @@
+/* The account avatar, with the 👑 Premium crown and gold ring (PremiumAvatar.tsx). */
+
+.premium-avatar {
+  --avatar-size: 36px;
+  position: relative;
+  display: inline-grid;
+  flex-shrink: 0;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  /* The crown sticks out above and to the right without taking any room. */
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.premium-avatar__circle {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: calc(var(--avatar-size) * 0.44);
+  line-height: 1;
+  user-select: none;
+}
+
+/* A thin gold ring: same width as the plain border, so nothing moves. */
+.premium-avatar--premium .premium-avatar__circle {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--accent), var(--accent)) padding-box,
+    linear-gradient(135deg, #ffe680, #f5c518 50%, #c9971a) border-box;
+  box-shadow: 0 0 0 1px rgba(201, 151, 26, 0.25), 0 0 10px rgba(245, 197, 24, 0.22);
+}
+
+/*
+ * Placed on the circle's top-right edge, tilted about 20° to the right, as if
+ * set on the letter. Sized and placed from the circle's size, so it fits any avatar.
+ */
+.premium-crown {
+  position: absolute;
+  /* Kept within a few px of the circle on the right: on phones the search box sits 8px away. */
+  top: calc(var(--avatar-size) * -0.33);
+  right: calc(var(--avatar-size) * -0.05);
+  width: calc(var(--avatar-size) * 0.53);
+  height: auto;
+  aspect-ratio: 64 / 52;
+  transform: rotate(20deg);
+  transform-origin: 50% 80%;
+  filter: drop-shadow(0 1px 1.2px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 3px rgba(0, 0, 0, 0.35));
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* One shine across the crown when it appears. */
+.premium-crown__shine {
+  transform: translateX(0);
+  animation: premium-crown-shine 1.1s ease-in-out 0.5s 1 both;
+}
+
+@keyframes premium-crown-shine {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(104px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-crown__shine {
+    animation: none;
+    display: none;
+  }
+}
+
+/* "👑 Premium", next to the avatar in the account menu and pages. */
+.premium-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.12rem 0.55rem;
+  border: 1px solid rgba(245, 197, 24, 0.55);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 230, 128, 0.16), rgba(201, 151, 26, 0.12));
+  color: #f5c518;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}

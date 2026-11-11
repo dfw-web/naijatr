@@ -11,6 +11,10 @@ export interface AuthUser {
   email: string
   emailConfirmed: boolean
   createdAt: number
+  /** When the email was confirmed (ms), if it has been. */
+  emailConfirmedAt?: number | null
+  /** How the account was made (user_metadata.signup_source), e.g. "play-popup". */
+  signupSource?: string | null
 }
 
 export interface Profile {
@@ -135,13 +139,23 @@ export function supabaseStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch)
     async userFromToken(token) {
       const response = await fetchImpl(`${env.url}/auth/v1/user`, { headers: { apikey: env.serviceKey, Authorization: `Bearer ${token}` } })
       if (!response.ok) return null
-      const body = (await response.json().catch(() => null)) as { id?: unknown; email?: unknown; email_confirmed_at?: unknown; created_at?: unknown } | null
+      const body = (await response.json().catch(() => null)) as {
+        id?: unknown
+        email?: unknown
+        email_confirmed_at?: unknown
+        created_at?: unknown
+        user_metadata?: { signup_source?: unknown } | null
+      } | null
       if (typeof body?.id !== 'string') return null
+      const confirmedAt = typeof body.email_confirmed_at === 'string' && body.email_confirmed_at !== '' ? Date.parse(body.email_confirmed_at) : NaN
+      const source = body.user_metadata?.signup_source
       return {
         id: body.id,
         email: typeof body.email === 'string' ? body.email : '',
         emailConfirmed: typeof body.email_confirmed_at === 'string' && body.email_confirmed_at !== '',
         createdAt: typeof body.created_at === 'string' ? Date.parse(body.created_at) : Date.now(),
+        emailConfirmedAt: Number.isFinite(confirmedAt) ? confirmedAt : null,
+        signupSource: typeof source === 'string' ? source.slice(0, 40) : null,
       }
     },
     async emailOf(userId) {
@@ -284,6 +298,130 @@ export function supabaseStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch)
     grants({ userId, since, limit = 1000 }) {
       const where = `${userId ? `&user_id=eq.${q(userId)}` : ''}${since ? `&created_at=gte.${q(since)}` : ''}`
       return rest<AdFreeGrant[]>(`ad_free_grants?select=${GRANT_COLUMNS}${where}&order=created_at.desc&limit=${limit}`)
+    },
+  }
+}
+
+// ---- The 48-hour Premium welcome trial (supabase/migrations/004_welcome_trial.sql) ----
+
+export interface WelcomeTrial {
+  email_normalized: string
+  user_id: string | null
+  device_hash: string | null
+  source: string | null
+  started_at: string
+  until: string
+  created_at: string
+}
+
+export interface TrialStats {
+  /** Trials started since midnight (Lagos). */
+  startedToday: number
+  /** Trials running now. */
+  active: number
+  /** Accounts made from the Play popup's "Sign up free": all, and today's. */
+  playSignups: number
+  playSignupsToday: number
+  /** Accounts Premium now through ad_free_until or the trial (not the promo, not AD_FREE_EMAILS). */
+  premiumIds: string[]
+}
+
+/**
+ * Its own interface: everything here needs migration 004. Until it's run,
+ * every call fails and the handlers carry on without a trial.
+ */
+export interface TrialStore {
+  /** The account's trial end and how it signed up (profiles). */
+  trialOf(userId: string): Promise<{ welcome_trial_until: string | null; signup_source: string | null } | null>
+  /** Notes the inbox's first account (kept after a deletion); returns that first account's id. */
+  rememberInbox(emailNormalized: string, userId: string): Promise<string | null>
+  trialForInbox(emailNormalized: string): Promise<WelcomeTrial | null>
+  /** Another inbox's trial on this device. */
+  deviceHadTrial(deviceHash: string, exceptInbox: string): Promise<boolean>
+  /** Records the inbox's trial; false if it already has one. */
+  insertTrial(row: Omit<WelcomeTrial, 'created_at'>): Promise<boolean>
+  setTrialUntil(userId: string, until: string): Promise<void>
+  setSignupSource(userId: string, source: string): Promise<void>
+  stats(now: number, dayStart: number): Promise<TrialStats>
+}
+
+export function supabaseTrialStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch): TrialStore {
+  const headers = (extra: Record<string, string> = {}) => ({
+    apikey: env.serviceKey,
+    Authorization: `Bearer ${env.serviceKey}`,
+    'Content-Type': 'application/json',
+    ...extra,
+  })
+  const rest = async <T>(path: string, init: RequestInit & { prefer?: string } = {}): Promise<T> => {
+    const response = await fetchImpl(`${env.url}/rest/v1/${path}`, { ...init, headers: headers(init.prefer ? { Prefer: init.prefer } : {}) })
+    if (!response.ok) throw Object.assign(new Error(`supabase ${response.status}`), { status: response.status })
+    const text = await response.text()
+    return (text ? JSON.parse(text) : null) as T
+  }
+  const count = async (path: string): Promise<number> => {
+    const response = await fetchImpl(`${env.url}/rest/v1/${path}`, { method: 'HEAD', headers: headers({ Prefer: 'count=exact' }) })
+    if (!response.ok) throw new Error(`supabase ${response.status}`)
+    return Number(/\/(\d+)$/.exec(response.headers.get('content-range') ?? '')?.[1] ?? 0)
+  }
+  const q = encodeURIComponent
+  const TRIAL_COLUMNS = 'email_normalized,user_id,device_hash,source,started_at,until,created_at'
+  const patchProfile = (userId: string, patch: Record<string, unknown>) =>
+    rest(`profiles?on_conflict=user_id`, {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: JSON.stringify({ user_id: userId, ...patch, updated_at: new Date().toISOString() }),
+    })
+
+  return {
+    async trialOf(userId) {
+      const rows = await rest<{ welcome_trial_until: string | null; signup_source: string | null }[]>(
+        `profiles?select=welcome_trial_until,signup_source&user_id=eq.${q(userId)}`,
+      )
+      return rows[0] ?? null
+    },
+    async rememberInbox(emailNormalized, userId) {
+      await rest(`known_emails?on_conflict=email_normalized`, {
+        method: 'POST',
+        prefer: 'resolution=ignore-duplicates,return=minimal',
+        body: JSON.stringify({ email_normalized: emailNormalized, first_user_id: userId }),
+      })
+      const rows = await rest<{ first_user_id: string | null }[]>(`known_emails?select=first_user_id&email_normalized=eq.${q(emailNormalized)}`)
+      return rows[0]?.first_user_id ?? null
+    },
+    async trialForInbox(emailNormalized) {
+      const rows = await rest<WelcomeTrial[]>(`welcome_trials?select=${TRIAL_COLUMNS}&email_normalized=eq.${q(emailNormalized)}`)
+      return rows[0] ?? null
+    },
+    async deviceHadTrial(deviceHash, exceptInbox) {
+      return (await count(`welcome_trials?device_hash=eq.${q(deviceHash)}&email_normalized=neq.${q(exceptInbox)}`)) > 0
+    },
+    async insertTrial(row) {
+      try {
+        await rest(`welcome_trials`, { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(row) })
+        return true
+      } catch (error) {
+        // 409: the inbox already has one (from a second tab, at the same moment).
+        if ((error as { status?: number }).status === 409) return false
+        throw error
+      }
+    },
+    async setTrialUntil(userId, until) {
+      await patchProfile(userId, { welcome_trial_until: until })
+    },
+    async setSignupSource(userId, source) {
+      await patchProfile(userId, { signup_source: source })
+    },
+    async stats(now, dayStart) {
+      const nowIso = q(new Date(now).toISOString())
+      const day = q(new Date(dayStart).toISOString())
+      const [startedToday, active, playSignups, playSignupsToday, premium] = await Promise.all([
+        count(`welcome_trials?created_at=gte.${day}`),
+        count(`welcome_trials?until=gt.${nowIso}`),
+        count(`profiles?signup_source=eq.play-popup`),
+        count(`profiles?signup_source=eq.play-popup&created_at=gte.${day}`),
+        rest<{ user_id: string }[]>(`profiles?select=user_id&or=(ad_free_until.gt.${nowIso},welcome_trial_until.gt.${nowIso})&limit=10000`),
+      ])
+      return { startedToday, active, playSignups, playSignupsToday, premiumIds: premium.map((row) => row.user_id) }
     },
   }
 }

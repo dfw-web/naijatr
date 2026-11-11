@@ -372,7 +372,7 @@ export async function refresh(): Promise<boolean> {
       return true
     }
     error.hidden = true
-    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts()])
+    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts(), loadPremium()])
   } catch {
     error.textContent = "Couldn't load the numbers. Trying again shortly."
     error.hidden = false
@@ -423,6 +423,45 @@ async function loadAccounts() {
         : 'Couldn’t load the account numbers.'
   } catch {
     note.textContent = 'Couldn’t load the account numbers.'
+  }
+}
+
+/** 👑 Premium users now, the welcome trial's numbers and the Play popup's sign-ups (/api/referral/admin-premium). */
+async function loadPremium() {
+  const note = $('pr-note')
+  try {
+    const response = await fetch('/api/referral/admin-premium', { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' })
+    const body = (await response.json().catch(() => ({}))) as {
+      premiumUsers?: number
+      trialsToday?: number
+      activeTrials?: number
+      playSignups?: number
+      playSignupsToday?: number
+      trial?: { enabled: boolean; start: string; hours: number; live?: boolean }
+      error?: string
+    }
+    if (response.ok && typeof body.premiumUsers === 'number') {
+      $('pr-users').textContent = body.premiumUsers.toLocaleString()
+      $('pr-trials-today').textContent = String(body.trialsToday ?? 0)
+      $('pr-trials-active').textContent = String(body.activeTrials ?? 0)
+      $('pr-play-signups').textContent = `${(body.playSignups ?? 0).toLocaleString()} (${body.playSignupsToday ?? 0} today)`
+      const trial = body.trial
+      const when = trial
+        ? !trial.enabled
+          ? 'Welcome trial: off (TRIAL_ENABLED=false).'
+          : trial.live
+            ? `Welcome trial: 🟢 on since ${lagosTime(trial.start)} (Lagos), ${trial.hours}h for each new account.`
+            : `Welcome trial: ⏳ starts ${lagosTime(trial.start)} (Lagos), ${trial.hours}h for each new account.`
+        : ''
+      note.textContent = `${when} Premium: paid, referral, Give ad-free, AD_FREE_EMAILS and the welcome trial (not the promo week). Today: since midnight, Lagos time.`
+      return
+    }
+    note.textContent =
+      body.error === 'needs-migration'
+        ? 'Run supabase/migrations/004_welcome_trial.sql in Supabase → SQL Editor to see these numbers.'
+        : 'Couldn’t load the Premium numbers.'
+  } catch {
+    note.textContent = 'Couldn’t load the Premium numbers.'
   }
 }
 

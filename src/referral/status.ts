@@ -35,6 +35,22 @@ export interface ReferralStatus {
   promo?: PromoInfo | null
   /** The server's clock when it answered (ms): promo times are read on it, not on the device's. */
   serverNow?: number
+  /**
+   * 👑 Premium: ad-free of their own (paid, referral, AD_FREE_EMAILS) or the
+   * welcome trial; never the promo alone. It ends with adFreeUntil.
+   */
+  premium?: boolean
+  /** The account's welcome trial end (kept once it's over), or null if it never had one. */
+  trialUntil?: string | null
+  /** Premium only through the welcome trial. */
+  trialOnly?: boolean
+  /** The welcome trial, for everyone: when it starts (the Play popup waits for it); null when it's off. */
+  trial?: TrialInfo | null
+}
+
+export interface TrialInfo {
+  start: string
+  live: boolean
 }
 
 export interface PromoInfo {
@@ -50,6 +66,10 @@ const SEEN_GRANT_KEY = 'naijatr.adFree.seenGrant'
 const GOAL_KEY = 'naijatr.referral.goal'
 /** Where the referral's play report stands for an account: "done" once there's nothing more to report. */
 const REPORT_KEY = 'naijatr.ref.report'
+/** This device's own id, for "one welcome trial per device" (only ever hashed on the server). */
+const DEVICE_KEY = 'naijatr.device'
+/** Set once an account on this device has had the welcome trial: no other account gets one here. */
+export const TRIAL_DEVICE_KEY = 'naijatr.trial.device'
 /** A cached "ad-free" older than this isn't trusted before the server answers. */
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 /** How long ads wait for the server's answer on a signed-in device. */
@@ -122,6 +142,22 @@ function answerAdFree(s: ReferralStatus, now: number): boolean {
   return promoOn(s.promo, now + clockOffset)
 }
 
+/**
+ * 👑 Premium now, by the server's answer only (never the cached copy): own
+ * ad-free or the welcome trial, until it ends. Not the promo week.
+ */
+export function isPremiumNow(now = Date.now()): boolean {
+  const s = status
+  if (!s?.signedIn || s.premium !== true || s.ownAdFree === false) return false
+  return stillValid(true, s.permanent, s.adFreeUntil, now)
+}
+
+/** The welcome trial runs now (server time): the Play popup may show. */
+export function trialLiveNow(now = serverTime()): boolean {
+  const trial = status?.trial
+  return Boolean(trial && now > Date.parse(trial.start))
+}
+
 /** True when the signed-in account is ad-free: no Multitag, no direct-link ad, no ad break. */
 export function isAdFreeNow(now = Date.now()): boolean {
   if (status) return answerAdFree(status, now)
@@ -156,6 +192,8 @@ function scheduleExpiry() {
     moments.push({ at: Date.parse(status.promo.start) - clockOffset, ask: true })
     moments.push({ at: Date.parse(status.promo.end) - clockOffset, ask: true })
   }
+  // The welcome trial's start: the Play popup can show from then on.
+  if (status.trial) moments.push({ at: Date.parse(status.trial.start) - clockOffset, ask: false })
   const next = moments.filter((m) => m.at - now > -1000).sort((a, b) => a.at - b.at)[0]
   if (!next) return
   expiryTimer = window.setTimeout(() => {
@@ -170,6 +208,8 @@ function apply(next: ReferralStatus) {
   if (typeof next.serverNow === 'number' && Number.isFinite(next.serverNow)) clockOffset = next.serverNow - Date.now()
   if (next.signedIn && next.userId) {
     storage.set(CACHE_KEY, { userId: next.userId, adFree: next.adFree, until: next.adFreeUntil ?? null, permanent: next.permanent === true, at: Date.now() } satisfies Cached)
+    // This device has had a welcome trial: no other account gets one here.
+    if (next.trialUntil) storage.set(TRIAL_DEVICE_KEY, 'used')
     // "You've unlocked NAIJA TR ad-free!": once per unlock, per device.
     const seen = storage.get<Record<string, number>>(SEEN_REWARDS_KEY) ?? {}
     const rewards = next.rewards ?? 0
@@ -208,6 +248,15 @@ export function watchReferralStatus(): void {
   window.setInterval(refreshIfSignedIn, STATUS_REFRESH_MS)
 }
 
+/** This device's random id (made once). */
+function deviceId(): string {
+  const known = storage.get<string>(DEVICE_KEY)
+  if (typeof known === 'string' && /^[\w-]{8,64}$/.test(known)) return known
+  const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  storage.set(DEVICE_KEY, id)
+  return id
+}
+
 let loading: Promise<ReferralStatus | null> | null = null
 
 /** Asks the server again (signed in: the full status; signed out: just the goal). */
@@ -215,7 +264,9 @@ export function refreshReferralStatus(): Promise<ReferralStatus | null> {
   loading ??= (async () => {
     try {
       const token = await accessToken()
-      const response = await fetch('/api/referral/status', { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store' })
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}`, 'X-Device-Id': deviceId() } : {}
+      if (token && storage.get<string>(TRIAL_DEVICE_KEY) === 'used') headers['X-Trial-Device'] = 'used'
+      const response = await fetch('/api/referral/status', { headers, cache: 'no-store' })
       if (!response.ok) return status
       const body = (await response.json()) as ReferralStatus
       if (token || !status?.signedIn) apply(body)
@@ -350,6 +401,10 @@ export const useReferralStatus = () => useSyncExternalStore(subscribeReferralSta
 /** Ad-free right now (re-read whenever the status changes). */
 export const useAdFree = () => useSyncExternalStore(subscribeReferralStatus, () => isAdFreeNow(), () => false)
 /** Ad-free by the server's answer (re-read whenever it changes, or runs out). */
+/** 👑 Premium now (re-read whenever the status changes, and when it runs out). */
+export const usePremium = () => useSyncExternalStore(subscribeReferralStatus, () => isPremiumNow(), () => false)
+/** The welcome trial runs now (re-read at its start). */
+export const useTrialLive = () => useSyncExternalStore(subscribeReferralStatus, () => trialLiveNow(), () => false)
 export const useServerAdFree = () => useSyncExternalStore(subscribeReferralStatus, () => isServerAdFree(), () => false)
 /** The promo now (re-read when the status changes, and at its start and end). */
 export const usePromoState = () => useSyncExternalStore(subscribeReferralStatus, () => promoStateNow(), () => null)

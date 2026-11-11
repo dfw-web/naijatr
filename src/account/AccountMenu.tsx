@@ -3,6 +3,8 @@ import { Bookmark, LogOut, UserRound } from 'lucide-react'
 import { isTvMode } from '../tv/tvMode'
 import { openSignIn, signOut, useAccount } from './account'
 import { goToPage } from './pages'
+import { PremiumAvatar } from './PremiumAvatar'
+import { usePremium } from '../referral/status'
 import './account.css'
 
 /**
@@ -12,6 +14,7 @@ import './account.css'
  */
 export function AccountMenu() {
   const { status, user } = useAccount()
+  const premium = usePremium()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -41,7 +44,6 @@ export function AccountMenu() {
   }
   if (status === 'checking' || !user) return <span className="account-avatar account-avatar--loading" aria-hidden="true" />
 
-  const initial = (user.email.trim()[0] ?? '?').toUpperCase()
   const go = (page: 'my-list' | 'account') => {
     setOpen(false)
     goToPage(page)
@@ -51,16 +53,22 @@ export function AccountMenu() {
       <button
         type="button"
         className="account-avatar"
-        aria-label={`Account: ${user.email}`}
+        aria-label={`Account: ${user.email}${premium ? ' (Premium)' : ''}`}
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((o) => !o)}
       >
-        {initial}
+        <PremiumAvatar email={user.email} premium={premium} />
       </button>
       {open && (
         <div className="account-menu__list" role="menu">
-          <p className="account-menu__email">{user.email}</p>
+          <div className="account-menu__head">
+            <PremiumAvatar email={user.email} premium={premium} size={34} />
+            <div className="account-menu__who">
+              <p className="account-menu__email">{user.email}</p>
+              {premium && <span className="premium-label">👑 Premium</span>}
+            </div>
+          </div>
           <button type="button" role="menuitem" onClick={() => go('my-list')}>
             <Bookmark aria-hidden="true" /> My List
           </button>

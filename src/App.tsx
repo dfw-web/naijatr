@@ -27,6 +27,7 @@ import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } 
 import { pageFromPath, type Page } from './account/pages'
 import { SignInHost } from './account/SignInSheet'
 import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekWelcomeHost } from './promo/PromoWeek'
+import { TrialEndedHost, TrialPromptHost, TrialWelcomeHost } from './promo/WelcomeTrial'
 import { loadPromo } from './referral/status'
 import { PasswordReminderHost, SyncPromptHost } from './account/SyncPrompt'
 import './App.css'
@@ -234,6 +235,10 @@ function App() {
       {/* The Free Ad-Free Week's messages (the daily popup and "Ads are back" wait while it's on). */}
       <PromoWeekWelcomeHost />
       <PromoWeekEndedHost />
+      {/* The 48-hour Premium welcome trial: the Play popup (signed out), the welcome and the "ended" messages. */}
+      <TrialPromptHost />
+      <TrialWelcomeHost />
+      <TrialEndedHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

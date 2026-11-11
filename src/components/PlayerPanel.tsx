@@ -23,6 +23,7 @@ import {
 } from '../tv/fullscreen'
 import { QrCode } from '../tv/QrCode'
 import { playAfterGate } from '../gate/gateStore'
+import { playAfterTrialPrompt } from '../promo/trialPrompt'
 import { playAfterAdBreak } from '../tv/tvAdBreakStore'
 import { isTvMode, phoneLink } from '../tv/tvMode'
 import {
@@ -690,7 +691,8 @@ export function PlayerPanel({
       void start(choice, ep)
     }
     if (choice === 'trailer') return go()
-    playAfterGate(() => playAfterAdBreak(`title:${item.id}`, go, phoneLink(item)))
+    // Signed out, after the Free Ad-Free Week: the welcome trial's popup may ask first (at most once a day).
+    playAfterTrialPrompt(() => playAfterGate(() => playAfterAdBreak(`title:${item.id}`, go, phoneLink(item))))
   }
   playRef.current = play
 

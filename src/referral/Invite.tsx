@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Check, Copy, Gift, Sparkles, X } from 'lucide-react'
 import { openSignIn, useAccount, useSignInSheet } from '../account/account'
+import { AccountIdentity } from '../account/PremiumAvatar'
 import { hasStoredSession } from '../account/client'
 import { goToPage } from '../account/pages'
 import { holdAdsThisTap, isPlaybackOpen, useAdOverlay, useOverlayOpen } from '../ads/adManager'
@@ -179,10 +180,10 @@ export function BuyAdFree() {
 
 /** /invite: the two ways to go ad-free (invite friends, free; or buy), and the invite link. */
 export function InvitePage() {
-  const { status: account } = useAccount()
+  const { status: account, user } = useAccount()
   const status = useReferralStatus()
   // Ad-free through the Free Ad-Free Week only: both ways to keep it are still offered.
-  const adFree = useAdFree() && !status?.promoAdFree
+  const adFree = useAdFree() && !status?.promoAdFree && !status?.trialOnly
   const [option, setOption] = useState<'invite' | 'buy'>(() => (takeBuyRequest() ? 'buy' : 'invite'))
   useEffect(() => {
     if (account === 'signedIn') void refreshReferralStatus()
@@ -194,6 +195,7 @@ export function InvitePage() {
       <h1 id="invite-title" className="account-page__title">
         🎁 Go ad-free
       </h1>
+      {account === 'signedIn' && user && <AccountIdentity email={user.email} />}
       {adFree ? (
         <p className="invite-page__badge">
           <Sparkles aria-hidden="true" /> You're enjoying NAIJA TR ad-free. Keep inviting for the weekly mystery prize!
@@ -537,6 +539,26 @@ export function AdFreeCard() {
       </div>
     )
   }
+  // The welcome trial: Premium, with no date or timer shown, and both ways to keep it.
+  if (status.adFree && status.trialOnly) {
+    return (
+      <div className="account-card">
+        <h2 className="account-card__title">Ad-free</h2>
+        <p className="account-card__value">
+          <Sparkles aria-hidden="true" /> 👑 Premium (ad-free): your 2-day welcome gift
+        </p>
+        <p className="account-card__muted">Keep it after that:</p>
+        <div className="account-card__actions">
+          <button type="button" className="account-page__ghost" onClick={openInvite}>
+            <Gift aria-hidden="true" /> Invite {status.goal} friends (free)
+          </button>
+          <button type="button" className="account-page__primary" onClick={openBuy}>
+            💳 Buy ad-free from {naira(FROM_PRICE)}
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (status.adFree) {
     const timed = !status.permanent && status.adFreeUntil
     return (
@@ -613,7 +635,8 @@ export function RenewReminderHost() {
   const [closed, setClosed] = useState(() => renewDismissedToday())
   const [now] = useState(() => Date.now())
   // Their own timed ad-free (the Free Ad-Free Week's end isn't something to renew).
-  const until = status?.signedIn && status.adFree && !status.promoAdFree && !status.permanent && status.adFreeUntil ? Date.parse(status.adFreeUntil) : NaN
+  // (Not the welcome trial: no date or timer is shown for it.)
+  const until = status?.signedIn && status.adFree && !status.promoAdFree && !status.trialOnly && !status.permanent && status.adFreeUntil ? Date.parse(status.adFreeUntil) : NaN
   const due = !closed && !activation && !unlock && until > now && until - now <= RENEW_REMINDER_MS
   useHoldNotices(due)
   if (!due) return null

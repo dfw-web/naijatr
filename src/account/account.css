@@ -26,15 +26,17 @@
   flex-shrink: 0;
 }
 
+/* The avatar button: the circle (and any 👑 crown) is PremiumAvatar, inside it, at the same 36px. */
 .account-avatar {
   display: grid;
   flex-shrink: 0;
   place-items: center;
   width: 36px;
   height: 36px;
-  border: 2px solid var(--border-strong);
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  background: var(--accent);
+  background: none;
   color: #fff;
   font: inherit;
   font-weight: 700;
@@ -42,7 +44,32 @@
 }
 
 .account-avatar--loading {
+  border: 2px solid var(--border-strong);
   background: var(--surface-2);
+}
+
+/* The account menu's top: the avatar, the email and "👑 Premium". */
+.account-menu__head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 0.6rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.account-menu__who {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  justify-items: start;
+}
+
+.account-menu__head .account-menu__email {
+  padding: 0;
+  border: 0;
+  max-width: 100%;
+  white-space: nowrap;
 }
 
 .account-menu__list {
@@ -680,4 +707,26 @@
 
 .sync-prompt__body {
   grid-column: 1 / -1;
+}
+
+/* The account and invite pages: avatar, email and "👑 Premium". */
+.account-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+  /* Room for the crown above the avatar. */
+  padding-top: 0.5rem;
+}
+
+.account-identity__who {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+  min-width: 0;
+}
+
+.account-identity__who .account-card__value {
+  margin: 0;
+  overflow-wrap: anywhere;
 }

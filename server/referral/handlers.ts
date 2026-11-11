@@ -21,14 +21,18 @@ import {
   type ReferralConfig,
 } from './rules.js'
 import { promoActive, promoEmail, promoInfo, promoState, readPromo, type PromoWindow } from '../promo.js'
-import { supabaseStore, type AdFreeGrant, type AuthUser, type Profile, type ReferralStore } from './store.js'
+import { supabaseStore, supabaseTrialStore, type AdFreeGrant, type AuthUser, type Profile, type ReferralStore, type TrialStore } from './store.js'
+import { checkTrial, readTrialConfig, trialInbox, trialInfo, trialRunning, type TrialConfig } from '../trial.js'
 
 /**
  * /api/referral/*: the account-based referral program and the ad-free reward.
  *
  * - GET  status (or ad-free): the signed-in user's ad-free state (checked here,
  *   from their session: the browser can't fake it), invite code and progress.
- *   Without a session: just the goal.
+ *   Without a session: just the goal. A brand-new account gets its 48-hour
+ *   Premium welcome trial here (server/trial.ts), once its email is confirmed;
+ *   the device sends X-Device-Id (and X-Trial-Device: used, once it's had one).
+ * - GET  admin-premium (ADMIN_PASSWORD): /admin/live → trials and Premium users.
  * - POST claim { code, openedAt }: a new account attaches the invite link it came by.
  * - POST watched: the invited account played a movie, episode or match: the
  *   referral counts (email confirmed, within the network's daily limit), and
@@ -56,6 +60,8 @@ export interface ReferralEnv {
   config: ReferralConfig
   /** The Free Ad-Free Week (PROMO_START, PROMO_END), or null. */
   promo: PromoWindow | null
+  /** The 48-hour Premium welcome trial (TRIAL_ENABLED, TRIAL_HOURS, TRIAL_START or PROMO_END). */
+  trial: TrialConfig
 }
 
 export function readReferralEnv(env: Record<string, string | undefined>): ReferralEnv {
@@ -68,6 +74,7 @@ export function readReferralEnv(env: Record<string, string | undefined>): Referr
     resendFrom: (env.RESEND_FROM ?? '').trim(),
     config: readReferralConfig(env),
     promo: readPromo(env),
+    trial: readTrialConfig(env),
   }
 }
 
@@ -153,21 +160,110 @@ async function sendUnlockEmail(env: ReferralEnv, store: ReferralStore, userId: s
   })
 }
 
+/** "Premium" (the crown): ad-free of their own or the welcome trial; never the promo alone. */
+export interface PremiumState {
+  premium: boolean
+  /** When it ends (null: not Premium, or for good). */
+  until: string | null
+  permanent: boolean
+  /** Premium only through the welcome trial (no renew reminder, no date shown). */
+  trialOnly: boolean
+}
+
+export function premiumState(own: { adFree: boolean; until: string | null; permanent: boolean }, trialUntil: string | null, now: number): PremiumState {
+  const trial = trialRunning(trialUntil, now)
+  if (own.permanent) return { premium: true, until: null, permanent: true, trialOnly: false }
+  if (!own.adFree && !trial) return { premium: false, until: null, permanent: false, trialOnly: false }
+  const ends = [own.adFree ? own.until : null, trial ? trialUntil : null].filter((x): x is string => x !== null).map(Date.parse)
+  return { premium: true, until: new Date(Math.max(...ends)).toISOString(), permanent: false, trialOnly: !own.adFree }
+}
+
+const header = (req: IncomingMessage, name: string) => {
+  const value = req.headers[name]
+  return (Array.isArray(value) ? value[0] : value)?.trim() ?? ''
+}
+
+/**
+ * The account's welcome trial end (welcome_trial_until), starting it now if
+ * it qualifies (server/trial.ts). Never throws: without migration 004, or on
+ * any error, there's simply no trial.
+ */
+async function welcomeTrial(env: ReferralEnv, store: ReferralStore, trials: TrialStore | null, user: AuthUser, req: IncomingMessage, now: number): Promise<string | null> {
+  if (!trials) return null
+  try {
+    const mine = await trials.trialOf(user.id)
+    // How it signed up (the Play popup), for /admin/live: noted once, on a new account.
+    if (mine && !mine.signup_source && user.signupSource === 'play-popup') await trials.setSignupSource(user.id, 'play-popup').catch(() => undefined)
+    if (mine?.welcome_trial_until) return mine.welcome_trial_until
+    // Most accounts stop here, with no more reads: made before the trial, or it isn't on.
+    if (!env.trial.enabled || now <= env.trial.start || user.createdAt < env.trial.start || !user.email) return null
+    const inbox = trialInbox(user.email)
+    const deviceId = header(req, 'x-device-id').slice(0, 100)
+    const deviceHash = deviceId ? hashIp(env.config.salt, `device:${deviceId}`) : null
+    const [inboxFirstUser, inboxTrial, inboxTaken, deviceTrial] = await Promise.all([
+      trials.rememberInbox(inbox, user.id),
+      trials.trialForInbox(inbox),
+      store.inboxTaken(inbox, user.id),
+      deviceHash ? trials.deviceHadTrial(deviceHash, inbox) : Promise.resolve(false),
+    ])
+    const verdict = checkTrial({
+      config: env.trial,
+      now,
+      userId: user.id,
+      email: user.email,
+      createdAt: user.createdAt,
+      emailConfirmedAt: user.emailConfirmed ? (user.emailConfirmedAt ?? null) : null,
+      inboxFirstUser,
+      inboxTaken,
+      inboxTrialUser: inboxTrial?.user_id ?? null,
+      deviceUsed: deviceTrial || header(req, 'x-trial-device') === 'used',
+    })
+    if (!verdict.ok) return null
+    // This inbox's trial already (a second tab): the same end date, not a new one.
+    if (inboxTrial) {
+      await trials.setTrialUntil(user.id, inboxTrial.until)
+      return inboxTrial.until
+    }
+    const inserted = await trials.insertTrial({
+      email_normalized: inbox,
+      user_id: user.id,
+      device_hash: deviceHash,
+      source: user.signupSource ?? null,
+      started_at: new Date(Math.max(user.emailConfirmedAt ?? now, env.trial.start)).toISOString(),
+      until: verdict.until,
+    })
+    if (!inserted) {
+      const again = await trials.trialForInbox(inbox)
+      if (again?.user_id !== user.id) return null
+      await trials.setTrialUntil(user.id, again.until)
+      return again.until
+    }
+    await trials.setTrialUntil(user.id, verdict.until)
+    return verdict.until
+  } catch {
+    return null
+  }
+}
+
 export async function handleReferral(
   env: ReferralEnv,
   action: string,
   req: IncomingMessage,
   res: ServerResponse,
-  options: { store?: ReferralStore; fetchImpl?: typeof fetch; now?: number } = {},
+  options: { store?: ReferralStore; trials?: TrialStore | null; fetchImpl?: typeof fetch; now?: number } = {},
 ) {
   const fetchImpl = options.fetchImpl ?? fetch
   const now = options.now ?? Date.now()
   const configured = Boolean(env.url && env.serviceKey)
   const store = options.store ?? (configured ? supabaseStore({ url: env.url, serviceKey: env.serviceKey }, fetchImpl) : null)
+  // A test's own store comes with its own trial store (or none).
+  const trials =
+    options.trials !== undefined ? options.trials : !options.store && configured ? supabaseTrialStore({ url: env.url, serviceKey: env.serviceKey }, fetchImpl) : null
   const { goal } = env.config
 
   try {
     if (action === 'admin' || action === 'decide') return await handleAdmin(env, action, req, res, store, now)
+    if (action === 'admin-premium') return await handlePremiumAdmin(env, req, res, store, trials, now)
     if (action.startsWith('admin-')) return await handleAdFreeAdmin(env, action, req, res, store, now, fetchImpl)
 
     if (action === 'status' || action === 'ad-free') {
@@ -175,11 +271,15 @@ export async function handleReferral(
       const token = bearer(req)
       // The promo and the server's clock, for everyone: the page counts down and switches by them, never by the device's clock.
       const promo = promoInfo(env.promo, now)
-      if (!token || !store) return sendJson(res, 200, { goal, signedIn: false, adFree: false, promo, serverNow: now })
+      const trial = trialInfo(env.trial, now)
+      if (!token || !store) return sendJson(res, 200, { goal, signedIn: false, adFree: false, premium: false, promo, trial, serverNow: now })
       const user = await store.userFromToken(token)
-      if (!user) return sendJson(res, 401, { error: 'unauthorized', goal, promo, serverNow: now })
+      if (!user) return sendJson(res, 401, { error: 'unauthorized', goal, promo, trial, serverNow: now })
       const profile = await ensureProfile(store, user, hashIp(env.config.salt, clientIp(req)))
-      const own = adFreeState(user.email, profile.ad_free_until, env.config, now)
+      const trialUntil = await welcomeTrial(env, store, trials, user, req, now)
+      // Their own ad-free (paid, referral, AD_FREE_EMAILS) or the welcome trial: Premium, with the crown.
+      const premium = premiumState(adFreeState(user.email, profile.ad_free_until, env.config, now), trialUntil, now)
+      const own = { adFree: premium.premium, until: premium.until, permanent: premium.permanent }
       // Promo on: ad-free too, without touching ad_free_until (own time keeps its own end date).
       const promoAdFree = !own.adFree && promoActive(env.promo, now)
       const ad = promoAdFree ? { adFree: true, until: promo!.end, permanent: false } : own
@@ -198,7 +298,13 @@ export async function handleReferral(
         // Ad-free of their own (paid, referral, AD_FREE_EMAILS): it carries on after the promo.
         ownAdFree: own.adFree,
         promoAdFree,
+        // The crown: own ad-free or the welcome trial (never the promo alone).
+        premium: premium.premium,
+        // The welcome trial: its end (kept after it ends, for "Your 2-day Premium has ended" once), and whether it's all they have.
+        trialUntil,
+        trialOnly: premium.trialOnly,
         promo,
+        trial,
         serverNow: now,
         code: profile.invite_code,
         link: `${env.siteUrl}/r/${profile.invite_code}`,
@@ -537,4 +643,32 @@ async function handleAdFreeAdmin(
     })
   }
   sendJson(res, 404, { error: 'not-found' })
+}
+
+/**
+ * /admin/live → Premium: trials started today and running now, sign-ups from
+ * the Play popup, and every Premium account now (ad-free of their own, the
+ * trial, AD_FREE_EMAILS; not the promo). Without migration 004: 503 'needs-migration'.
+ */
+async function handlePremiumAdmin(env: ReferralEnv, req: IncomingMessage, res: ServerResponse, store: ReferralStore | null, trials: TrialStore | null, now: number) {
+  if (!isAdmin({ redisUrl: '', redisToken: '', adminPassword: env.adminPassword }, req.headers.authorization)) {
+    return sendJson(res, 401, { error: 'unauthorized' })
+  }
+  if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
+  if (!store || !trials) return sendJson(res, 503, { error: 'not-configured' })
+  const stats = await trials.stats(now, lagosDayStart(now)).catch(() => null)
+  if (!stats) return sendJson(res, 503, { error: 'needs-migration' })
+  const ids = new Set(stats.premiumIds)
+  for (const allowed of env.config.adFreeEmails) {
+    const user = await store.findUserByEmail(allowed).catch(() => null)
+    if (user) ids.add(user.id)
+  }
+  return sendJson(res, 200, {
+    trial: { ...trialInfo(env.trial, now), hours: env.trial.hours, enabled: env.trial.enabled, start: new Date(env.trial.start).toISOString() },
+    trialsToday: stats.startedToday,
+    activeTrials: stats.active,
+    playSignups: stats.playSignups,
+    playSignupsToday: stats.playSignupsToday,
+    premiumUsers: ids.size,
+  })
 }
