@@ -1,6 +1,6 @@
 import type { ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createFootballCache, handleFootball } from './handlers'
+import { createFootballCache, handleFootball, splitFootballUrl } from './handlers'
 import {
   CACHE_S,
   directServers,
@@ -174,6 +174,12 @@ describe('routes', () => {
     fetchImpl: vi.fn(async () => page([apiMatch('Egypt')])) as unknown as typeof fetch,
     streaming: { key: 'k', store: undefined as never, now: () => NOW },
     admin: { password: 'secret', authorization },
+  })
+
+  it('serves /api/livestreams and /api/livestreams-tag (rewritten to the football function)', () => {
+    expect(splitFootballUrl('/api/livestreams?status=vs').route).toBe('livestreams')
+    expect(splitFootballUrl('/api/livestreams-tag?x=1').route).toBe('livestreams-tag')
+    expect(splitFootballUrl('/api/football/livestreams').route).toBe('livestreams')
   })
 
   it('needs the admin password', async () => {

@@ -1023,10 +1023,14 @@ export async function handleFootball(
   await handler(ctx, params, res)
 }
 
-/** Splits `/live?x=1` (or `/api/football/live?x=1`) into the route name and query. */
+/**
+ * Splits `/live?x=1` (or `/api/football/live?x=1`) into the route name and
+ * query. /api/livestreams and /api/livestreams-tag are rewritten here
+ * (vercel.json) and arrive with their own path.
+ */
 export function splitFootballUrl(rawUrl: string) {
   const url = new URL(rawUrl, 'http://localhost')
-  const route = url.pathname.replace(/^\/api\/football/, '').replace(/^\/+|\/+$/g, '')
+  const route = url.pathname.replace(/^\/api\/football/, '').replace(/^\/api\/(livestreams(-tag)?)\/?$/, '$1').replace(/^\/+|\/+$/g, '')
   return { route, params: url.searchParams }
 }
 
