@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#050508" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Streams test</title>
+    <!-- Private stream test (src/football/streamsTestAdmin.ts). Needs ADMIN_PASSWORD; not linked anywhere, no ads, no analytics. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050508;
+        --surface: #101015;
+        --surface-2: #17171e;
+        --border: #26262e;
+        --text: #f5f5f7;
+        --muted: #b3b3bd;
+        --accent: #e50914;
+        --good: #2fbf71;
+        --warn: #f5c518;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px 16px 64px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+        font-size: 15px;
+      }
+      main {
+        width: min(100%, 60rem);
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.5rem;
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 1.1rem;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        min-width: 0;
+      }
+      button,
+      input {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        min-height: 34px;
+        padding: 4px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--muted);
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        font-weight: 600;
+      }
+      button[aria-pressed='true'] {
+        background: var(--text);
+        color: var(--bg);
+        border-color: var(--text);
+        font-weight: 600;
+      }
+      button[aria-pressed='true'].tag-english {
+        background: var(--good);
+        border-color: var(--good);
+      }
+      button[aria-pressed='true'].tag-broken {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--text);
+      }
+      input {
+        min-height: 34px;
+        padding: 4px 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      .toolbar label {
+        display: grid;
+        gap: 2px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .notice {
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: rgba(245, 197, 24, 0.12);
+        color: var(--warn);
+        font-size: 0.9rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+      }
+      th,
+      td {
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      .yes {
+        color: var(--good);
+        font-weight: 600;
+      }
+      .match-head {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 8px;
+        text-align: center;
+      }
+      .team {
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+        font-weight: 600;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .team img {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+      }
+      .score {
+        font-size: 1.3rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .badge {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .badge.live {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--text);
+        font-weight: 700;
+      }
+      .badge.hint {
+        color: var(--good);
+        border-color: var(--good);
+      }
+      .streams {
+        list-style: none;
+        margin: 12px 0 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+      }
+      .stream {
+        display: grid;
+        gap: 6px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface-2);
+      }
+      .stream-name {
+        font-weight: 600;
+      }
+      .stream-url {
+        font-size: 0.75rem;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .tags button {
+        min-height: 30px;
+        padding: 2px 9px;
+        font-size: 0.82rem;
+      }
+      .test-player {
+        display: grid;
+        gap: 4px;
+      }
+      .test-player video {
+        width: 100%;
+        max-height: 320px;
+        background: #000;
+        border-radius: 8px;
+      }
+      .status {
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+      .status.bad {
+        color: var(--accent);
+      }
+      .status.good {
+        color: var(--good);
+      }
+
+      /* The big "Watch" player. */
+      .watch {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        background: #000;
+      }
+      .watch[hidden] {
+        display: none;
+      }
+      .watch video {
+        flex: 1;
+        width: 100%;
+        min-height: 0;
+        background: #000;
+      }
+      .watch-bar {
+        display: grid;
+        gap: 8px;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+        background: rgba(16, 16, 21, 0.96);
+        border-top: 1px solid var(--border);
+      }
+      .watch-title {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .watch input[type='range'] {
+        width: 140px;
+        padding: 0;
+        min-height: 0;
+        accent-color: var(--accent);
+      }
+      .match-meta {
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .group {
+        margin-top: 12px;
+      }
+      .group h3 {
+        margin: 0 0 4px;
+        font-size: 1rem;
+      }
+      .group p,
+      .totals {
+        margin: 0 0 6px;
+      }
+      #login {
+        max-width: 24rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="row" style="justify-content: space-between">
+        <h1>Streams test</h1>
+        <span class="muted">Private: not on the public site.</span>
+      </header>
+
+      <form id="login" class="card" hidden>
+        <h2>Admin password</h2>
+        <div class="row">
+          <input id="password" type="password" autocomplete="current-password" aria-label="Admin password" required />
+          <button type="submit" class="primary">Open</button>
+        </div>
+        <p id="login-error" class="notice" hidden></p>
+      </form>
+
+      <div id="app" hidden>
+        <div class="card toolbar row" style="align-items: end">
+          <label>
+            Date
+            <input id="date" type="date" />
+          </label>
+          <label>
+            League (optional)
+            <input id="league" type="text" placeholder="e.g. Premier League" />
+          </label>
+          <button id="refresh" type="button" class="primary">Load</button>
+          <span id="usage" class="muted"></span>
+        </div>
+        <p id="notice" class="notice" hidden></p>
+
+        <section class="card" aria-labelledby="summary-title">
+          <h2 id="summary-title">Summary</h2>
+          <div id="summary"></div>
+        </section>
+
+        <section aria-labelledby="live-title" style="display: grid; gap: 12px">
+          <h2 id="live-title">Live now</h2>
+          <div id="live" style="display: grid; gap: 12px"></div>
+        </section>
+
+        <section aria-labelledby="vs-title" style="display: grid; gap: 12px">
+          <h2 id="vs-title">Upcoming</h2>
+          <div id="vs" style="display: grid; gap: 12px"></div>
+        </section>
+      </div>
+    </main>
+
+    <div id="watch" class="watch" role="dialog" aria-modal="true" aria-label="Watch stream" hidden>
+      <video id="watch-video" playsinline></video>
+      <div class="watch-bar">
+        <div class="row" style="justify-content: space-between">
+          <span id="watch-title" class="watch-title"></span>
+          <span id="watch-status" class="status"></span>
+        </div>
+        <div class="row">
+          <button id="watch-play" type="button">Pause</button>
+          <button id="watch-mute" type="button">Mute</button>
+          <input id="watch-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" />
+          <button id="watch-fullscreen" type="button">Fullscreen</button>
+          <button id="watch-prev" type="button">Previous stream</button>
+          <button id="watch-next" type="button" class="primary">Next stream</button>
+          <button id="watch-close" type="button">Close</button>
+        </div>
+        <div id="watch-tags" class="row tags"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/football/streamsTestAdmin.ts"></script>
+  </body>
+</html>

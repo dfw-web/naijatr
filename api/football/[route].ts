@@ -26,6 +26,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     cache,
     streaming,
     admin: { password: process.env.ADMIN_PASSWORD ?? '', authorization: req.headers?.authorization, redis: redisEnv },
+    streamsTestCap: Number(process.env.STREAMS_TEST_DAILY_CAP) || undefined,
   }
   await handleFootball(ctx, req.method, route, params, res)
 }

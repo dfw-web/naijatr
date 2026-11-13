@@ -48,6 +48,17 @@ import {
   type StreamingDeps,
 } from './streamingStore.js'
 import { fetchStreamingLeague, fetchStreamingLeagues, serverLabel } from './streaming.js'
+import {
+  DEFAULT_DAILY_CAP,
+  loadTestListing,
+  readTags,
+  readTagInput,
+  readTestQuery,
+  requestsToday,
+  saveTag,
+  summarizeTags,
+  type TestDeps,
+} from './streamsTest.js'
 
 export const FOOTBALL_ORIGIN = 'https://v3.football.api-sports.io'
 const UPSTREAM_TIMEOUT_MS = 10000
@@ -192,6 +203,8 @@ export interface FootballContext {
   streaming?: StreamingDeps
   /** For the /admin/live routes: ADMIN_PASSWORD, the request's Authorization header, and Redis for viewer counts. */
   admin?: { password: string; authorization?: string; redis?: RedisEnv }
+  /** STREAMS_TEST_DAILY_CAP: requests a day the admin stream test may make (default 50). */
+  streamsTestCap?: number
 }
 
 const isEmptyErrors = (errors: unknown) =>
@@ -936,10 +949,56 @@ async function adminRefresh(ctx: FootballContext, params: URLSearchParams, res: 
   sendPrivate(res, 200, { ok: true, limited: result.load.limited, fetchedAt: result.load.snapshot?.fetchedAt ?? null })
 }
 
-const ROUTES = { live, fixtures, standings, match, stream, watchable, 'admin-streams': adminStreams, 'admin-refresh': adminRefresh }
+const testDeps = (ctx: FootballContext): TestDeps => ({
+  key: ctx.rapidKey ?? '',
+  redis: ctx.admin?.redis ?? { redisUrl: '', redisToken: '' },
+  now: ctx.streaming?.now ?? Date.now,
+  cap: ctx.streamsTestCap ?? DEFAULT_DAILY_CAP,
+  fetchImpl: ctx.fetchImpl,
+})
+
+/**
+ * GET /api/livestreams?status=live|vs&date=DDMMYYYY&league= (admin): the
+ * stream test's matches with their direct servers, today's request count, and
+ * the commentary tags with their summary (server/football/streamsTest.ts).
+ */
+async function livestreams(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
+  if (!adminAllowed(ctx, res)) return
+  const deps = testDeps(ctx)
+  const query = readTestQuery(params, deps.now())
+  if (!query) return sendPrivate(res, 400, { error: 'bad-request' })
+  const listing = await loadTestListing(deps, query)
+  const [today, tags] = await Promise.all([requestsToday(deps), readTags(deps)])
+  sendPrivate(res, 200, { query, ...listing, usage: { today, cap: deps.cap }, tags, summary: summarizeTags(tags) })
+}
+
+/** POST /api/livestreams-tag?match=&name=&tag=english|…|clear&url=&title= (admin): one stream's commentary tag. */
+async function livestreamsTag(ctx: FootballContext, params: URLSearchParams, res: ServerResponse) {
+  if (!adminAllowed(ctx, res)) return
+  const raw = Object.fromEntries(params)
+  const input = readTagInput({ ...raw, tag: raw.tag === 'clear' ? null : raw.tag })
+  if (!input) return sendPrivate(res, 400, { error: 'bad-request' })
+  const deps = testDeps(ctx)
+  await saveTag(deps, input)
+  const tags = await readTags(deps)
+  sendPrivate(res, 200, { ok: true, tags, summary: summarizeTags(tags) })
+}
+
+const ROUTES = {
+  live,
+  fixtures,
+  standings,
+  match,
+  stream,
+  watchable,
+  'admin-streams': adminStreams,
+  'admin-refresh': adminRefresh,
+  livestreams,
+  'livestreams-tag': livestreamsTag,
+}
 
 /** Routes that change something, and so take POST. */
-const POST_ROUTES = new Set(['admin-refresh'])
+const POST_ROUTES = new Set(['admin-refresh', 'livestreams-tag'])
 
 export type FootballRoute = keyof typeof ROUTES
 

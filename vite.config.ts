@@ -34,6 +34,7 @@ function telegramPage(): Plugin {
     if (req.url && /^\/admin\/live\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/live\/?/, '/admin/live/index.html')
     if (req.url && /^\/admin\/feedback\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/feedback\/?/, '/admin/feedback/index.html')
     if (req.url && /^\/admin\/referrals\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/referrals\/?/, '/admin/referrals/index.html')
+    if (req.url && /^\/admin\/streams-test\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/streams-test\/?/, '/admin/streams-test/index.html')
     if (req.url && /^\/admin\/ad-free\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/ad-free\/?/, '/admin/live/index.html')
     next()
   }
@@ -160,7 +161,7 @@ export default defineConfig(({ mode }) => {
       target: ['es2019', 'chrome64', 'safari12', 'firefox68', 'edge79'],
       cssTarget: ['chrome64', 'safari12', 'firefox68', 'edge79'],
       // The app, plus the /go/telegram redirect page and the private /admin/live, /admin/feedback and /admin/referrals pages.
-      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html', admin: 'admin/live/index.html', feedback: 'admin/feedback/index.html', referrals: 'admin/referrals/index.html' } },
+      rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html', admin: 'admin/live/index.html', feedback: 'admin/feedback/index.html', referrals: 'admin/referrals/index.html', streamsTest: 'admin/streams-test/index.html' } },
     },
     server: { proxy: tmdbProxy },
     preview: { proxy: tmdbProxy },
