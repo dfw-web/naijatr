@@ -10,7 +10,7 @@ import {
   type ContinueEntry,
 } from '../utils/continueWatching'
 import { readWatchLater, removeFromLater, saveForLater } from '../utils/watchLater'
-import { combineTaste, mergeContinue, mergeList, type ContinueRow, type ListRow } from './merge'
+import { combineTaste, continueEntry, continueRow, mergeContinue, mergeList, type ContinueRow, type ListRow } from './merge'
 import { requestSyncNow, resetSync, startSync, stopSync, syncSettled, type SyncBackend } from './sync'
 
 const movie = (id: number, title = `Movie ${id}`): MediaItem => ({
@@ -145,6 +145,15 @@ describe('merging', () => {
     const merged = mergeContinue([entry({ id: 'a', lastWatchedAt: 50, progressSeconds: 1500 })], [entry({ id: 'a', lastWatchedAt: 40, progressSeconds: 1200 })], {})
     expect(merged.list[0]).toMatchObject({ progressSeconds: 1500 })
     expect(merged.upload).toEqual([])
+  })
+
+  it('carries the player’s source to the account and back; the newest entry’s source wins', () => {
+    const mine = entry({ id: 'a', lastWatchedAt: 50, playerSource: 'MovieJoy' })
+    expect(continueEntry(continueRow('u', mine))).toMatchObject({ playerSource: 'MovieJoy' })
+    // Rows saved before it existed.
+    expect(continueEntry({ ...continueRow('u', mine), data: { ...continueRow('u', mine).data, playerSource: undefined } })).toMatchObject({ playerSource: null })
+    const merged = mergeContinue([mine], [entry({ id: 'a', lastWatchedAt: 60, playerSource: 'VidStore' })], { a: 'up' })
+    expect(merged.list[0]).toMatchObject({ playerSource: 'VidStore' })
   })
 
   it('joins both My Lists', () => {

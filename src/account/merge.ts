@@ -27,7 +27,7 @@ export interface ContinueRow {
   last_watched_at: string
   title: string
   poster_path: string | null
-  data: Pick<ContinueEntry, 'backdrop' | 'episodeTitle' | 'still' | 'seasons' | 'source' | 'item'>
+  data: Pick<ContinueEntry, 'backdrop' | 'episodeTitle' | 'still' | 'seasons' | 'source' | 'playerSource' | 'item'>
 }
 
 export interface ListRow {
@@ -59,7 +59,7 @@ export const continueRow = (userId: string, e: ContinueEntry): ContinueRow => ({
   last_watched_at: iso(e.lastWatchedAt),
   title: e.title,
   poster_path: e.poster,
-  data: { backdrop: e.backdrop, episodeTitle: e.episodeTitle, still: e.still, seasons: e.seasons, source: e.source, item: e.item },
+  data: { backdrop: e.backdrop, episodeTitle: e.episodeTitle, still: e.still, seasons: e.seasons, source: e.source, playerSource: e.playerSource ?? null, item: e.item },
 })
 
 export function continueEntry(row: ContinueRow): ContinueEntry | null {
@@ -81,6 +81,7 @@ export function continueEntry(row: ContinueRow): ContinueEntry | null {
     lastWatchedAt: ms(row.last_watched_at),
     seasons: Array.isArray(data.seasons) ? data.seasons : [],
     source: data.source === 'free' ? 'free' : 'stream',
+    playerSource: typeof data.playerSource === 'string' ? data.playerSource : null,
     item: data.item,
   }
 }

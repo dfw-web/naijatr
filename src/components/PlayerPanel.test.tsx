@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MediaItem } from '../types/media'
-import { PLAYER_LOAD_TIMEOUT_MS, PlayerPanel } from './PlayerPanel'
+import { AUDIO_NOTE_HIDE_MS, AUDIO_NOTE_KEY, PLAYER_LOAD_TIMEOUT_MS, PlayerPanel } from './PlayerPanel'
+import { readContinueWatching } from '../utils/continueWatching'
 
 const base: MediaItem = {
   id: 'tmdb-movie-550',
@@ -121,6 +122,47 @@ describe('PlayerPanel', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading player')
     fireEvent.load(frame)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('notes the player’s audio sources under the buttons once playing, dismissed for 7 days', async () => {
+    const { unmount } = render(<PlayerPanel item={withTrailer} availability={on} fetchImpl={reply({ available: true })} />)
+    const note = /Different sources in the player menu may have different audio languages/
+    expect(screen.queryByText(note)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    const frame = await screen.findByTitle('Fight Club player')
+    expect(screen.getByText(note)).toBeInTheDocument()
+    // Below the player, not over it.
+    expect(frame.closest('.player__frame')).not.toContainElement(screen.getByText(note))
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss audio note' }))
+    expect(screen.queryByText(note)).not.toBeInTheDocument()
+    unmount()
+    const { unmount: unmount2 } = render(<PlayerPanel item={withTrailer} availability={on} fetchImpl={reply({ available: true })} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await screen.findByTitle('Fight Club player')
+    expect(screen.queryByText(note)).not.toBeInTheDocument()
+    unmount2()
+    // Back after a week.
+    window.localStorage.setItem(AUDIO_NOTE_KEY, String(Date.now() - AUDIO_NOTE_HIDE_MS - 1))
+    render(<PlayerPanel item={withTrailer} availability={on} fetchImpl={reply({ available: true })} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await screen.findByTitle('Fight Club player')
+    expect(screen.getByText(note)).toBeInTheDocument()
+  })
+
+  it('saves the source the player reports (serverchange) with the progress', async () => {
+    render(<PlayerPanel item={withTrailer} availability={on} fetchImpl={reply({ available: true })} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    const frame = await screen.findByTitle('Fight Club player')
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { source: 'embedmaster_player', event: 'serverchange', info: 'MovieJoy' },
+          source: (frame as HTMLIFrameElement).contentWindow,
+        }),
+      )
+    })
+    expect(readContinueWatching()[0]).toMatchObject({ id: withTrailer.id, playerSource: 'MovieJoy' })
   })
 
   it('shows how to download before and after Play, with the walkthrough video only when asked', async () => {

@@ -114,6 +114,44 @@
   background: #000;
 }
 
+/* The audio-language note: small grey text, its ✕ at the end of the first line. */
+.player__audio-note {
+  align-items: flex-start;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.player__audio-note > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.player__audio-note-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -3px -4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.player__audio-note-close:hover,
+.player__audio-note-close:focus-visible {
+  color: var(--text);
+}
+
+.player .player__audio-note-close svg {
+  width: 14px;
+  height: 14px;
+}
+
 .player__bar {
   display: flex;
   flex-wrap: wrap;

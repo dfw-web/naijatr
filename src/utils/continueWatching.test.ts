@@ -8,6 +8,7 @@ import {
   nextEpisodeOf,
   readContinueWatching,
   recordPlay,
+  recordPlayerSource,
   recordProgress,
   removeEntry,
 } from './continueWatching'
@@ -107,6 +108,16 @@ describe('progress', () => {
     // The player's last updates don't bring it back.
     recordProgress('tmdb-movie-1', {}, 5500, 6000, 4000)
     expect(ids()).toEqual([])
+  })
+
+  it('saves the player’s source, keeps it on the next play, and ignores another episode’s', () => {
+    recordPlay(show, { season: 1, episode: 1 }, 1000)
+    recordPlayerSource(show.id, { season: 1, episode: 1 }, ' MovieJoy ', 2000)
+    expect(readContinueWatching()[0]).toMatchObject({ playerSource: 'MovieJoy', lastWatchedAt: 2000 })
+    recordPlayerSource(show.id, { season: 1, episode: 2 }, 'VidStore', 3000)
+    expect(readContinueWatching()[0]).toMatchObject({ playerSource: 'MovieJoy' })
+    recordPlay(show, { season: 1, episode: 2 }, 4000)
+    expect(readContinueWatching()[0]).toMatchObject({ episode: 2, playerSource: 'MovieJoy' })
   })
 
   it('ignores updates for an episode the card has moved past', () => {

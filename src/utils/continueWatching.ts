@@ -42,6 +42,13 @@ export interface ContinueEntry {
   seasons: Pick<SeasonSummary, 'number' | 'episodeCount'>[]
   /** "free": a Watch Free film (played by our own player); otherwise the stream. */
   source: 'stream' | 'free'
+  /**
+   * The source picked inside the player's own menu (MovieJoy, VidStore…), as
+   * its `serverchange` event names it. Saved and synced with the progress, but
+   * not handed back on resume: the EmbedMaster player has no URL option or
+   * command to choose a source, so it always opens on its first one.
+   */
+  playerSource?: string | null
   item: SavedTitle
 }
 
@@ -149,6 +156,7 @@ export function recordPlay(
     lastWatchedAt: now,
     seasons,
     source: options.source ?? 'stream',
+    playerSource: old?.playerSource ?? null,
     item: saveTitle(item),
   }
   write([entry, ...list.filter((e) => e.id !== item.id)])
@@ -174,6 +182,25 @@ export function recordProgress(
   const duration = durationSeconds && durationSeconds > 0 ? durationSeconds : entry.durationSeconds
   if (duration && progressSeconds >= duration * FINISHED_AT) return finishEntry(id, at, now)
   write(list.map((e) => (e.id === id ? { ...e, progressSeconds, durationSeconds: duration, lastWatchedAt: now } : e)))
+}
+
+/**
+ * The player reported the source it's on now (picked from its menu, or the
+ * first one it opened). Kept with the entry while it's on that episode; the
+ * newest change wins between devices, like the progress.
+ */
+export function recordPlayerSource(
+  id: string,
+  at: { season?: number | null; episode?: number | null },
+  name: string,
+  now = Date.now(),
+): void {
+  const playerSource = name.trim().slice(0, 60)
+  const list = readContinueWatching()
+  const entry = list.find((e) => e.id === id)
+  if (!entry || !playerSource || entry.playerSource === playerSource) return
+  if (entry.type === 'tv' && (entry.season !== (at.season ?? null) || entry.episode !== (at.episode ?? null))) return
+  write(list.map((e) => (e.id === id ? { ...e, playerSource, lastWatchedAt: now } : e)))
 }
 
 /**

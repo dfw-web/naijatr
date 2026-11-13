@@ -30,6 +30,7 @@ import {
   currentEpisodeOf,
   finishEntry,
   recordPlay,
+  recordPlayerSource,
   recordProgress,
   savedProgressOf,
   takeResumeRequest,
@@ -361,6 +362,8 @@ export function PlayerPanel({
         else settledAt = now
       }
       if (data.event === 'duration' && typeof data.info === 'number' && data.info > 0) duration = data.info
+      // The source inside the player's menu (MovieJoy, VidStore…): saved with the progress.
+      if (data.event === 'serverchange' && typeof data.info === 'string') recordPlayerSource(itemId, ep, data.info)
       if (data.event === 'time' && typeof data.info === 'number') {
         const time = data.info
         if (pendingSeek !== null) {
@@ -1060,6 +1063,7 @@ export function PlayerPanel({
           <X aria-hidden="true" /> Close player
         </button>
       </div>
+      {active.choice === 'stream' && <AudioNote />}
       {active.choice === 'stream' && (
         <p className="player__hint">
           <Captions aria-hidden="true" />
@@ -1068,6 +1072,49 @@ export function PlayerPanel({
       )}
       {active.choice === 'stream' && howTo}
     </section>
+  )
+}
+
+/** Dismissing the audio note hides it this long (on this device). */
+export const AUDIO_NOTE_KEY = 'naijatr.audioNoteDismissedAt'
+export const AUDIO_NOTE_HIDE_MS = 7 * 24 * 60 * 60 * 1000
+
+const audioNoteHidden = () => {
+  try {
+    const at = Number(localStorage.getItem(AUDIO_NOTE_KEY))
+    return at > 0 && Date.now() - at < AUDIO_NOTE_HIDE_MS
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Under the player's buttons, never over the video: the player's own source
+ * menu (top-left) has sources that may play other audio languages. Read
+ * before the first paint, so it never pops in and moves things.
+ */
+function AudioNote() {
+  const [hidden, setHidden] = useState(audioNoteHidden)
+  if (hidden) return null
+  const dismiss = () => {
+    try {
+      localStorage.setItem(AUDIO_NOTE_KEY, String(Date.now()))
+    } catch {
+      // This visit only.
+    }
+    setHidden(true)
+  }
+  return (
+    <p className="player__hint player__audio-note">
+      <span>
+        <span aria-hidden="true">🔊 </span>
+        Different sources in the player menu may have different audio languages. Tap the source menu at the
+        top-left of the player to switch.
+      </span>
+      <button type="button" className="player__audio-note-close" onClick={dismiss} aria-label="Dismiss audio note">
+        <X aria-hidden="true" />
+      </button>
+    </p>
   )
 }
 
