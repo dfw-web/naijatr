@@ -19,6 +19,7 @@ import { TvAdBreakHost } from './tv/TvAdBreak'
 import { TelegramGateHost } from './gate/TelegramGate'
 import { GreetingHost } from './components/Greeting'
 import { InstallAppHost } from './components/InstallApp'
+import { UpdateBar } from './components/UpdateBar'
 import { FeedbackHost } from './feedback/Feedback'
 import { ActivationNoticeHost, DailyPromoHost, InvitePage, InviteRulesPage, RenewReminderHost, UnlockNoticeHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
@@ -221,6 +222,7 @@ function App() {
       {/* The seasonal greeting (src/config/greetings.ts), after any other popup. */}
       <GreetingHost />
       <InstallAppHost />
+      <UpdateBar />
       <FeedbackHost />
       {/* Optional accounts: the sign-in sheet, and the gentle reminders (at most weekly, never forced). */}
       <SignInHost />

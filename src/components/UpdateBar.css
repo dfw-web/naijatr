@@ -1,0 +1,49 @@
+/* "New update available" (UpdateBar.tsx): a small pill at the top, above everything but out of the way. */
+.update-bar {
+  position: fixed;
+  top: max(0.6rem, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: calc(100% - 2rem);
+  min-height: 40px;
+  padding: 0.45rem 1rem;
+  border: 1px solid rgba(229, 9, 20, 0.6);
+  border-radius: 999px;
+  background: var(--surface, #101015);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  color: var(--text, #f5f5f7);
+  font-family: var(--font-body, 'Inter', system-ui, sans-serif);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: update-bar-in 300ms ease-out;
+}
+
+.update-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-bar svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--accent, #e50914);
+}
+
+.update-bar:hover,
+.update-bar:focus-visible {
+  border-color: var(--accent, #e50914);
+}
+
+@keyframes update-bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -0.75rem);
+  }
+}

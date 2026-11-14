@@ -8,6 +8,7 @@ import { analyticsBeforeSend } from '../analytics'
 import { TvAdBreakHost } from '../tv/TvAdBreak'
 import { TelegramGateHost } from '../gate/TelegramGate'
 import { InstallAppHost } from '../components/InstallApp'
+import { UpdateBar } from '../components/UpdateBar'
 import { FeedbackHost } from '../feedback/Feedback'
 
 // Loaded on demand, so the movie pages never download the Football section.
@@ -29,6 +30,7 @@ export function FootballRoot() {
       <AdsBackNotice />
       <AdUpsell />
       <InstallAppHost />
+      <UpdateBar />
       <FeedbackHost />
       <Analytics beforeSend={analyticsBeforeSend} />
     </>

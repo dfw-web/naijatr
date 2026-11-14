@@ -1,6 +1,8 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { resolve } from 'node:path'
 import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite'
 import {
   isDownloadConfigured,
@@ -43,6 +45,26 @@ function telegramPage(): Plugin {
     transformIndexHtml: (html) => html.replaceAll('%TELEGRAM_CHANNEL_URL%', TELEGRAM_CHANNEL_URL),
     configureServer: (server) => void server.middlewares.use(rewrite),
     configurePreviewServer: (server) => void server.middlewares.use(rewrite),
+  }
+}
+
+/**
+ * Stamps every build into dist/sw.js (its BUILD and cache name), so each deploy
+ * is a changed service worker: the installed app picks it up, drops the old
+ * caches and offers "New update available, tap to refresh" (src/pwa.ts).
+ */
+function swBuildId(): Plugin {
+  // The commit (on Vercel) plus the time, so a redeploy of the same commit is still new.
+  const buildId = `${process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local'}-${Date.now().toString(36)}`
+  let outDir = 'dist'
+  return {
+    name: 'sw-build-id',
+    apply: 'build',
+    configResolved: (config) => void (outDir = resolve(config.root, config.build.outDir)),
+    closeBundle: () => {
+      const file = resolve(outDir, 'sw.js')
+      writeFileSync(file, readFileSync(file, 'utf8').replace('__BUILD_ID__', buildId))
+    },
   }
 }
 
@@ -147,7 +169,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

@@ -52,14 +52,73 @@ export const useCanInstall = () =>
     () => false,
   )
 
-/** Registers the offline service worker in production builds. */
-export function registerServiceWorker() {
-  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // The site still works without it, just not offline or installable.
-    })
+let updateReady = false
+const markUpdateReady = () => {
+  if (updateReady) return
+  updateReady = true
+  notify()
+}
+
+/** True once a new version has been deployed and taken over: the app shows "New update available". */
+export const useUpdateReady = () =>
+  useSyncExternalStore(
+    subscribe,
+    () => updateReady,
+    () => false,
+  )
+
+/** Look for a new version this often while the app stays open, and whenever it comes back to the front. */
+export const UPDATE_CHECK_MS = 30 * 60 * 1000
+
+/**
+ * Registers the offline service worker in production builds and keeps it up
+ * to date. The home-screen app on iPhone is resumed rather than reloaded, so it
+ * would never look for a new public/sw.js by itself: it checks on start, each
+ * time it comes back to the front, and every 30 minutes. When a new worker takes
+ * over a page that already had one, the update bar shows (nothing reloads by
+ * itself, so a playing film is never cut off).
+ */
+export function registerServiceWorker(
+  container: ServiceWorkerContainer | undefined = 'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
+  enabled = import.meta.env.PROD,
+) {
+  if (!enabled || !container) return
+  // A worker already ran this page: a new one taking over means a new version.
+  const hadController = Boolean(container.controller)
+  container.addEventListener('controllerchange', () => {
+    if (hadController) markUpdateReady()
   })
+
+  const start = () => {
+    container
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => {
+        const check = () => void registration.update().catch(() => undefined)
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') check()
+        })
+        window.addEventListener('focus', check)
+        window.setInterval(check, UPDATE_CHECK_MS)
+      })
+      .catch(() => {
+        // The site still works without it, just not offline or installable.
+      })
+  }
+  if (document.readyState === 'complete') start()
+  else window.addEventListener('load', start)
+
+  // A part of the old version (e.g. the Football section) was removed by the deploy: the new version has it.
+  window.addEventListener('vite:preloadError', markUpdateReady)
+}
+
+/** "Tap to refresh": loads the new version. */
+export function applyUpdate() {
+  window.location.reload()
+}
+
+/** Tests only. */
+export function resetUpdateReady() {
+  updateReady = false
 }
 
 /** Running as the installed app (from the home screen), not in a browser tab. */
