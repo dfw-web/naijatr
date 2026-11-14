@@ -392,8 +392,9 @@ export function SubtitleMenu({ subs }: { subs: PlayerSubtitles }) {
                   className="subs-menu__option"
                   aria-pressed={subs.choice === o.code}
                   onClick={() => {
+                    // Picking a language (or Off) closes the menu; CC again shows sync, speed and versions.
                     subs.choose(o.code)
-                    if (o.code === 'off') setOpen(false)
+                    setOpen(false)
                   }}
                 >
                   {subs.choice === o.code ? <Check aria-hidden="true" /> : <span className="subs-menu__space" />}

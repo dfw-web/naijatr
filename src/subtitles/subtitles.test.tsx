@@ -128,8 +128,13 @@ describe('the player overlay', () => {
     expect(await screen.findByRole('button', { name: 'French' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'French' }))
     expect(subtitleChoice()).toBe('fr')
+    // Picking a language closes the menu.
+    expect(screen.queryByRole('group', { name: 'Subtitles' })).toBeNull()
+    expect(screen.getByRole('button', { name: /CC/ })).toHaveAttribute('aria-expanded', 'false')
     expect(await screen.findByText('No subtitles found')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /CC/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Off' }))
+    expect(screen.queryByRole('group', { name: 'Subtitles' })).toBeNull()
     expect(subtitleChoice()).toBe('off')
     expect(screen.queryByText('No subtitles found')).toBeNull()
   })
