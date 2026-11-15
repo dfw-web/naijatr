@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { authButton } from '../ads/authGuard'
 import { X } from 'lucide-react'
 import { openSignIn, useAccount } from '../account/account'
 import { goToPage } from '../account/pages'
@@ -98,10 +99,10 @@ export function PromoWeekBanner() {
       <button
         type="button"
         className="promo-week-banner__action"
-        data-no-ad=""
+        {...authButton('signup')}
         onClick={() => {
           holdAdsThisTap()
-          openSignIn()
+          openSignIn('create')
         }}
       >
         Sign in

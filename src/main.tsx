@@ -1,4 +1,7 @@
 import './tv/polyfills'
+// First, before any ad script can exist: auth taps never reach one (src/ads/authGuard.ts).
+import { installAuthGuard } from './ads/authGuard'
+installAuthGuard()
 // Next: keeps the code of a /r/CODE invite link (src/referral/capture.ts).
 import './referral/capture'
 import { StrictMode } from 'react'
@@ -15,6 +18,8 @@ import { installRemote } from './tv/remote'
 import { isTvMode } from './tv/tvMode'
 import { initAccount } from './account/account'
 import { installQuietZones } from './ads/adManager'
+import { isAuthPath } from './account/pages'
+import { AuthRoot } from './account/AuthRoot'
 
 listenForInstallPrompt()
 registerServiceWorker()
@@ -25,12 +30,14 @@ if (isTvMode()) installRemote()
 
 const root = document.getElementById('root')!
 const app = createRoot(root)
-// After the React root, so React still sees every tap: taps in the sign-in sheet and password forms never reach the Multitag.
+// After the React root, so React still sees every tap: taps on the football player never reach the Multitag.
 installQuietZones(root)
 app.render(
   <StrictMode>
-    {/* The Football section (/football) is a separate root from the movie app. */}
-    {isFootballPath(window.location.pathname) ? (
+    {/* The auth pages (/login, /signup, /auth/*) and the Football section (/football) are separate roots from the movie app. */}
+    {isAuthPath(window.location.pathname) ? (
+      <AuthRoot />
+    ) : isFootballPath(window.location.pathname) ? (
       <FootballRoot />
     ) : (
       <App />

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { authButton } from '../ads/authGuard'
 import { Cloud, KeyRound, X } from 'lucide-react'
 import { isPlaybackOpen, useOverlayCount } from '../ads/adManager'
 import { SYNC_PROMPT } from '../config/account'
@@ -9,7 +10,7 @@ import { useDismiss } from '../ui/useDismiss'
 import { useWatchLater } from '../utils/watchLater'
 import { openSignIn, useAccount } from './account'
 import { Benefits } from './authParts'
-import { goToPage, pageFromPath } from './pages'
+import { goToAuthPage, pageFromPath } from './pages'
 import { snooze, snoozed, type Reminder } from './reminders'
 import './account.css'
 
@@ -67,6 +68,7 @@ export function SyncPromptHost({ delayMs = SHOW_AFTER_MS }: { delayMs?: number }
       icon={<Cloud className="sync-prompt__icon" aria-hidden="true" />}
       title="Sign in to keep your progress & My List on all your devices"
       action="Create free account"
+      authPage="signup"
       onAction={() => {
         close()
         openSignIn()
@@ -91,9 +93,10 @@ export function PasswordReminderHost({ delayMs = SHOW_AFTER_MS }: { delayMs?: nu
       icon={<KeyRound className="sync-prompt__icon" aria-hidden="true" />}
       title="Set a password to log in on other devices"
       action="Set a password"
+      authPage="auth/set-password"
       onAction={() => {
         close()
-        goToPage('account')
+        goToAuthPage('auth/set-password')
       }}
       onClose={close}
       onScreen={setOnScreen}
@@ -106,13 +109,15 @@ interface ReminderCardProps {
   icon: ReactNode
   title: string
   action: string
+  /** The auth page the action opens (a full page load, no ad on the tap: src/ads/authGuard.ts). */
+  authPage: 'signup' | 'login' | 'auth/set-password'
   onAction: () => void
   onClose: () => void
   onScreen: (on: boolean) => void
   children?: ReactNode
 }
 
-function ReminderCard({ id, icon, title, action, onAction, onClose, onScreen, children }: ReminderCardProps) {
+function ReminderCard({ id, icon, title, action, authPage, onAction, onClose, onScreen, children }: ReminderCardProps) {
   useDismiss(true, onClose)
   useEffect(() => {
     onScreen(true)
@@ -126,7 +131,7 @@ function ReminderCard({ id, icon, title, action, onAction, onClose, onScreen, ch
       </p>
       {children && <div className="sync-prompt__body">{children}</div>}
       <div className="sync-prompt__actions">
-        <button type="button" className="sync-prompt__primary" data-no-ad="" onClick={onAction}>
+        <button type="button" className="sync-prompt__primary" {...authButton(authPage)} onClick={onAction}>
           {action}
         </button>
         <button type="button" className="sync-prompt__later" onClick={onClose}>

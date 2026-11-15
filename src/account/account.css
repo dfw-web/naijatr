@@ -753,3 +753,53 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* The auth pages (/login, /signup, /auth/*): their own root, no ad script (src/ads/authGuard.ts). */
+.account-auth-root {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.account-auth-root__bar {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.account-auth-root__home {
+  color: var(--text);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.account-auth-root__home span {
+  color: var(--accent);
+}
+
+.account-auth-root__main {
+  padding: 1.5rem 16px 3rem;
+}
+
+.account-auth {
+  display: flex;
+  justify-content: center;
+}
+
+.account-auth__panel {
+  max-height: none;
+  overflow: visible;
+}
+
+.account-auth__hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

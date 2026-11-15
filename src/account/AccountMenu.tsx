@@ -1,94 +1,43 @@
-import { useEffect, useRef, useState } from 'react'
-import { Bookmark, LogOut, UserRound } from 'lucide-react'
 import { isTvMode } from '../tv/tvMode'
-import { openSignIn, signOut, useAccount } from './account'
-import { goToPage } from './pages'
+import { authButton } from '../ads/authGuard'
+import { defaultAuthPage, openSignIn, useAccount } from './account'
+import { goToAuthPage } from './pages'
 import { PremiumAvatar } from './PremiumAvatar'
 import { usePremium } from '../referral/status'
 import './account.css'
 
 /**
- * The header's account corner: "Sign in to sync" while signed out; the
- * account's initial, with My List, Account and Sign out, while signed in.
- * Nothing while accounts are off, or on TVs.
+ * The header's account corner: "Sign in to sync" while signed out (/login or
+ * /signup); the account's initial while signed in (/account, with My List,
+ * the password and Sign out). Both open their page with a full page load, and
+ * the tap never reaches an ad script (src/ads/authGuard.ts). Nothing while
+ * accounts are off, or on TVs.
  */
 export function AccountMenu() {
   const { status, user } = useAccount()
   const premium = usePremium()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   if (status === 'disabled' || isTvMode()) return null
   if (status === 'signedOut') {
     return (
-      <button type="button" className="account-signin" data-no-ad="" onClick={() => openSignIn()}>
+      <button type="button" className="account-signin" {...authButton(defaultAuthPage())} onClick={() => openSignIn()}>
         Sign in to sync
       </button>
     )
   }
   if (status === 'checking' || !user) return <span className="account-avatar account-avatar--loading" aria-hidden="true" />
 
-  const go = (page: 'my-list' | 'account') => {
-    setOpen(false)
-    goToPage(page)
-  }
   return (
-    <div ref={ref} className="account-menu">
+    <div className="account-menu">
       <button
         type="button"
         className="account-avatar"
-        data-no-ad=""
+        {...authButton('account')}
         aria-label={`Account: ${user.email}${premium ? ' (Premium)' : ''}`}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => goToAuthPage('account')}
       >
         <PremiumAvatar email={user.email} premium={premium} />
       </button>
-      {open && (
-        <div className="account-menu__list" role="menu">
-          <div className="account-menu__head">
-            <PremiumAvatar email={user.email} premium={premium} size={34} />
-            <div className="account-menu__who">
-              <p className="account-menu__email">{user.email}</p>
-              {premium && <span className="premium-label">👑 Premium</span>}
-            </div>
-          </div>
-          <button type="button" role="menuitem" onClick={() => go('my-list')}>
-            <Bookmark aria-hidden="true" /> My List
-          </button>
-          <button type="button" role="menuitem" onClick={() => go('account')}>
-            <UserRound aria-hidden="true" /> Account
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-no-ad=""
-            onClick={() => {
-              setOpen(false)
-              void signOut()
-            }}
-          >
-            <LogOut aria-hidden="true" /> Sign out
-          </button>
-        </div>
-      )}
     </div>
   )
 }

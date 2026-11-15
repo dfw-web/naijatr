@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { authButton } from '../ads/authGuard'
 import { Check, Copy, Gift, Sparkles, X } from 'lucide-react'
 import { openSignIn, useAccount, useSignInSheet } from '../account/account'
 import { AccountIdentity } from '../account/PremiumAvatar'
@@ -165,10 +166,10 @@ export function BuyAdFree() {
         <>
           <p className="buy-ad-free__email">Create a free account first, so we can activate ad-free on it.</p>
           <div className="account-card__actions">
-            <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('create')}>
+            <button type="button" className="account-page__primary" {...authButton('signup')} onClick={() => openSignIn('create')}>
               Sign up
             </button>
-            <button type="button" className="account-page__ghost" data-no-ad="" onClick={() => openSignIn('login')}>
+            <button type="button" className="account-page__ghost" {...authButton('login')} onClick={() => openSignIn('login')}>
               Log in
             </button>
           </div>
@@ -262,10 +263,10 @@ function InviteOption({ goal, adFree }: { goal: number; adFree: boolean }) {
           <h2 className="account-card__title">Start inviting</h2>
           <p className="account-card__muted">You need a free account to get your own invite link. Browsing and watching never need one.</p>
           <div className="account-card__actions">
-            <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('create')}>
+            <button type="button" className="account-page__primary" {...authButton('signup')} onClick={() => openSignIn('create')}>
               Create a free account to start inviting
             </button>
-            <button type="button" className="account-page__ghost" data-no-ad="" onClick={() => openSignIn('login')}>
+            <button type="button" className="account-page__ghost" {...authButton('login')} onClick={() => openSignIn('login')}>
               Log in
             </button>
           </div>
@@ -372,7 +373,7 @@ export function InviteCard() {
               : '🏆 Bonus: invite the most people this week and win a mystery prize 🎁'}
         </p>
       </div>
-      <button type="button" className="invite-card__button" data-no-ad={account === 'signedIn' ? undefined : ''} onClick={account === 'signedIn' ? openInvite : () => openSignIn('create')}>
+      <button type="button" className="invite-card__button" {...(account === 'signedIn' ? {} : authButton('signup'))} onClick={account === 'signedIn' ? openInvite : () => openSignIn('create')}>
         {account === 'signedIn' ? 'Invite friends' : 'Create a free account'}
       </button>
     </aside>
@@ -457,7 +458,7 @@ export function DailyPromoHost() {
           <button
             type="button"
             className="promo__primary"
-            data-no-ad={signedIn ? undefined : ''}
+            {...(signedIn ? {} : authButton('signup'))}
             onClick={() => {
               close()
               if (signedIn) openInvite()

@@ -13,6 +13,16 @@ import { resetInstallApp } from '../installAppStore'
 import { resetTvAdBreaks } from '../tv/tvAdBreakStore'
 import { resetReferralStatus } from '../referral/status'
 import { PROMO_DAY_KEY } from '../referral/copy'
+import { installAuthGuard, resetAuthGuard } from '../ads/authGuard'
+import { pageLoad } from '../account/pages'
+
+// Full page loads (auth pages, back from them): jsdom can't navigate, so they're recorded (pageLoad.assign).
+const realAssign = pageLoad.assign
+pageLoad.assign = vi.fn()
+void realAssign
+// The window guard for auth taps, as main.tsx installs it. Tests start "after the first tap" (ads may load).
+installAuthGuard()
+resetAuthGuard({ interacted: true })
 
 const SHIPPED_AD_RULES = { ...AD_RULES, triggers: { ...AD_RULES.triggers } }
 
@@ -39,6 +49,8 @@ afterEach(() => {
   resetLiveHeartbeat()
   resetInstallApp()
   resetReferralStatus()
+  resetAuthGuard({ interacted: true })
+  vi.mocked(pageLoad.assign).mockClear()
   document.cookie = 'naijatr_gate_joined=; Path=/; Max-Age=0'
   document.cookie = 'naijatr_ref=; Path=/; Max-Age=0'
   document.documentElement.classList.remove('tv-mode')

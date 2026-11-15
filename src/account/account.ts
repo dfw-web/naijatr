@@ -11,7 +11,7 @@ import { getClient, hasStoredSession, takeAuthRedirect } from './client'
 import { referralSignedIn, referralSignedOut } from '../referral/status'
 import { forgetSyncedAccount, requestSyncNow, startSync, stopSync } from './sync'
 import { holdAdsThisTap } from '../ads/adManager'
-import { noteAuthActivity } from '../ads/authQuiet'
+import { goToAuthPage, isAuthPath, rememberSignupSource, SIGNUP_SOURCE_KEY, switchAuthPage } from './pages'
 
 /**
  * The optional account: signed out (everything stays on this device, as
@@ -47,7 +47,6 @@ interface AccountState {
 export type SheetTab = 'login' | 'create'
 
 let state: AccountState = { status: 'disabled', user: null, linkError: null, recovery: false }
-let sheet: SheetTab | null = null
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((listener) => listener())
 const set = (next: Partial<AccountState>) => {
@@ -65,6 +64,7 @@ const asUser = (user: User): AccountUser => ({
 })
 
 let started = false
+const LINK_ERROR_KEY = 'naijatr.auth.linkError'
 
 /**
  * Called once when the site opens. Loads the account library only if this
@@ -75,11 +75,29 @@ export function initAccount(): void {
   started = true
   if (!accountsEnabled()) return set({ status: 'disabled' })
   const redirect = takeAuthRedirect()
+  // An email link that didn't work, sent to another page: shown on /login (a full page load, no ads).
+  if (redirect?.error && !isAuthPath()) {
+    try {
+      sessionStorage.setItem(LINK_ERROR_KEY, redirect.error)
+    } catch {
+      // /login says nothing then.
+    }
+    goToAuthPage('login')
+    return set({ status: 'signedOut', linkError: redirect.error })
+  }
+  if (isAuthPath()) {
+    try {
+      const carried = sessionStorage.getItem(LINK_ERROR_KEY)
+      sessionStorage.removeItem(LINK_ERROR_KEY)
+      if (carried) set({ linkError: carried })
+    } catch {
+      // Nothing carried.
+    }
+  }
   if (!redirect && !hasStoredSession()) return set({ status: 'signedOut' })
   set({ status: 'checking' })
   if (redirect?.error) {
     set({ linkError: redirect.error })
-    sheet = 'login'
   }
   if (redirect?.type === 'recovery') set({ recovery: true })
   void getClient()
@@ -89,7 +107,6 @@ export function initAccount(): void {
         const { error } = await client.auth.setSession({ access_token: redirect.accessToken, refresh_token: redirect.refreshToken })
         if (error) {
           set({ linkError: 'That link didn’t work. Please ask for a new one.' })
-          sheet = 'login'
         } else {
           track(redirect.type === 'recovery' ? 'reset-link' : 'confirmed')
         }
@@ -121,7 +138,6 @@ function signedIn(client: SupabaseClient, user: User) {
     if (state.user.email !== next.email || state.user.passwordSet !== next.passwordSet) set({ user: next })
     return
   }
-  sheet = null
   set({ status: 'signedIn', user: next, linkError: null })
   // The subtitle language chosen on another device (kept in the account's user metadata).
   adoptAccountSubtitleChoice(user.user_metadata?.subtitle_lang)
@@ -330,9 +346,8 @@ export async function signInWithGoogle(): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
-  // No ad on the Log out tap, nor for 10 seconds after.
+  // No ad on the Log out tap (it's on /account, which never has an ad script).
   holdAdsThisTap()
-  noteAuthActivity()
   await requestSyncNow().catch(() => undefined)
   stopSync()
   try {
@@ -400,55 +415,65 @@ export async function deleteAccount(): Promise<{ loginDeleted: boolean }> {
   return { loginDeleted }
 }
 
-// ---- The sign-in sheet. ----
+// ---- The auth pages (/login, /signup): full page loads, no ad script there (src/ads/authGuard.ts). ----
 
-const SOURCE_KEY = 'naijatr.signupSource'
 /** "Sign up free" from a popup counts for it this long. */
 const SOURCE_FOR_MS = 24 * 60 * 60 * 1000
 
-/** Where the sheet was opened from, if a popup's "Sign up free" opened it lately. */
+/** Where sign-up was opened from, if a popup's "Sign up free" opened it lately. */
 export function signupSource(now = Date.now()): string | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(SOURCE_KEY) ?? 'null') as { source?: unknown; at?: unknown } | null
+    const saved = JSON.parse(localStorage.getItem(SIGNUP_SOURCE_KEY) ?? 'null') as { source?: unknown; at?: unknown } | null
     return typeof saved?.source === 'string' && typeof saved.at === 'number' && now - saved.at < SOURCE_FOR_MS ? saved.source : null
   } catch {
     return null
   }
 }
 
-/** Opens the sheet on "Create account" for a popup's "Sign up free", noting where it came from. */
+/** /signup for a popup's "Sign up free", noting where it came from. */
 export function openSignUpFrom(source: 'play-popup'): void {
-  try {
-    localStorage.setItem(SOURCE_KEY, JSON.stringify({ source, at: Date.now() }))
-  } catch {
-    // Not counted.
-  }
+  rememberSignupSource(source)
   openSignIn('create')
 }
 
-/** Opens the sheet on "Create account", or "Log in" for someone who's had an account on this device. */
-export function openSignIn(tab?: SheetTab): void {
-  let known = false
+/** /login for someone who's had an account on this device, else /signup. */
+export function defaultAuthPage(): 'login' | 'signup' {
   try {
-    known = localStorage.getItem('naijatr.sync.user') !== null
+    return localStorage.getItem('naijatr.sync.user') !== null ? 'login' : 'signup'
   } catch {
-    // New here, as far as we know.
+    return 'signup'
   }
-  sheet = tab ?? (known ? 'login' : 'create')
-  // No ad on the tap that opens it, nor while it's open and 10 seconds after (src/ads/authQuiet.ts).
-  holdAdsThisTap()
-  noteAuthActivity()
-  track('sheet')
-  emit()
 }
 
-export function closeSignIn(): void {
-  // The tap that closes it opens no ad either.
+/**
+ * Opens /signup ("Create account"), or /login for someone who's had an
+ * account on this device, with a full page load and ?next= this page. On an
+ * auth page already: switches between the two, no reload.
+ */
+export function openSignIn(tab?: SheetTab): void {
+  const page = tab ? (tab === 'login' ? 'login' : 'signup') : defaultAuthPage()
   holdAdsThisTap()
-  noteAuthActivity()
-  sheet = null
-  if (state.linkError) state = { ...state, linkError: null }
-  emit()
+  if (isAuthPath()) {
+    if (state.linkError) set({ linkError: null })
+    return switchAuthPage(page)
+  }
+  track('sheet')
+  goToAuthPage(page)
+}
+
+/** The tab an auth page shows (/login, /signup), or null elsewhere. */
+const sheetFromPath = (): SheetTab | null => {
+  const path = window.location.pathname.replace(/\/+$/, '')
+  return path === '/login' ? 'login' : path === '/signup' ? 'create' : null
+}
+
+const subscribePath = (listener: () => void) => {
+  window.addEventListener('popstate', listener)
+  listeners.add(listener)
+  return () => {
+    window.removeEventListener('popstate', listener)
+    listeners.delete(listener)
+  }
 }
 
 const subscribe = (listener: () => void) => {
@@ -461,8 +486,8 @@ const subscribe = (listener: () => void) => {
 /** The account's status now (outside React). */
 export const accountStatusNow = () => state.status
 export const useAccount = () => useSyncExternalStore(subscribe, () => state, () => state)
-/** The sheet's tab, or null while it's closed. */
-export const useSignInSheet = () => useSyncExternalStore(subscribe, () => sheet, () => null)
+/** On /login or /signup: its tab (popups stay away there); null elsewhere. */
+export const useSignInSheet = () => useSyncExternalStore(subscribePath, sheetFromPath, () => null)
 /** When another email may be sent (the component ticks its own countdown). */
 export const useEmailCooldownUntil = () => useSyncExternalStore(subscribe, () => cooldownUntil, () => 0)
 /** Test helpers. */
@@ -472,7 +497,6 @@ export function setAccountForTests(next: Partial<AccountState>) {
 export function resetAccount() {
   started = false
   listening = false
-  sheet = null
   cooldownUntil = 0
   state = { status: 'disabled', user: null, linkError: null, recovery: false }
   emit()

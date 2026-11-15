@@ -3,7 +3,7 @@ import { ADS_ENABLED, MULTITAG, MULTITAG_2 } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { isPlaybackOpen } from './adManager'
 import { adsDisabled, isDevHost } from './directLink'
-import { authQuietLeft, isAuthInProgress } from './authQuiet'
+import { whenInteracted } from './authGuard'
 import { adFreeReady, isAdFreeNow, subscribeReferralStatus } from '../referral/status'
 
 /**
@@ -26,13 +26,6 @@ import { adFreeReady, isAdFreeNow, subscribeReferralStatus } from '../referral/s
 export function loadMultitag(): boolean {
   if (!ADS_ENABLED || adsDisabled() || isTvMode()) return false
   if (document.getElementById(MULTITAG.id) || document.querySelector(`script[data-zone="${MULTITAG.zone}"]`)) return true
-  // Not while someone signs up or logs in (src/ads/authQuiet.ts): it loads once that's over.
-  if (isAuthInProgress()) {
-    window.clearTimeout(authTimer)
-    const left = authQuietLeft()
-    authTimer = window.setTimeout(loadMultitag, Number.isFinite(left) ? left + 50 : AUTH_RETRY_MS)
-    return false
-  }
   const script = addTag(MULTITAG)
   const next = () => {
     script.removeEventListener('load', next)
@@ -44,10 +37,6 @@ export function loadMultitag(): boolean {
   return true
 }
 
-/** How often a Multitag held back by the sign-in sheet looks again. */
-const AUTH_RETRY_MS = 2000
-let authTimer: number | undefined
-
 /** How often a second Multitag held back by an open player looks again. */
 export const SECOND_TAG_RETRY_MS = 3000
 let secondTimer: number | undefined
@@ -56,7 +45,7 @@ let secondTimer: number | undefined
 export function loadSecondMultitag(): boolean {
   if (!MULTITAG_2.enabled || !ADS_ENABLED || adsDisabled() || isTvMode()) return false
   if (document.getElementById(MULTITAG_2.id)) return true
-  if (isPlaybackOpen() || isAuthInProgress()) {
+  if (isPlaybackOpen()) {
     window.clearTimeout(secondTimer)
     secondTimer = window.setTimeout(loadSecondMultitag, SECOND_TAG_RETRY_MS)
     return false
@@ -125,7 +114,9 @@ function reportTag(event: string) {
 
 /**
  * Loads the Multitag once from a root component (App, Football), unless
- * `enabled` is false. A signed-in device first waits (up to 4 seconds) for the
+ * `enabled` is false, and only after the visitor's first tap or key that
+ * isn't an auth button (src/ads/authGuard.ts): nothing pops before that, and
+ * someone whose first tap is "Log in" leaves before any ad script loads. A signed-in device first waits (up to 4 seconds) for the
  * server to say whether the account is ad-free: Monetag can't be taken back
  * once it's on the page; if the answer comes later and says ad-free, the page
  * reloads without it. Ad-free ending on an open page loads it then.
@@ -135,18 +126,21 @@ export function useMultitag(enabled = true) {
     if (!enabled) return
     let live = true
     let ready = false
+    let cancel = () => undefined as void
     void adFreeReady().then(() => {
       ready = true
-      if (live) loadMultitag()
+      if (live) cancel = whenInteracted(() => void (live && loadMultitag()))
     })
     // Ad-free after it loaded: off the page (dropMultitagIfAdFree). Ad-free
     // over (the Free Ad-Free Week ended, or their own time): on the page now.
     const unsubscribe = subscribeReferralStatus(() => {
       if (dropMultitagIfAdFree() || !ready || !live || isAdFreeNow()) return
-      loadMultitag()
+      cancel()
+      cancel = whenInteracted(() => void (live && loadMultitag()))
     })
     return () => {
       live = false
+      cancel()
       unsubscribe()
     }
   }, [enabled])

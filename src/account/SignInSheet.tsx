@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { MailCheck, X } from 'lucide-react'
 import { GOOGLE_LOGIN_ENABLED } from '../config/account'
-import { useDismiss } from '../ui/useDismiss'
 import {
-  closeSignIn,
   createAccount,
   logIn,
   openSignIn,
@@ -12,46 +10,63 @@ import {
   sendPasswordReset,
   signInWithGoogle,
   useAccount,
-  useSignInSheet,
   type SheetTab,
 } from './account'
 import { Benefits, PasswordInput } from './authParts'
 import { useCooldownSeconds } from './authRules'
-import { goToPage } from './pages'
+import { goBackFromAuth, pageLoad } from './pages'
 import { snooze } from './reminders'
 import './account.css'
-import { useAdOverlay } from '../ads/adManager'
-import { useAuthInProgress } from '../ads/authQuiet'
 
-/** The sign-in sheet ("Log in" / "Create account"), opened from the header, the prompt or the Account page. Mount once (App). */
-export function SignInHost() {
-  const tab = useSignInSheet()
+/**
+ * /login and /signup: "Log in" / "Create account" as their own pages, always
+ * opened with a full page load (openSignIn), so no ad script is in memory
+ * while someone types their email or password (src/ads/authGuard.ts). Signed
+ * in: back to ?next= with a full page load.
+ */
+export function AuthPage({ tab }: { tab: SheetTab }) {
   const { status } = useAccount()
-  if (!tab || status === 'disabled') return null
-  return <SignInSheet tab={tab} />
+  if (status === 'disabled') {
+    return (
+      <section className="account-page account-page--narrow" aria-labelledby="sign-in-title">
+        <h1 id="sign-in-title" className="account-page__title">
+          Accounts are off
+        </h1>
+        <button type="button" className="account-page__primary" onClick={goBackFromAuth}>
+          Back
+        </button>
+      </section>
+    )
+  }
+  return <SignInPanel tab={tab} />
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** What the sheet shows besides the two tabs' forms. */
+/** What the page shows besides the two tabs' forms. */
 type Notice =
   | { kind: 'confirm-sent'; email: string }
   | { kind: 'reset-sent' }
   | { kind: 'forgot' }
 
-function SignInSheet({ tab }: { tab: SheetTab }) {
+/** Signed in here: a moment to read it, then back where they came from. */
+export const BACK_AFTER_MS = 800
+
+function SignInPanel({ tab }: { tab: SheetTab }) {
   const { status, user, linkError } = useAccount()
   const [notice, setNotice] = useState<Notice | null>(null)
   const [email, setEmail] = useState('')
-  useDismiss(true, closeSignIn)
-  // No ads while signing up or in (see src/ads/adManager.ts).
-  useAdOverlay(true)
-  // Auth in progress: no ad of any kind while it's open, and for 10 seconds after it closes.
-  useAuthInProgress(true)
+  const signedIn = status === 'signedIn' && user !== null
+
+  useEffect(() => {
+    if (!signedIn) return
+    const timer = window.setTimeout(goBackFromAuth, BACK_AFTER_MS)
+    return () => window.clearTimeout(timer)
+  }, [signedIn])
 
   const notNow = () => {
     snooze('sync')
-    closeSignIn()
+    goBackFromAuth()
   }
 
   const switchTab = (next: SheetTab) => {
@@ -60,17 +75,17 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   }
 
   let body
-  if (status === 'signedIn' && user) {
+  if (signedIn) {
     body = (
       <>
-        <h2 id="sign-in-title" className="account-sheet__title">
+        <h1 id="sign-in-title" className="account-sheet__title">
           You’re signed in
-        </h2>
-        <p className="account-sheet__text">
-          As <strong>{user.email}</strong>. Your progress and My List now sync across your devices.
+        </h1>
+        <p className="account-sheet__text" role="status">
+          As <strong>{user.email}</strong>. Taking you back…
         </p>
-        <button type="button" className="account-sheet__primary" onClick={closeSignIn}>
-          Done
+        <button type="button" className="account-sheet__primary" onClick={goBackFromAuth}>
+          Continue
         </button>
       </>
     )
@@ -80,9 +95,9 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
     body = (
       <>
         <MailCheck className="account-sheet__icon" aria-hidden="true" />
-        <h2 id="sign-in-title" className="account-sheet__title">
+        <h1 id="sign-in-title" className="account-sheet__title">
           Check your email
-        </h2>
+        </h1>
         <p className="account-sheet__text" role="status">
           If that email has an account, we’ve sent a reset link. Open it to choose a new password.
         </p>
@@ -96,6 +111,9 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   } else {
     body = (
       <>
+        <h1 id="sign-in-title" className="account-auth__hidden">
+          {tab === 'login' ? 'Log in' : 'Create account'}
+        </h1>
         <div className="account-tabs" role="tablist" aria-label="Account">
           <button type="button" role="tab" id="tab-login" aria-selected={tab === 'login'} aria-controls="tab-panel" onClick={() => switchTab('login')}>
             Log in
@@ -143,33 +161,33 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   }
 
   return (
-    <div className="account-sheet" role="presentation" data-quiet-ads="" data-no-ad="" onClick={(event) => event.target === event.currentTarget && closeSignIn()}>
-      <div className="account-sheet__panel" role="dialog" aria-modal="true" aria-label="Your NAIJA TR account" data-quiet-ads="" data-no-ad="">
-        <button type="button" className="account-sheet__close" aria-label="Close" onClick={closeSignIn}>
+    <section className="account-auth" aria-labelledby="sign-in-title">
+      <div className="account-sheet__panel account-auth__panel" role="region" aria-label="Your NAIJA TR account">
+        <button type="button" className="account-sheet__close" aria-label="Close" onClick={goBackFromAuth}>
           <X aria-hidden="true" />
         </button>
         <img src="/icons/icon-192.png" alt="" className="account-sheet__logo" width={52} height={52} />
         {body}
-        {status !== 'signedIn' && (
+        {!signedIn && (
           <button type="button" className="account-sheet__notnow" onClick={notNow}>
             Not now
           </button>
         )}
         <p className="account-sheet__fine">
           Optional: you can always browse and watch without an account. We never sell your data.{' '}
-          <button
-            type="button"
+          <a
             className="account-sheet__link"
-            onClick={() => {
-              closeSignIn()
-              goToPage('privacy')
+            href="/privacy"
+            onClick={(event) => {
+              event.preventDefault()
+              pageLoad.assign('/privacy')
             }}
           >
             Privacy
-          </button>
+          </a>
         </p>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -382,9 +400,9 @@ function ConfirmSent({ email, onBack }: { email: string; onBack: () => void }) {
   return (
     <>
       <MailCheck className="account-sheet__icon" aria-hidden="true" />
-      <h2 id="sign-in-title" className="account-sheet__title">
+      <h1 id="sign-in-title" className="account-sheet__title">
         Check your email to confirm your address
-      </h2>
+      </h1>
       <p className="account-sheet__text" role="status">
         We sent a link to <strong>{email}</strong>. Open it on this device to finish. It can take a minute; check Spam too.
       </p>
@@ -418,9 +436,9 @@ function ForgotForm({ email, onEmail, onSent, onBack }: EmailProps & { onSent: (
   }
   return (
     <>
-      <h2 id="sign-in-title" className="account-sheet__title">
+      <h1 id="sign-in-title" className="account-sheet__title">
         Forgot your password?
-      </h2>
+      </h1>
       <p className="account-sheet__text">Enter your email and we’ll send you a link to choose a new one.</p>
       <form className="account-sheet__form" onSubmit={submit} noValidate>
         <EmailField email={email} onEmail={onEmail} id="forgot-email" autoFocus />

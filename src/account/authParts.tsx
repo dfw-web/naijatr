@@ -46,8 +46,8 @@ export function PasswordForm({ submitLabel, onSubmit, label = 'Password' }: Pass
   }
 
   return (
-    // data-quiet-ads / data-no-ad: no ad of any kind while choosing a password (src/ads/authQuiet.ts).
-    <form className="account-sheet__form" onSubmit={submit} noValidate data-quiet-ads="" data-no-ad="">
+    // Only ever on a page with no ad script (src/ads/authGuard.ts); data-no-ad as a second guard.
+    <form className="account-sheet__form" onSubmit={submit} noValidate data-no-ad="">
       <label className="account-sheet__label" htmlFor={`${id}-password`}>
         {label}
       </label>

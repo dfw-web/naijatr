@@ -4,10 +4,11 @@ import { TitleGrid } from '../components/TitleGrid'
 import { AdFreeCard } from '../referral/Invite'
 import type { MediaItem } from '../types/media'
 import { savedItem, useWatchLater } from '../utils/watchLater'
-import { deleteAccount, downloadMyData, openSignIn, setPassword, signOut, useAccount } from './account'
+import { defaultAuthPage, deleteAccount, downloadMyData, openSignIn, setPassword, signOut, useAccount } from './account'
 import { PasswordForm } from './authParts'
 import { AccountIdentity } from './PremiumAvatar'
-import { goHome } from './pages'
+import { authButton } from '../ads/authGuard'
+import { goBackFromAuth, goToAuthPage, goToPage } from './pages'
 import { snooze } from './reminders'
 import { refreshSync, useSyncState } from './sync'
 import './account.css'
@@ -26,7 +27,7 @@ export function MyListPage({ onSelect }: { onSelect: (item: MediaItem) => void }
           ? 'Saved to your account: the same list on all your devices.'
           : 'Saved on this device.'}{' '}
         {status === 'signedOut' && (
-          <button type="button" className="account-page__link" data-no-ad="" onClick={() => openSignIn()}>
+          <button type="button" className="account-page__link" {...authButton(defaultAuthPage())} onClick={() => openSignIn()}>
             Sign in to sync it
           </button>
         )}
@@ -68,7 +69,7 @@ export function AccountPage() {
               Signing in is optional. It keeps your Continue Watching, My List and recommendations in sync on all your
               devices.
             </p>
-            <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn()}>
+            <button type="button" className="account-page__primary" {...authButton(defaultAuthPage())} onClick={() => openSignIn()}>
               Sign in
             </button>
           </>
@@ -121,6 +122,9 @@ export function AccountPage() {
           {sync.lastSyncedAt && sync.status === 'idle' ? ` · ${new Date(sync.lastSyncedAt).toLocaleTimeString()}` : ''}
         </p>
         <div className="account-card__actions">
+          <button type="button" className="account-page__ghost" onClick={() => goToPage('my-list')}>
+            <Bookmark aria-hidden="true" /> My List
+          </button>
           <button type="button" className="account-page__ghost" onClick={() => void refreshSync()}>
             <RefreshCw aria-hidden="true" /> Sync now
           </button>
@@ -225,40 +229,83 @@ export function PrivacyPage() {
   )
 }
 
-/** Account page: change the password (or set one, for an account made by email link). */
+/** Account page: change the password (or set one), on /auth/set-password (a page with no ad script). */
 function ChangePassword({ hasPassword }: { hasPassword: boolean }) {
-  const [open, setOpen] = useState(false)
-  const [done, setDone] = useState(false)
   return (
     <div className="account-card">
       <h2 className="account-card__title">{hasPassword ? 'Change password' : 'Set a password'}</h2>
+      <p className="account-card__muted">
+        {hasPassword ? 'Choose a new password for logging in on your devices.' : 'Set a password to log in on your other devices.'}
+      </p>
+      <div className="account-card__actions">
+        <button type="button" className="account-page__ghost" data-no-ad="" onClick={() => goToAuthPage('auth/set-password')}>
+          <KeyRound aria-hidden="true" /> {hasPassword ? 'Change password' : 'Set a password'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** After "Password updated", the page goes back by itself. */
+const BACK_AFTER_MS = 2000
+
+/** /auth/set-password: set or change the signed-in account's password, then back to ?next=. */
+export function SetPasswordPage() {
+  const { status, user } = useAccount()
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    if (!done) return
+    const timer = window.setTimeout(goBackFromAuth, BACK_AFTER_MS)
+    return () => window.clearTimeout(timer)
+  }, [done])
+  return (
+    <section className="account-page account-page--narrow" aria-labelledby="set-password-title" data-quiet-ads="">
       {done ? (
-        <p className="account-card__value" role="status">
-          Password updated ✅
-        </p>
-      ) : open ? (
-        <PasswordForm
-          label="New password"
-          submitLabel="Save password"
-          onSubmit={async (password) => {
-            const result = await setPassword(password)
-            if (result.ok) setDone(true)
-            return result.ok ? null : result.message
-          }}
-        />
+        <>
+          <h1 id="set-password-title" className="account-page__title">
+            Password saved ✅
+          </h1>
+          <p className="account-page__lead" role="status">
+            Taking you back…
+          </p>
+        </>
+      ) : status === 'checking' ? (
+        <h1 id="set-password-title" className="account-page__title">
+          One moment…
+        </h1>
+      ) : status !== 'signedIn' || !user ? (
+        <>
+          <h1 id="set-password-title" className="account-page__title">
+            Log in first
+          </h1>
+          <p className="account-page__lead">Log in to set or change your password.</p>
+          <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('login')}>
+            Log in
+          </button>
+        </>
       ) : (
         <>
-          <p className="account-card__muted">
-            {hasPassword ? 'Choose a new password for logging in on your devices.' : 'Set a password to log in on your other devices.'}
+          <h1 id="set-password-title" className="account-page__title">
+            {user.passwordSet ? 'Change your password' : 'Set a password'}
+          </h1>
+          <p className="account-page__lead">
+            Signed in as <strong>{user.email}</strong>.
           </p>
-          <div className="account-card__actions">
-            <button type="button" className="account-page__ghost" onClick={() => setOpen(true)}>
-              <KeyRound aria-hidden="true" /> {hasPassword ? 'Change password' : 'Set a password'}
-            </button>
-          </div>
+          <PasswordForm
+            label="New password"
+            submitLabel="Save password"
+            onSubmit={async (password) => {
+              const result = await setPassword(password)
+              if (result.ok) setDone(true)
+              return result.ok ? null : result.message
+            }}
+          />
+          <button type="button" className="account-page__skip" onClick={goBackFromAuth}>
+            Cancel
+          </button>
         </>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -299,7 +346,7 @@ export function AuthConfirmPage() {
           <p className="account-page__lead">
             Signed in as <strong>{user.email}</strong>. Your Continue Watching and My List now sync across your devices.
           </p>
-          <button type="button" className="account-page__primary" onClick={goHome}>
+          <button type="button" className="account-page__primary" onClick={goBackFromAuth}>
             Start watching
           </button>
         </>
@@ -324,7 +371,7 @@ export function AuthConfirmPage() {
             className="account-page__skip"
             onClick={() => {
               snooze('password')
-              goHome()
+              goBackFromAuth()
             }}
           >
             Skip for now
@@ -335,8 +382,6 @@ export function AuthConfirmPage() {
   )
 }
 
-/** After "Password updated", the home page follows by itself. */
-const RESET_HOME_AFTER_MS = 2000
 
 /** /auth/reset: where the reset email lands, signed in by the link: choose a new password. */
 export function AuthResetPage() {
@@ -344,7 +389,7 @@ export function AuthResetPage() {
   const [done, setDone] = useState(false)
   useEffect(() => {
     if (!done) return
-    const timer = window.setTimeout(goHome, RESET_HOME_AFTER_MS)
+    const timer = window.setTimeout(goBackFromAuth, BACK_AFTER_MS)
     return () => window.clearTimeout(timer)
   }, [done])
   return (
@@ -355,7 +400,7 @@ export function AuthResetPage() {
             Password updated
           </h1>
           <p className="account-page__lead" role="status">
-            You’re signed in. Taking you to the home page…
+            You’re signed in. Taking you back…
           </p>
         </>
       ) : status === 'checking' ? (

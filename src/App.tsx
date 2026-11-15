@@ -24,9 +24,8 @@ import { FeedbackHost } from './feedback/Feedback'
 import { ActivationNoticeHost, DailyPromoHost, InvitePage, InviteRulesPage, RenewReminderHost, UnlockNoticeHost } from './referral/Invite'
 import { hashForView, NAV_LINKS, type NavLink, type View, viewFromHash } from './navigation'
 import type { MediaItem } from './types/media'
-import { AccountPage, AuthConfirmPage, AuthResetPage, MyListPage, PrivacyPage } from './account/AccountPages'
+import { AccountPage, MyListPage, PrivacyPage } from './account/AccountPages'
 import { pageFromPath, type Page } from './account/pages'
-import { SignInHost } from './account/SignInSheet'
 import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekWelcomeHost } from './promo/PromoWeek'
 import { TrialEndedHost, TrialPromptHost, TrialWelcomeHost } from './promo/WelcomeTrial'
 import { loadPromo } from './referral/status'
@@ -77,9 +76,9 @@ function App() {
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash))
   // /my-list, /account, /privacy: shown instead of the views.
   const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname))
-  // The Monetag Multitag, once (after the ?noads= check above), while the movie section has ads;
-  // not while setting a password from an email link, but as soon as they move on.
-  useMultitag(AD_SECTIONS.movies && page !== 'auth/confirm' && page !== 'auth/reset' && page !== 'account' && page !== 'privacy')
+  // The Monetag Multitag, once (after the ?noads= check above, and the first tap), while the movie
+  // section has ads; never on /account, /privacy or the invite pages (auth has its own root: AuthRoot).
+  useMultitag(AD_SECTIONS.movies && (page === null || page === 'my-list'))
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<MediaItem | null>(titleFromUrl)
   // Wrapped in an object so clicking the same link twice still scrolls.
@@ -181,10 +180,6 @@ function App() {
           <AccountPage />
         ) : page === 'privacy' ? (
           <PrivacyPage />
-        ) : page === 'auth/confirm' ? (
-          <AuthConfirmPage />
-        ) : page === 'auth/reset' ? (
-          <AuthResetPage />
         ) : page === 'invite' ? (
           <InvitePage />
         ) : page === 'invite/rules' ? (
@@ -224,8 +219,7 @@ function App() {
       <InstallAppHost />
       <UpdateBar />
       <FeedbackHost />
-      {/* Optional accounts: the sign-in sheet, and the gentle reminders (at most weekly, never forced). */}
-      <SignInHost />
+      {/* Optional accounts: the gentle reminders (at most weekly, never forced). Sign-in is on its own pages (AuthRoot). */}
       <SyncPromptHost />
       <PasswordReminderHost />
       {/* Referrals: the daily "Go ad-free" popup (at most once a day) and the unlock notice. */}

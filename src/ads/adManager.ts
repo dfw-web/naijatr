@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { AD_RULES, AD_SECTIONS, AD_UPSELL } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { adsDisabled, isDevHost, openAd } from './directLink'
-import { authClock, isAuthInProgress, isNoAdTap, noteAuthActivity, NO_AD_ATTR, QUIET_ADS_ATTR, resetAuthQuiet } from './authQuiet'
+import { isNoAdTap } from './authGuard'
 
 /**
  * The direct-link ad's one set of rules. It opens in a new tab, inside the tap
@@ -19,8 +19,8 @@ import { authClock, isAuthInProgress, isNoAdTap, noteAuthActivity, NO_AD_ATTR, Q
  * Which of them, and how often, is set in AD_RULES (src/config/ads.ts): each
  * trigger on or off, at least 20 seconds apart, at most 30 a day. Always:
  * nothing while a player is open (so never on its controls), nothing while the
- * sign-in sheet is open or for 10 seconds after it closes, nor on any auth
- * button (data-no-ad: src/ads/authQuiet.ts), nothing while the Telegram gate, the invite guide or a contest popup is
+ * auth button (src/ads/authGuard.ts: auth itself is on pages with no ad
+ * script), nothing while the Telegram gate, the invite guide or a contest popup is
  * open, and nothing on the tap that opens or closes one of those. A tap held
  * back by the limits keeps its turn: the next eligible tap opens the ad instead.
  *
@@ -56,8 +56,6 @@ interface Visit {
 
 /** The clock the rules read; tests move it forward. */
 export const adClock = { now: () => Date.now() }
-// The auth quiet time reads the same clock.
-authClock.now = () => adClock.now()
 
 /** The date in Lagos (UTC+1 all year), e.g. "2026-10-27". */
 export const lagosDay = (now: number) => new Date(now + 60 * 60_000).toISOString().slice(0, 10)
@@ -162,8 +160,8 @@ function tryAd(trigger: AdTrigger, adKey: string, due: (visit: Visit, now: numbe
   const tap = event ?? window.event
   if (!tap || !TAP_TYPES.has(tap.type) || heldTaps.has(tap)) return false
   if (overlays > 0 || isPlaybackOpen()) return false
-  // Signing up, logging in or out, a password: never an ad (src/ads/authQuiet.ts).
-  if (isAuthInProgress() || isNoAdTap(tap)) return false
+  // An auth button: never an ad (src/ads/authGuard.ts).
+  if (isNoAdTap(tap)) return false
   const now = adClock.now()
   const visit = readVisit()
   if (!due(visit, now)) return false
@@ -286,23 +284,19 @@ export function serverAd(event: Event | undefined, item: { id: string }): boolea
 }
 
 /**
- * Quiet zones: the sign-in sheet, every password form and the account pages
- * (data-quiet-ads), and every auth button (data-no-ad). The Multitag listens
- * for taps on the whole page and can't be paused once loaded, so taps inside a
- * quiet zone stop at the app's root, after React has handled them: someone
- * signing up or typing a password gets no pop-under. A tap on an auth button
- * also starts the 10-second quiet time, and while auth is in progress (the
- * sheet open, or within 10 seconds of it) every tap stops there.
+ * Quiet zones: the football player (data-quiet-ads). The Multitag listens for
+ * taps on the whole page and can't be paused once loaded, so taps inside a
+ * quiet zone stop at the app's root, after React has handled them. (Auth
+ * forms don't need this: they're on pages with no ad script, authGuard.ts.)
  */
-export { QUIET_ADS_ATTR, NO_AD_ATTR }
+export const QUIET_ADS_ATTR = 'data-quiet-ads'
 const QUIET_EVENTS = ['click', 'auxclick', 'dblclick', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'submit'] as const
 
 /** Call once, right after the React root is created on `root` (its own listeners come first). */
 export function installQuietZones(root: HTMLElement): void {
   const stop = (event: Event) => {
     const target = event.target as Element | null
-    if (target?.closest?.(`[${NO_AD_ATTR}]`)) noteAuthActivity()
-    if (isAuthInProgress() || isNoAdTap(event)) event.stopPropagation()
+    if (target?.closest?.(`[${QUIET_ADS_ATTR}]`)) event.stopPropagation()
   }
   for (const type of QUIET_EVENTS) root.addEventListener(type, stop, { passive: true })
 }
@@ -310,7 +304,6 @@ export function installQuietZones(root: HTMLElement): void {
 /** Test helper. */
 export function resetAdManager() {
   memory.clear()
-  resetAuthQuiet()
   overlays = 0
   emit()
   upsellOpen = false

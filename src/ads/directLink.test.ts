@@ -16,7 +16,7 @@ describe('adsDisabled', () => {
     for (const path of ['/admin/live', '/admin/', '/admin', '/invite', '/invite/', '/invite/rules', '/invite/rules/', '/invite/ABC123', '/auth/confirm', '/auth/reset']) {
       expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(true)
     }
-    for (const path of ['/', '/football', '/invitee', '/administrator', '/auth']) {
+    for (const path of ['/', '/football', '/invitee', '/administrator', '/authors', '/logins']) {
       expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(false)
     }
   })

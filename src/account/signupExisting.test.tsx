@@ -1,10 +1,10 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isAlreadyRegistered, openSignIn, resendConfirmation, resetAccount, setAccountForTests } from './account'
+import { isAlreadyRegistered, resendConfirmation, resetAccount, setAccountForTests } from './account'
 import { resetClient } from './client'
-import { SignInHost } from './SignInSheet'
+import { AuthRoot } from './AuthRoot'
 import { resetSync } from './sync'
 
 /** What /api/account/email-status answers for each address typed (after Gmail normalizing). */
@@ -56,11 +56,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const sheet = () => screen.getByRole('dialog', { name: 'Your NAIJA TR account' })
+const sheet = () => screen.getByRole('region', { name: 'Your NAIJA TR account' })
 
 async function signUpWith(email: string) {
-  render(<SignInHost />)
-  act(() => openSignIn('create'))
+  window.history.replaceState(null, '', '/signup?next=%2Fmovies')
+  render(<AuthRoot />)
   await userEvent.type(within(sheet()).getByLabelText('Email'), email)
   await userEvent.click(within(sheet()).getByRole('button', { name: 'Create free account' }))
 }
@@ -86,12 +86,14 @@ describe('Create account with an email that already has an account', () => {
     expect(field).toHaveAttribute('aria-describedby', notice.parentElement!.id)
     expect(field).toHaveAttribute('aria-invalid', 'true')
     expect(field.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(otp).not.toHaveBeenCalled()
     expect(within(sheet()).getByRole('button', { name: 'Forgot password?' })).toBeInTheDocument()
 
     await userEvent.click(within(sheet()).getByRole('button', { name: 'Log in' }))
     expect(within(sheet()).getByRole('tab', { name: 'Log in' })).toHaveAttribute('aria-selected', 'true')
+    // /login now, same page load (no ads on either), ?next= kept.
+    expect(window.location.pathname + window.location.search).toBe('/login?next=%2Fmovies')
     expect(within(sheet()).getByLabelText('Email')).toHaveValue('ada@example.com')
     expect(within(sheet()).getByLabelText('Password')).toBeInTheDocument()
     expect(otp).not.toHaveBeenCalled()

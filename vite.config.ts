@@ -25,6 +25,29 @@ import { handleSubtitles, readSubtitlesEnv } from './server/subtitles/handlers.t
 import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 
 /**
+ * The auth pages' Content-Security-Policy (vercel.json), sent by the dev and
+ * preview servers too, so the browser tests (e2e/) check the real header.
+ */
+function authPageHeaders(): Plugin {
+  const config = JSON.parse(readFileSync(resolve('vercel.json'), 'utf8')) as {
+    headers: { source: string; headers: { key: string; value: string }[] }[]
+  }
+  const csp = config.headers.find((h) => h.source === '/auth/:path*')?.headers.find((h) => h.key === 'Content-Security-Policy')?.value ?? ''
+  const AUTH = /^\/(login|signup|account)\/?$|^\/auth\//
+  const addCsp = (middlewares: { use: (fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void }) =>
+    middlewares.use((req, res, next) => {
+      const path = (req.url ?? '').split('?')[0]
+      if (csp && AUTH.test(path)) res.setHeader('Content-Security-Policy', csp)
+      next()
+    })
+  return {
+    name: 'auth-page-headers',
+    configureServer: (server) => void addCsp(server.middlewares),
+    configurePreviewServer: (server) => void addCsp(server.middlewares),
+  }
+}
+
+/**
  * /go/telegram (go/telegram/index.html, its own page): fills in the channel
  * link, and serves the page at /go/telegram in dev and preview like Vercel does.
  * Same for the private /admin/live, /admin/feedback and /admin/referrals pages
@@ -169,7 +192,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), authPageHeaders(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),
@@ -186,10 +209,13 @@ export default defineConfig(({ mode }) => {
       rolldownOptions: { input: { main: 'index.html', telegram: 'go/telegram/index.html', admin: 'admin/live/index.html', feedback: 'admin/feedback/index.html', referrals: 'admin/referrals/index.html', streamsTest: 'admin/streams-test/index.html' } },
     },
     server: { proxy: tmdbProxy },
-    preview: { proxy: tmdbProxy },
+    // naijatr-e2e.test: the browser tests' host (e2e/), not a dev host, so the ads run as on the live site.
+    preview: { proxy: tmdbProxy, allowedHosts: ['naijatr-e2e.test'] },
     test: {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
+      // e2e/: Playwright's (npm run test:e2e).
+      exclude: ['**/node_modules/**', 'e2e/**'],
       // The ad tests need ads on; src/ads/adsOff.test.tsx checks the real default (off).
       // The Telegram gate would stop every Play: off, except in src/gate's own tests.
       // EmbedMaster (Server 2) and accounts (Supabase) are off whatever .env.local says; their tests switch them on.

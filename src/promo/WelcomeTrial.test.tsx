@@ -8,6 +8,7 @@ import { PremiumAvatar } from '../account/PremiumAvatar'
 import { resetAccount, setAccountForTests, signupSource, useSignInSheet } from '../account/account'
 import { isAdFreeNow, isPremiumNow, isServerAdFree, refreshReferralStatus, resetReferralStatus, type ReferralStatus } from '../referral/status'
 import { promoWeekTiming } from './promoText'
+import { pageLoad } from '../account/pages'
 import { playAfterTrialPrompt, resetTrialPrompt, trialPromptShownToday } from './trialPrompt'
 import { TrialEndedHost, TrialPromptHost, TrialWelcomeHost } from './WelcomeTrial'
 
@@ -85,7 +86,7 @@ afterEach(() => {
 })
 
 describe('👑 the crown', () => {
-  it('shows for Premium accounts now (paid, referral, allowlist, trial), with "👑 Premium" in the menu', async () => {
+  it('shows for Premium accounts now (paid, referral, allowlist, trial)', async () => {
     signIn()
     resetReferralStatus(paid())
     render(<AccountMenu />)
@@ -93,12 +94,10 @@ describe('👑 the crown', () => {
     expect(button.querySelector('.premium-crown')).not.toBeNull()
     expect(button.querySelector('.premium-avatar--premium')).not.toBeNull()
     expect(button).toHaveTextContent('A')
-    await userEvent.click(button)
-    expect(screen.getByText('👑 Premium')).toBeInTheDocument()
     act(() => resetReferralStatus(base({ adFree: true, ownAdFree: true, premium: true, permanent: true })))
-    expect(document.querySelectorAll('.premium-crown').length).toBe(2)
+    expect(document.querySelectorAll('.premium-crown').length).toBe(1)
     act(() => resetReferralStatus(trialUser()))
-    expect(document.querySelectorAll('.premium-crown').length).toBe(2)
+    expect(document.querySelectorAll('.premium-crown').length).toBe(1)
   })
 
   it('never for normal accounts', async () => {
@@ -270,7 +269,7 @@ describe('the Play popup (signed out)', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('"Sign up free" opens the sign-up sheet, noted as from the Play popup', async () => {
+  it('"Sign up free" opens /signup with a full page load, noted as from the Play popup', async () => {
     setAccountForTests({ status: 'signedOut', user: null })
     resetReferralStatus(signedOutStatus())
     render(
@@ -282,7 +281,7 @@ describe('the Play popup (signed out)', () => {
     const play = vi.fn()
     act(() => tap(() => playAfterTrialPrompt(play)))
     await userEvent.click(screen.getByRole('button', { name: 'Sign up free' }))
-    expect(screen.getByTestId('sheet')).toHaveTextContent('create')
+    expect(pageLoad.assign).toHaveBeenCalledWith('/signup')
     expect(signupSource()).toBe('play-popup')
     expect(play).not.toHaveBeenCalled()
   })

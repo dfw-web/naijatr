@@ -11,6 +11,7 @@ import { adLinkClicks } from '../test/ads'
 import { PROMO_DAY_KEY, promoTiming } from '../referral/copy'
 import { AdFreeCard, DailyPromoHost, RenewReminderHost } from '../referral/Invite'
 import { isAdFreeNow, isServerAdFree, promoStateNow, resetReferralStatus, type ReferralStatus } from '../referral/status'
+import { pageLoad } from '../account/pages'
 import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekWelcomeHost } from './PromoWeek'
 import { countdownText, promoEndText, promoWeekTiming } from './promoText'
 
@@ -83,7 +84,7 @@ describe('signed out', () => {
 
   const banner = () => screen.queryByRole('region', { name: 'Go ad-free' })
 
-  it('shows "Too many ads?" along the top on every visit; Sign in opens the sheet', async () => {
+  it('shows "Too many ads?" along the top on every visit; Sign in opens /signup with a full page load', async () => {
     resetReferralStatus(signedOut())
     let sheet: ReturnType<typeof useSignInSheet> = null
     function Sheet() {
@@ -104,7 +105,9 @@ describe('signed out', () => {
     expect(banner()!.textContent).not.toMatch(/week|ends in|\dd |\dh /i)
     expect(document.documentElement).toHaveClass('has-promo-banner')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
-    expect(sheet).toBe('create')
+    expect(pageLoad.assign).toHaveBeenCalledWith('/signup')
+    // (No sheet opens on this page any more: the auth page has no ad script.)
+    expect(sheet).toBeNull()
   })
 
   it('closes with the ✕ for this visit, and is back on the next one', async () => {

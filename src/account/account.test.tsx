@@ -9,7 +9,8 @@ import { deleteAccount, initAccount, resetAccount, signOut, useAccount } from '.
 import { AccountMenu } from './AccountMenu'
 import { AuthConfirmPage, AuthResetPage } from './AccountPages'
 import { resetClient } from './client'
-import { SignInHost } from './SignInSheet'
+import { AuthRoot } from './AuthRoot'
+import { pageLoad } from './pages'
 import { resetSync } from './sync'
 import { PasswordReminderHost, SyncPromptHost } from './SyncPrompt'
 
@@ -153,7 +154,6 @@ describe('accounts', () => {
     const page = render(
       <>
         <AccountMenu />
-        <SignInHost />
         <Status />
       </>,
     )
@@ -161,9 +161,19 @@ describe('accounts', () => {
     // Never signed in here: the account library isn't even asked for a session.
     expect(fake.client.auth.getSession).not.toHaveBeenCalled()
 
-    // 1. Create account: the benefits, an email, the confirmation link.
+    // 1. Create account: /signup opens with a full page load (no ad script there)…
     await user.click(screen.getByRole('button', { name: 'Sign in to sync' }))
-    const sheet = screen.getByRole('dialog', { name: 'Your NAIJA TR account' })
+    expect(pageLoad.assign).toHaveBeenLastCalledWith('/signup')
+    page.unmount()
+    visit('/signup')
+    const signup = render(
+      <>
+        <AuthRoot />
+        <Status />
+      </>,
+    )
+    // …with the benefits, an email, the confirmation link.
+    const sheet = screen.getByRole('region', { name: 'Your NAIJA TR account' })
     expect(within(sheet).getByRole('tab', { name: 'Create account' })).toHaveAttribute('aria-selected', 'true')
     expect(within(sheet).getByText('Why create a free account?')).toBeInTheDocument()
     expect(within(sheet).getByText(/Get the new link if NAIJA TR ever moves/)).toBeInTheDocument()
@@ -176,7 +186,7 @@ describe('accounts', () => {
     })
     // No second email for 60 seconds.
     expect(within(sheet).getByRole('button', { name: /Send it again \(\d+s\)/ })).toBeDisabled()
-    page.unmount()
+    signup.unmount()
 
     // 2. The link opens /auth/confirm: signed in, tokens out of the address, "Create your password".
     fake.reload()
@@ -221,17 +231,25 @@ describe('accounts', () => {
     confirm.unmount()
 
     // 4. Log in with the password (the Log in tab first, for someone who's had an account here).
-    visit('/')
+    visit('/my-list')
     initAccount()
-    render(
+    const home = render(
       <>
         <AccountMenu />
-        <SignInHost />
         <Status />
       </>,
     )
     await user.click(screen.getByRole('button', { name: 'Sign in to sync' }))
-    const login = screen.getByRole('dialog', { name: 'Your NAIJA TR account' })
+    expect(pageLoad.assign).toHaveBeenLastCalledWith('/login?next=%2Fmy-list')
+    home.unmount()
+    visit('/login?next=%2Fmy-list')
+    render(
+      <>
+        <AuthRoot />
+        <Status />
+      </>,
+    )
+    const login = screen.getByRole('region', { name: 'Your NAIJA TR account' })
     expect(within(login).getByRole('tab', { name: 'Log in' })).toHaveAttribute('aria-selected', 'true')
     await user.type(within(login).getByLabelText('Email'), EMAIL)
     await user.type(within(login).getByLabelText('Password'), 'wrong-password')
@@ -242,14 +260,15 @@ describe('accounts', () => {
     await user.click(within(login).getByRole('button', { name: 'Log in' }))
     await vi.waitFor(() => expect(status()).toHaveTextContent(`signedIn ${EMAIL} password:true`))
     expect(fake.client.auth.signInWithPassword).toHaveBeenLastCalledWith({ email: EMAIL, password: PASSWORD })
+    // Back where they were, with a full page load.
+    await vi.waitFor(() => expect(pageLoad.assign).toHaveBeenLastCalledWith('/my-list'))
 
     // 5. Forgot password (signed out again): the same answer whether or not the account exists.
     await act(() => signOut())
-    await user.click(screen.getByRole('button', { name: 'Sign in to sync' }))
-    const forgot = screen.getByRole('dialog', { name: 'Your NAIJA TR account' })
+    const forgot = screen.getByRole('region', { name: 'Your NAIJA TR account' })
     await user.click(within(forgot).getByRole('button', { name: 'Forgot password?' }))
-    expect(within(forgot).getByLabelText('Email')).toHaveValue('')
-    await user.type(within(forgot).getByLabelText('Email'), EMAIL)
+    // The email typed to log in is kept.
+    expect(within(forgot).getByLabelText('Email')).toHaveValue(EMAIL)
     // The confirmation email above started the 60 seconds: wait them out.
     vi.useFakeTimers({ shouldAdvanceTime: true, now: Date.now() + 61_000 })
     await user.click(within(forgot).getByRole('button', { name: 'Send reset link' }))
@@ -275,7 +294,8 @@ describe('accounts', () => {
     await user.click(screen.getByRole('button', { name: 'Update password' }))
     expect(await screen.findByRole('heading', { name: 'Password updated' })).toBeInTheDocument()
     expect(fake.account.password).toBe('New-password-2026')
-    await vi.waitFor(() => expect(window.location.pathname).toBe('/'), { timeout: 3000 })
+    // Back with a full page load (ads may load there again).
+    await vi.waitFor(() => expect(pageLoad.assign).toHaveBeenLastCalledWith('/'), { timeout: 3000 })
     expect(status()).toHaveTextContent('signedIn')
   })
 
@@ -284,10 +304,9 @@ describe('accounts', () => {
     fake.account.password = PASSWORD
     fake.account.confirmed = false
     initAccount()
-    render(<SignInHost />)
-    const { openSignIn } = await import('./account')
-    act(() => openSignIn('login'))
-    const sheet = screen.getByRole('dialog', { name: 'Your NAIJA TR account' })
+    visit('/login')
+    render(<AuthRoot />)
+    const sheet = screen.getByRole('region', { name: 'Your NAIJA TR account' })
     await user.type(within(sheet).getByLabelText('Email'), EMAIL)
     await user.type(within(sheet).getByLabelText('Password'), PASSWORD)
     await user.click(within(sheet).getByRole('button', { name: 'Log in' }))
@@ -303,10 +322,9 @@ describe('accounts', () => {
   it('offers to finish setup for an account without a password', async () => {
     const user = userEvent.setup()
     initAccount()
-    render(<SignInHost />)
-    const { openSignIn } = await import('./account')
-    act(() => openSignIn('login'))
-    const sheet = screen.getByRole('dialog', { name: 'Your NAIJA TR account' })
+    visit('/login')
+    render(<AuthRoot />)
+    const sheet = screen.getByRole('region', { name: 'Your NAIJA TR account' })
     await user.type(within(sheet).getByLabelText('Email'), EMAIL)
     await user.type(within(sheet).getByLabelText('Password'), 'anything-at-all')
     await user.click(within(sheet).getByRole('button', { name: 'Log in' }))
@@ -320,7 +338,8 @@ describe('accounts', () => {
     initAccount()
     const confirm = render(<AuthConfirmPage />)
     await user.click(await screen.findByRole('button', { name: 'Skip for now' }))
-    expect(window.location.pathname).toBe('/')
+    expect(pageLoad.assign).toHaveBeenLastCalledWith('/')
+    visit('/')
     confirm.unmount()
     // Just skipped: no reminder this week.
     const first = render(<PasswordReminderHost delayMs={0} />)
@@ -335,10 +354,14 @@ describe('accounts', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('shows an expired link’s error in the sheet', async () => {
+  it('shows an expired link’s error on /login', async () => {
     visit('/#error=access_denied&error_description=Email+link+is+invalid+or+has+expired')
     initAccount()
-    render(<SignInHost />)
+    expect(pageLoad.assign).toHaveBeenLastCalledWith('/login')
+    fake.reload()
+    visit('/login')
+    initAccount()
+    render(<AuthRoot />)
     expect(await screen.findByRole('alert')).toHaveTextContent('Email link is invalid or has expired')
   })
 
@@ -381,30 +404,26 @@ describe('the sync prompt', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('asks after one title saved, and opens the sheet on Create account', async () => {
+  it('asks after one title saved, and opens /signup on Create account', async () => {
     const user = userEvent.setup()
     initAccount()
     saveForLater(film(3))
-    render(
-      <>
-        <SyncPromptHost delayMs={0} />
-        <SignInHost />
-      </>,
-    )
+    render(<SyncPromptHost delayMs={0} />)
     const card = await screen.findByRole('dialog', { name: /Sign in to keep your progress/ })
     await user.click(within(card).getByRole('button', { name: 'Create free account' }))
-    expect(screen.getByRole('tab', { name: 'Create account' })).toHaveAttribute('aria-selected', 'true')
+    expect(pageLoad.assign).toHaveBeenLastCalledWith('/signup')
   })
 
-  it('the sheet’s "Not now" closes it and holds the prompt for 7 days', async () => {
+  it('/signup’s "Not now" goes back and holds the prompt for 7 days', async () => {
     const user = userEvent.setup()
+    visit('/signup')
     initAccount()
     watchTwo()
-    render(<SignInHost />)
-    const { openSignIn } = await import('./account')
-    act(() => openSignIn())
+    const auth = render(<AuthRoot />)
     await user.click(screen.getByRole('button', { name: 'Not now' }))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(pageLoad.assign).toHaveBeenLastCalledWith('/')
+    auth.unmount()
+    visit('/')
     render(<SyncPromptHost delayMs={0} />)
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

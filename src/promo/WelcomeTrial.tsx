@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { authButton } from '../ads/authGuard'
 import { openSignUpFrom } from '../account/account'
 import { goToPage } from '../account/pages'
 import { holdAdsThisTap, useAdOverlay } from '../ads/adManager'
@@ -45,7 +46,7 @@ export function TrialPromptHost() {
           <button
             type="button"
             className="promo__primary"
-            data-no-ad=""
+            {...authButton('signup', 'play-popup')}
             onClick={() => {
               closeTrialPrompt()
               openSignUpFrom('play-popup')
