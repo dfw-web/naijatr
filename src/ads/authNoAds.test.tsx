@@ -262,7 +262,7 @@ describe('the auth pages never have an ad script', () => {
   it('vercel.json sends a CSP on every auth page that only allows this site’s scripts', () => {
     const config = JSON.parse(vercelJson) as { headers: { source: string; headers: { key: string; value: string }[] }[] }
     const csp = (source: string) => config.headers.find((h) => h.source === source)?.headers.find((h) => h.key === 'Content-Security-Policy')?.value ?? ''
-    for (const source of ['/(login|signup|account)/?', '/auth/:path*']) {
+    for (const source of ['/:page(login|signup|account)', '/auth/:path*']) {
       const policy = csp(source)
       const scripts = /script-src ([^;]+)/.exec(policy)?.[1] ?? ''
       expect(scripts.split(' ').sort()).toEqual(["'self'", "'unsafe-inline'", 'https://va.vercel-scripts.com'].sort())
