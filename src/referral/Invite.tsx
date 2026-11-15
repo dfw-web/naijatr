@@ -165,10 +165,10 @@ export function BuyAdFree() {
         <>
           <p className="buy-ad-free__email">Create a free account first, so we can activate ad-free on it.</p>
           <div className="account-card__actions">
-            <button type="button" className="account-page__primary" onClick={() => openSignIn('create')}>
+            <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('create')}>
               Sign up
             </button>
-            <button type="button" className="account-page__ghost" onClick={() => openSignIn('login')}>
+            <button type="button" className="account-page__ghost" data-no-ad="" onClick={() => openSignIn('login')}>
               Log in
             </button>
           </div>
@@ -191,7 +191,7 @@ export function InvitePage() {
   const goal = status?.goal ?? goalNow()
 
   return (
-    <section className="account-page invite-page" aria-labelledby="invite-title">
+    <section className="account-page invite-page" aria-labelledby="invite-title" data-quiet-ads="">
       <h1 id="invite-title" className="account-page__title">
         🎁 Go ad-free
       </h1>
@@ -262,10 +262,10 @@ function InviteOption({ goal, adFree }: { goal: number; adFree: boolean }) {
           <h2 className="account-card__title">Start inviting</h2>
           <p className="account-card__muted">You need a free account to get your own invite link. Browsing and watching never need one.</p>
           <div className="account-card__actions">
-            <button type="button" className="account-page__primary" onClick={() => openSignIn('create')}>
+            <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('create')}>
               Create a free account to start inviting
             </button>
-            <button type="button" className="account-page__ghost" onClick={() => openSignIn('login')}>
+            <button type="button" className="account-page__ghost" data-no-ad="" onClick={() => openSignIn('login')}>
               Log in
             </button>
           </div>
@@ -291,7 +291,7 @@ function InviteOption({ goal, adFree }: { goal: number; adFree: boolean }) {
 export function InviteRulesPage() {
   const goal = useReferralStatus()?.goal ?? goalNow()
   return (
-    <article className="account-page account-page--text" aria-labelledby="rules-title">
+    <article className="account-page account-page--text" aria-labelledby="rules-title" data-quiet-ads="">
       <h1 id="rules-title" className="account-page__title">
         Invite rules
       </h1>
@@ -372,7 +372,7 @@ export function InviteCard() {
               : '🏆 Bonus: invite the most people this week and win a mystery prize 🎁'}
         </p>
       </div>
-      <button type="button" className="invite-card__button" onClick={account === 'signedIn' ? openInvite : () => openSignIn('create')}>
+      <button type="button" className="invite-card__button" data-no-ad={account === 'signedIn' ? undefined : ''} onClick={account === 'signedIn' ? openInvite : () => openSignIn('create')}>
         {account === 'signedIn' ? 'Invite friends' : 'Create a free account'}
       </button>
     </aside>
@@ -457,6 +457,7 @@ export function DailyPromoHost() {
           <button
             type="button"
             className="promo__primary"
+            data-no-ad={signedIn ? undefined : ''}
             onClick={() => {
               close()
               if (signedIn) openInvite()

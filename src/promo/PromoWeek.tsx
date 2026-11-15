@@ -98,6 +98,7 @@ export function PromoWeekBanner() {
       <button
         type="button"
         className="promo-week-banner__action"
+        data-no-ad=""
         onClick={() => {
           holdAdsThisTap()
           openSignIn()

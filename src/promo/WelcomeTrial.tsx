@@ -45,6 +45,7 @@ export function TrialPromptHost() {
           <button
             type="button"
             className="promo__primary"
+            data-no-ad=""
             onClick={() => {
               closeTrialPrompt()
               openSignUpFrom('play-popup')

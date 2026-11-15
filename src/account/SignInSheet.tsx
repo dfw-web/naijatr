@@ -4,8 +4,10 @@ import { GOOGLE_LOGIN_ENABLED } from '../config/account'
 import { useDismiss } from '../ui/useDismiss'
 import {
   closeSignIn,
+  createAccount,
   logIn,
   openSignIn,
+  resendConfirmation,
   sendConfirmLink,
   sendPasswordReset,
   signInWithGoogle,
@@ -19,6 +21,7 @@ import { goToPage } from './pages'
 import { snooze } from './reminders'
 import './account.css'
 import { useAdOverlay } from '../ads/adManager'
+import { useAuthInProgress } from '../ads/authQuiet'
 
 /** The sign-in sheet ("Log in" / "Create account"), opened from the header, the prompt or the Account page. Mount once (App). */
 export function SignInHost() {
@@ -43,6 +46,8 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   useDismiss(true, closeSignIn)
   // No ads while signing up or in (see src/ads/adManager.ts).
   useAdOverlay(true)
+  // Auth in progress: no ad of any kind while it's open, and for 10 seconds after it closes.
+  useAuthInProgress(true)
 
   const notNow = () => {
     snooze('sync')
@@ -113,7 +118,19 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
               onLinkSent={(to) => setNotice({ kind: 'confirm-sent', email: to })}
             />
           ) : (
-            <CreateForm email={email} onEmail={setEmail} onSent={(to) => setNotice({ kind: 'confirm-sent', email: to })} />
+            <CreateForm
+              email={email}
+              onEmail={setEmail}
+              onSent={(to) => setNotice({ kind: 'confirm-sent', email: to })}
+              onLogIn={(existing) => {
+                setEmail(existing)
+                switchTab('login')
+              }}
+              onForgot={(existing) => {
+                setEmail(existing)
+                setNotice({ kind: 'forgot' })
+              }}
+            />
           )}
           {GOOGLE_LOGIN_ENABLED && (
             <button type="button" className="account-sheet__secondary" onClick={() => void signInWithGoogle()}>
@@ -126,8 +143,8 @@ function SignInSheet({ tab }: { tab: SheetTab }) {
   }
 
   return (
-    <div className="account-sheet" role="presentation" data-quiet-ads="" onClick={(event) => event.target === event.currentTarget && closeSignIn()}>
-      <div className="account-sheet__panel" role="dialog" aria-modal="true" aria-label="Your NAIJA TR account" data-quiet-ads="">
+    <div className="account-sheet" role="presentation" data-quiet-ads="" data-no-ad="" onClick={(event) => event.target === event.currentTarget && closeSignIn()}>
+      <div className="account-sheet__panel" role="dialog" aria-modal="true" aria-label="Your NAIJA TR account" data-quiet-ads="" data-no-ad="">
         <button type="button" className="account-sheet__close" aria-label="Close" onClick={closeSignIn}>
           <X aria-hidden="true" />
         </button>
@@ -161,7 +178,7 @@ interface EmailProps {
   onEmail: (email: string) => void
 }
 
-function EmailField({ email, onEmail, id, autoFocus = false }: EmailProps & { id: string; autoFocus?: boolean }) {
+function EmailField({ email, onEmail, id, autoFocus = false, describedBy }: EmailProps & { id: string; autoFocus?: boolean; describedBy?: string }) {
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (autoFocus) ref.current?.focus()
@@ -182,6 +199,8 @@ function EmailField({ email, onEmail, id, autoFocus = false }: EmailProps & { id
         spellCheck={false}
         placeholder="you@example.com"
         value={email}
+        aria-invalid={describedBy ? true : undefined}
+        aria-describedby={describedBy}
         onChange={(event) => onEmail(event.target.value)}
       />
     </>
@@ -266,24 +285,78 @@ function LogInForm({ email, onEmail, onForgot, onLinkSent }: EmailProps & { onFo
   )
 }
 
-function CreateForm({ email, onEmail, onSent }: EmailProps & { onSent: (email: string) => void }) {
+/** What "Create free account" found: an address that already has an account, confirmed or not. */
+type Existing = { kind: 'exists' | 'unconfirmed'; email: string }
+
+function CreateForm({
+  email,
+  onEmail,
+  onSent,
+  onLogIn,
+  onForgot,
+}: EmailProps & { onSent: (email: string) => void; onLogIn: (email: string) => void; onForgot: (email: string) => void }) {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [existing, setExisting] = useState<Existing | null>(null)
+  const [resending, setResending] = useState(false)
+  const wait = useCooldownSeconds()
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!EMAIL.test(email.trim())) return setError('Please enter a valid email address.')
     setSending(true)
     setError(null)
-    const result = await sendConfirmLink(email)
+    setExisting(null)
+    const result = await createAccount(email)
     setSending(false)
     if (result.ok) onSent(email.trim())
+    else if (result.reason === 'error') setError(result.message)
+    else setExisting({ kind: result.reason, email: result.email })
+  }
+
+  const resend = async () => {
+    if (!existing) return
+    setResending(true)
+    setError(null)
+    const result = await resendConfirmation(existing.email)
+    setResending(false)
+    if (result.ok) onSent(existing.email)
     else setError(result.message)
   }
+
+  const changeEmail = (next: string) => {
+    setExisting(null)
+    onEmail(next)
+  }
+
   return (
     <>
       <Benefits />
       <form className="account-sheet__form" onSubmit={submit} noValidate>
-        <EmailField email={email} onEmail={onEmail} id="create-email" />
+        <EmailField email={email} onEmail={changeEmail} id="create-email" describedBy={existing ? 'create-email-taken' : undefined} />
+        {existing?.kind === 'exists' && (
+          <div id="create-email-taken" className="account-sheet__field-error" role="alert">
+            <p>This email already has an account. Tap Log in to sign in with your password.</p>
+            <div className="account-sheet__field-actions">
+              <button type="button" className="account-sheet__inline" onClick={() => onLogIn(existing.email)}>
+                Log in
+              </button>
+              <button type="button" className="account-sheet__link account-sheet__small" onClick={() => onForgot(existing.email)}>
+                Forgot password?
+              </button>
+            </div>
+          </div>
+        )}
+        {existing?.kind === 'unconfirmed' && (
+          <div id="create-email-taken" className="account-sheet__field-error" role="alert">
+            <p>This email is registered but not confirmed yet. Check your inbox or tap Resend email.</p>
+            <div className="account-sheet__field-actions">
+              <button type="button" className="account-sheet__inline" onClick={() => void resend()} disabled={resending || wait > 0}>
+                {resending ? 'Sending…' : wait > 0 ? `Resend email (${wait}s)` : 'Resend email'}
+              </button>
+            </div>
+          </div>
+        )}
         {error && (
           <p className="account-sheet__error" role="alert">
             {error}

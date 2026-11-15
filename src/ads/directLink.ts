@@ -3,6 +3,7 @@ import { isTvMode } from '../tv/tvMode'
 import { setAdStatus } from './adStatus'
 import { requestAdBreak } from './adBreakStore'
 import { isAdFreeNow } from '../referral/status'
+import { isAuthInProgress, isNoAdTap } from './authQuiet'
 
 export const AD_URL = DIRECT_LINK_URL
 
@@ -16,9 +17,9 @@ export const adTiming = { blockCheckMs: 1000 }
 const NO_ADS_KEY = 'naijatr.noads'
 // Dev machines and phones on the home network (vite --host): never a real visit.
 const LOCAL_HOST = /^(localhost|127\.|0\.0\.0\.0$|\[::1\]$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.local$/
-// Pages that never show ads: the admin pages, the invite rules, and the pages
-// the account emails open (create your password, reset it).
-const NO_ADS_PATH = /^\/(admin(\/|$)|invite\/rules\/?$|auth\/(confirm|reset)\/?$|account\/?$|privacy\/?$)/
+// Pages that never show ads: the admin pages, the invite pages (/invite/*), and
+// the pages the account emails open (create your password, reset it).
+const NO_ADS_PATH = /^\/(admin(\/|$)|invite(\/|$)|auth\/(confirm|reset)\/?$|account\/?$|privacy\/?$)/
 
 /** ?noads=1 (in the query or the #/route) turns ads off for the session; ?noads=0 turns them back on. */
 function noAdsFlag(url: URL): boolean {
@@ -44,7 +45,7 @@ export function rememberNoAdsFlag(href = window.location.href): void {
 /**
  * True while ads are switched off (ADS_ENABLED), for test visits (localhost,
  * the home network, ?noads=1), so no impressions are wasted, and on the pages
- * that never show ads (/admin, /invite/rules, /account, /privacy, /auth/confirm, /auth/reset), and for ad-free accounts
+ * that never show ads (/admin, /invite/*, /account, /privacy, /auth/confirm, /auth/reset), and for ad-free accounts
  * (checked by the server: src/referral/status.ts).
  */
 export function adsDisabled(href = window.location.href): boolean {
@@ -131,6 +132,8 @@ export function openAd(tap: Event | undefined, adKey: string): boolean {
   // TV browsers can't switch to a new tab: TVs get an ad break before playback instead (src/tv).
   if (adsDisabled() || isTvMode()) return false
   const event = tap ?? window.event
+  // Never while signing up, logging in or out, or within 10 seconds of it (src/ads/authQuiet.ts).
+  if (isAuthInProgress() || isNoAdTap(event)) return false
   if (event) {
     if (handledTaps.has(event)) return false
     handledTaps.add(event)

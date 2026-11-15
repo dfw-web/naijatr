@@ -11,6 +11,7 @@ import { getClient, hasStoredSession, takeAuthRedirect } from './client'
 import { referralSignedIn, referralSignedOut } from '../referral/status'
 import { forgetSyncedAccount, requestSyncNow, startSync, stopSync } from './sync'
 import { holdAdsThisTap } from '../ads/adManager'
+import { noteAuthActivity } from '../ads/authQuiet'
 
 /**
  * The optional account: signed out (everything stays on this device, as
@@ -161,15 +162,21 @@ export type EmailResult = { ok: true } | { ok: false; message: string }
  * in and can set a password.
  */
 export async function sendConfirmLink(email: string): Promise<EmailResult> {
+  const sent = await sendLink(email, true)
+  return sent.ok ? { ok: true } : sent
+}
+
+/** The email link itself, with the 60-second wait. `existing`: Supabase said the address already has an account. */
+async function sendLink(email: string, createUser: boolean): Promise<{ ok: true; existing: boolean } | { ok: false; message: string }> {
   if (emailCooldownLeft() > 0) return { ok: false, message: `Please wait ${emailCooldownLeft()} seconds before asking again.` }
   try {
     const client = await getClient()
     listen(client)
-    const source = signupSource()
-    const { error } = await client.auth.signInWithOtp({
+    const source = createUser ? signupSource() : null
+    const { data, error } = await client.auth.signInWithOtp({
       email: email.trim(),
       // How a new account came (the Play popup), kept on the login for /admin/live. Ignored for existing accounts.
-      options: { emailRedirectTo: authUrl('confirm'), shouldCreateUser: true, ...(source ? { data: { signup_source: source } } : {}) },
+      options: { emailRedirectTo: authUrl('confirm'), shouldCreateUser: createUser, ...(source ? { data: { signup_source: source } } : {}) },
     })
     if (error) {
       if (isRateLimit(error)) {
@@ -179,11 +186,81 @@ export async function sendConfirmLink(email: string): Promise<EmailResult> {
       return { ok: false, message: 'We couldn’t send the email. Check the address and try again.' }
     }
     startCooldown()
-    track('confirm-sent')
-    return { ok: true }
+    const existing = isAlreadyRegistered((data as { user?: User | null } | null)?.user)
+    track(existing ? 'signup-exists' : 'confirm-sent')
+    return { ok: true, existing }
   } catch {
     return { ok: false, message: 'No connection. Please try again.' }
   }
+}
+
+/**
+ * Supabase's answer for an address that already has an account, when email
+ * confirmation is on: no error, a "user" with no identities and nothing sent.
+ */
+export const isAlreadyRegistered = (user: Pick<User, 'identities'> | null | undefined): boolean =>
+  Boolean(user && Array.isArray(user.identities) && user.identities.length === 0)
+
+export type EmailCheck = { status: 'new' | 'unknown' } | { status: 'confirmed' | 'unconfirmed'; email: string }
+
+/**
+ * Asks the server whether this inbox already has a login (Gmail dots and
+ * +tags ignored: /api/account/email-status). "unknown" when the server can't
+ * say (not configured, offline): sign-up then carries on as before.
+ */
+export async function checkEmail(email: string): Promise<EmailCheck> {
+  try {
+    const response = await fetch('/api/account/email-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() }),
+    })
+    if (!response.ok) return { status: 'unknown' }
+    const body = (await response.json().catch(() => null)) as { status?: unknown; email?: unknown } | null
+    if ((body?.status === 'confirmed' || body?.status === 'unconfirmed') && typeof body.email === 'string') {
+      return { status: body.status, email: body.email }
+    }
+    return body?.status === 'new' ? { status: 'new' } : { status: 'unknown' }
+  } catch {
+    return { status: 'unknown' }
+  }
+}
+
+export type CreateResult =
+  | { ok: true }
+  /** Already has an account: log in with `email` (the account's own address). */
+  | { ok: false; reason: 'exists'; email: string }
+  /** Registered, never confirmed: "Resend email" sends to `email`. */
+  | { ok: false; reason: 'unconfirmed'; email: string }
+  | { ok: false; reason: 'error'; message: string }
+
+/**
+ * "Create free account": checks the address first, and sends nothing (and
+ * creates nothing) for one that already has an account. Only a new address
+ * gets the link to /auth/confirm.
+ */
+export async function createAccount(email: string): Promise<CreateResult> {
+  const check = await checkEmail(email)
+  if (check.status === 'confirmed') {
+    track('signup-exists')
+    return { ok: false, reason: 'exists', email: check.email }
+  }
+  if (check.status === 'unconfirmed') {
+    track('signup-unconfirmed')
+    return { ok: false, reason: 'unconfirmed', email: check.email }
+  }
+  const sent = await sendLink(email, true)
+  if (sent.ok && sent.existing) return { ok: false, reason: 'exists', email: email.trim() }
+  return sent.ok ? { ok: true } : { ok: false, reason: 'error', message: sent.message }
+}
+
+/**
+ * "Resend email" for an account that never confirmed its address: the link
+ * goes to that account only (never creates one). 60 seconds between sends.
+ */
+export async function resendConfirmation(email: string): Promise<EmailResult> {
+  const sent = await sendLink(email, false)
+  return sent.ok ? { ok: true } : sent
 }
 
 export type LogInResult = { ok: true } | { ok: false; reason: 'wrong' | 'unconfirmed' | 'rate' | 'offline' | 'other' }
@@ -253,6 +330,9 @@ export async function signInWithGoogle(): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  // No ad on the Log out tap, nor for 10 seconds after.
+  holdAdsThisTap()
+  noteAuthActivity()
   await requestSyncNow().catch(() => undefined)
   stopSync()
   try {
@@ -355,13 +435,17 @@ export function openSignIn(tab?: SheetTab): void {
     // New here, as far as we know.
   }
   sheet = tab ?? (known ? 'login' : 'create')
-  // No ad on the tap that opens it.
+  // No ad on the tap that opens it, nor while it's open and 10 seconds after (src/ads/authQuiet.ts).
   holdAdsThisTap()
+  noteAuthActivity()
   track('sheet')
   emit()
 }
 
 export function closeSignIn(): void {
+  // The tap that closes it opens no ad either.
+  holdAdsThisTap()
+  noteAuthActivity()
   sheet = null
   if (state.linkError) state = { ...state, linkError: null }
   emit()

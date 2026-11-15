@@ -37,7 +37,7 @@ export function AccountMenu() {
   if (status === 'disabled' || isTvMode()) return null
   if (status === 'signedOut') {
     return (
-      <button type="button" className="account-signin" onClick={() => openSignIn()}>
+      <button type="button" className="account-signin" data-no-ad="" onClick={() => openSignIn()}>
         Sign in to sync
       </button>
     )
@@ -53,6 +53,7 @@ export function AccountMenu() {
       <button
         type="button"
         className="account-avatar"
+        data-no-ad=""
         aria-label={`Account: ${user.email}${premium ? ' (Premium)' : ''}`}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -78,6 +79,7 @@ export function AccountMenu() {
           <button
             type="button"
             role="menuitem"
+            data-no-ad=""
             onClick={() => {
               setOpen(false)
               void signOut()

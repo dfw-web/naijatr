@@ -12,11 +12,11 @@ describe('adsDisabled', () => {
     expect(adsDisabled('https://www.naijatr.com/')).toBe(false)
   })
 
-  it('is off on the admin pages, the contest rules and the claim form', () => {
-    for (const path of ['/admin/live', '/admin/', '/admin', '/invite/rules', '/invite/rules/']) {
+  it('is off on the admin pages, the invite pages and the auth pages', () => {
+    for (const path of ['/admin/live', '/admin/', '/admin', '/invite', '/invite/', '/invite/rules', '/invite/rules/', '/invite/ABC123', '/auth/confirm', '/auth/reset']) {
       expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(true)
     }
-    for (const path of ['/', '/football', '/invite', '/administrator']) {
+    for (const path of ['/', '/football', '/invitee', '/administrator', '/auth']) {
       expect(adsDisabled(`https://www.naijatr.com${path}`)).toBe(false)
     }
   })

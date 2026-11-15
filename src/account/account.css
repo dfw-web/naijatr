@@ -657,6 +657,29 @@
   cursor: pointer;
 }
 
+/* "This email already has an account": right under the email field. */
+.account-sheet__field-error {
+  margin: -0.15rem 0 0;
+  color: var(--accent-soft);
+  font-size: 0.9rem;
+}
+
+.account-sheet__field-error p {
+  margin: 0;
+}
+
+.account-sheet__field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.9rem;
+}
+
+.account-sheet__small {
+  font-size: 0.8rem;
+  min-height: 44px;
+}
+
 .account-sheet__inline:disabled,
 .account-sheet__secondary:disabled {
   opacity: 0.6;

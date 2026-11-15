@@ -26,7 +26,7 @@ export function MyListPage({ onSelect }: { onSelect: (item: MediaItem) => void }
           ? 'Saved to your account: the same list on all your devices.'
           : 'Saved on this device.'}{' '}
         {status === 'signedOut' && (
-          <button type="button" className="account-page__link" onClick={() => openSignIn()}>
+          <button type="button" className="account-page__link" data-no-ad="" onClick={() => openSignIn()}>
             Sign in to sync it
           </button>
         )}
@@ -68,7 +68,7 @@ export function AccountPage() {
               Signing in is optional. It keeps your Continue Watching, My List and recommendations in sync on all your
               devices.
             </p>
-            <button type="button" className="account-page__primary" onClick={() => openSignIn()}>
+            <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn()}>
               Sign in
             </button>
           </>
@@ -124,7 +124,7 @@ export function AccountPage() {
           <button type="button" className="account-page__ghost" onClick={() => void refreshSync()}>
             <RefreshCw aria-hidden="true" /> Sync now
           </button>
-          <button type="button" className="account-page__ghost" onClick={() => void signOut()}>
+          <button type="button" className="account-page__ghost" data-no-ad="" onClick={() => void signOut()}>
             <LogOut aria-hidden="true" /> Sign out
           </button>
         </div>
@@ -271,7 +271,7 @@ export function AuthConfirmPage() {
   const { status, user } = useAccount()
   const [done, setDone] = useState(false)
   return (
-    <section className="account-page account-page--narrow" aria-labelledby="confirm-title">
+    <section className="account-page account-page--narrow" aria-labelledby="confirm-title" data-quiet-ads="">
       {status === 'checking' ? (
         <>
           <h1 id="confirm-title" className="account-page__title">
@@ -287,7 +287,7 @@ export function AuthConfirmPage() {
             That link has expired
           </h1>
           <p className="account-page__lead">Links work once, for a limited time. Ask for a new one, or log in if you already have a password.</p>
-          <button type="button" className="account-page__primary" onClick={() => openSignIn('create')}>
+          <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('create')}>
             Send a new link
           </button>
         </>
@@ -348,7 +348,7 @@ export function AuthResetPage() {
     return () => window.clearTimeout(timer)
   }, [done])
   return (
-    <section className="account-page account-page--narrow" aria-labelledby="reset-title">
+    <section className="account-page account-page--narrow" aria-labelledby="reset-title" data-quiet-ads="">
       {done ? (
         <>
           <h1 id="reset-title" className="account-page__title">
@@ -368,7 +368,7 @@ export function AuthResetPage() {
             That reset link has expired
           </h1>
           <p className="account-page__lead">Reset links work once, for a limited time. Ask for a new one.</p>
-          <button type="button" className="account-page__primary" onClick={() => openSignIn('login')}>
+          <button type="button" className="account-page__primary" data-no-ad="" onClick={() => openSignIn('login')}>
             Log in or reset again
           </button>
         </>

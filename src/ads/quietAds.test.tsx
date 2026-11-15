@@ -5,7 +5,7 @@ import { closeSignIn, openSignIn, resetAccount, setAccountForTests } from '../ac
 import { PasswordForm } from '../account/authParts'
 import { SignInHost } from '../account/SignInSheet'
 import { adLinkClicks } from '../test/ads'
-import { cardAd, installQuietZones } from './adManager'
+import { adClock, cardAd, installQuietZones } from './adManager'
 import { adsDisabled } from './directLink'
 import { loadMultitag } from './monetag'
 
@@ -47,6 +47,12 @@ describe('no ads while signing up or choosing a password', () => {
     tap((event) => cardAd(event, { id: 'a' }))
     expect(adLinkClicks()).toHaveLength(0)
     act(() => closeSignIn())
+    // Still none for 10 seconds after it closes…
+    tap((event) => cardAd(event, { id: 'a' }))
+    expect(adLinkClicks()).toHaveLength(0)
+    // …then ads as usual.
+    const start = Date.now()
+    adClock.now = () => start + 10_001
     tap((event) => cardAd(event, { id: 'a' }))
     expect(adLinkClicks()).toHaveLength(1)
   })
@@ -72,6 +78,9 @@ describe('no ads while signing up or choosing a password', () => {
       expect(onSave).toHaveBeenCalledWith('longpassword1')
       // …but nothing listening on the whole page heard any of it.
       expect(pageWide).not.toHaveBeenCalled()
+      // Once the 10-second quiet time after the password form is over, taps elsewhere reach them again.
+      const start = Date.now()
+      adClock.now = () => start + 10_001
       await userEvent.click(screen.getByRole('button', { name: 'Elsewhere' }))
       expect(pageWide).toHaveBeenCalled()
     } finally {

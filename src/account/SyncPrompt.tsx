@@ -126,7 +126,7 @@ function ReminderCard({ id, icon, title, action, onAction, onClose, onScreen, ch
       </p>
       {children && <div className="sync-prompt__body">{children}</div>}
       <div className="sync-prompt__actions">
-        <button type="button" className="sync-prompt__primary" onClick={onAction}>
+        <button type="button" className="sync-prompt__primary" data-no-ad="" onClick={onAction}>
           {action}
         </button>
         <button type="button" className="sync-prompt__later" onClick={onClose}>
