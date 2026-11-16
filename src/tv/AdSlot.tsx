@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { adsDisabled } from '../ads/directLink'
+import { whenAdsAllowed } from '../ads/adGate'
 import type { AdZone } from '../config/tvAds'
 
 interface AdSlotProps {
@@ -18,12 +19,18 @@ export function AdSlot({ zone, className = '' }: AdSlotProps) {
   useEffect(() => {
     const box = boxRef.current
     if (!box || adsDisabled()) return
-    const script = document.createElement('script')
-    script.dataset.zone = zone.zone
-    script.src = zone.src
-    script.async = true
-    box.append(script)
-    return () => box.replaceChildren()
+    // Not while the welcome popup is due or open, nor in the 3 seconds after (src/ads/adGate.ts).
+    const cancel = whenAdsAllowed(() => {
+      const script = document.createElement('script')
+      script.dataset.zone = zone.zone
+      script.src = zone.src
+      script.async = true
+      box.append(script)
+    })
+    return () => {
+      cancel()
+      box.replaceChildren()
+    }
   }, [zone.zone, zone.src])
 
   return (

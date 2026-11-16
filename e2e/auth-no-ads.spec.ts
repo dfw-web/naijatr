@@ -57,6 +57,10 @@ async function fakeBackend(context: BrowserContext) {
     if (url.pathname.includes('/rest/v1/')) return request.method() === 'GET' ? json([]) : json([], 201)
     return json({})
   })
+  // Signed out: the promo's times (vite preview has no API).
+  await context.route('**/api/referral/status', (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ goal: 5, signedIn: false, adFree: false, premium: false, promo: null, trial: null, serverNow: Date.now() }) }),
+  )
   await context.route('**/api/account/email-status', (route) => route.fulfill({ contentType: 'application/json', body: '{"status":"new"}' }))
   // The direct-link ad: a blank page instead of the real one (the tab opening is what's checked).
   await context.route(/uplcm\.com/, (route) => route.fulfill({ contentType: 'text/html', body: '<title>ad</title>' }))
@@ -118,11 +122,11 @@ test('no ads on any auth page, nor on the taps that open them', async ({ page, c
   await page.goto('/')
   const signIn = page.getByRole('button', { name: 'Sign in to sync' })
   await expect(signIn).toBeVisible()
-  await page.waitForTimeout(1500)
+  // The welcome popup for signed-out visitors (welcome-popup.spec.ts has its own checks).
+  await expect(page.getByRole('dialog')).toBeVisible()
   expect(await page.locator('script[data-zone]').count(), 'Multitag before any tap').toBe(0)
-  // A first tap somewhere neutral: the Multitag loads.
-  if (mobile) await page.touchscreen.tap(20, 400)
-  else await page.mouse.click(20, 400)
+  // Closing it is the first tap: the Multitag loads (3 seconds later).
+  await press(page.getByRole('dialog').getByRole('button', { name: 'Not now' }), mobile)
   await expect(page.locator('script[data-zone="302667"]')).toHaveCount(1, { timeout: 15_000 })
   // A card: the direct-link ad opens in a new tab (proof the ads are live here).
   const beforeCard = Date.now()

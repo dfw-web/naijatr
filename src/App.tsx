@@ -28,6 +28,7 @@ import { AccountPage, MyListPage, PrivacyPage } from './account/AccountPages'
 import { pageFromPath, type Page } from './account/pages'
 import { PromoWeekBanner, PromoWeekEndedHost, PromoWeekWelcomeHost } from './promo/PromoWeek'
 import { TrialEndedHost, TrialPromptHost, TrialWelcomeHost } from './promo/WelcomeTrial'
+import { WelcomePopupHost } from './promo/WelcomePopup'
 import { loadPromo } from './referral/status'
 import { PasswordReminderHost, SyncPromptHost } from './account/SyncPrompt'
 import './App.css'
@@ -235,6 +236,8 @@ function App() {
       <TrialPromptHost />
       <TrialWelcomeHost />
       <TrialEndedHost />
+      {/* Signed-out visitors, on every page load: "Sign up free" (src/promo/welcomeStore.ts). */}
+      <WelcomePopupHost />
 
       {/* Vercel Web Analytics: page views, plus route changes via history.pushState. */}
       <Analytics beforeSend={analyticsBeforeSend} />

@@ -17,6 +17,7 @@ const PASSWORD_KEY = 'naijatr.admin.password'
 type AdEvent =
   | 'card' | 'play' | 'football' | 'search' | 'list' | 'episode' | 'server' | 'cooldown' | 'cap' | 'upsell'
   | 'multitag-302667' | 'multitag-302667-blocked' | 'multitag-306795' | 'multitag-306795-blocked'
+  | 'welcome-shown' | 'welcome-signup' | 'welcome-login' | 'welcome-close'
 
 type PlayerEvent = 'load' | 'nostart' | 'fallback' | 'limited'
 type PlayerCounts = Record<'nextstream' | 'embedmaster', Record<PlayerEvent, number>> & { calls: number }
@@ -149,6 +150,7 @@ async function render(count: LiveCount) {
   )
   $('top').replaceChildren(...rows)
   renderAds(count.ads)
+  renderWelcome(count.ads)
   renderTags(count.ads, count.adTestStartedAt ?? null)
   renderServers(count.players, count.key)
   $('empty').hidden = rows.length > 0
@@ -486,6 +488,12 @@ async function loadSubtitles() {
   }
 }
 
+/** The welcome popup today (/api/live/ad counts). */
+function renderWelcome(ads: Record<AdEvent, number> | undefined) {
+  const ids: [string, AdEvent][] = [['wp-shown', 'welcome-shown'], ['wp-signup', 'welcome-signup'], ['wp-login', 'welcome-login'], ['wp-close', 'welcome-close']]
+  for (const [id, event] of ids) $(id).textContent = ads ? String(ads[event] ?? 0) : '–'
+}
+
 /** 👑 Premium users now, the welcome trial's numbers and the Play popup's sign-ups (/api/referral/admin-premium). */
 async function loadPremium() {
   const note = $('pr-note')
@@ -497,6 +505,9 @@ async function loadPremium() {
       activeTrials?: number
       playSignups?: number
       playSignupsToday?: number
+      welcomeSignupsPromo?: number
+      welcomeSignupsAfter?: number
+      welcomeSignupsToday?: number
       trial?: { enabled: boolean; start: string; hours: number; live?: boolean }
       error?: string
     }
@@ -505,6 +516,9 @@ async function loadPremium() {
       $('pr-trials-today').textContent = String(body.trialsToday ?? 0)
       $('pr-trials-active').textContent = String(body.activeTrials ?? 0)
       $('pr-play-signups').textContent = `${(body.playSignups ?? 0).toLocaleString()} (${body.playSignupsToday ?? 0} today)`
+      $('wp-signups-promo').textContent = (body.welcomeSignupsPromo ?? 0).toLocaleString()
+      $('wp-signups-after').textContent = (body.welcomeSignupsAfter ?? 0).toLocaleString()
+      $('wp-note').textContent = `Sign-ups completed from the popup today: ${body.welcomeSignupsToday ?? 0}. A sign-up counts once its email is confirmed and the account opens the site. Today: since midnight, Lagos time.`
       const trial = body.trial
       const when = trial
         ? !trial.enabled

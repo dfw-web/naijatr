@@ -1,3 +1,4 @@
+import { adsAllowedNow } from './adGate'
 import { goToAuthPage, isNoAdScriptPath, pageFromPath, rememberSignupSource, type Page } from '../account/pages'
 
 /**
@@ -42,6 +43,13 @@ export function isNoAdTap(event: Event | undefined | null): boolean {
 const TAP_EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'auxclick', 'dblclick', 'contextmenu'] as const
 const INTERACTION_EVENTS = new Set(['pointerdown', 'touchstart', 'mousedown', 'keydown', 'wheel'])
 
+/** Told about every auth button's tap before its page opens (the welcome popup counts its own: src/promo/welcomeStore.ts). */
+const authTapListeners = new Set<(button: HTMLElement) => void>()
+export function onAuthTap(listener: (button: HTMLElement) => void): () => void {
+  authTapListeners.add(listener)
+  return () => void authTapListeners.delete(listener)
+}
+
 let interacted = false
 const waiting = new Set<() => void>()
 
@@ -74,6 +82,12 @@ export function installAuthGuard(): void {
     const auth = target?.closest?.(`[${AUTH_PAGE_ATTR}]`) as HTMLElement | null | undefined
     // On the auth pages (no ad script there) their own tabs and links work as usual.
     if (auth && !isNoAdScriptPath()) {
+      // No ad script can be on the page yet (the welcome popup holds them all: adGate.ts):
+      // keys go through, so Esc and the TV's Back still close the popup. Enter still makes a click, stopped below.
+      if (event.type === 'keydown' && !adsAllowedNow()) {
+        if ((event as KeyboardEvent).key === 'Escape') interactedNow()
+        return
+      }
       // Nothing else on the page hears it: not React, not any ad script.
       event.stopImmediatePropagation()
       if (event.type === 'click') {
@@ -81,6 +95,13 @@ export function installAuthGuard(): void {
         const page = auth.getAttribute(AUTH_PAGE_ATTR) as Page
         const source = auth.getAttribute(SIGNUP_SOURCE_ATTR)
         if (source) rememberSignupSource(source)
+        authTapListeners.forEach((listener) => {
+          try {
+            listener(auth)
+          } catch {
+            // Never in the way of the auth page.
+          }
+        })
         if (pageFromPath(`/${page}`)) goToAuthPage(page)
       }
       return

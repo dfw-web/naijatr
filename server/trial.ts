@@ -7,6 +7,11 @@ import { normalizeEmail } from './referral/rules.js'
  * after TRIAL_START, which is the end of the Free Ad-Free Week (PROMO_END)
  * unless TRIAL_START is set. TRIAL_ENABLED=false switches it off.
  *
+ * Sign-ups during the Free Ad-Free Week (PROMO_START to PROMO_END) qualify
+ * too, the same way (a never-seen inbox, one per device), but their trial
+ * starts when the promo ends: welcome_trial_until = PROMO_END + TRIAL_HOURS.
+ * They're ad-free through the promo anyway, then Premium for 2 more days.
+ *
  * Kept on profiles.welcome_trial_until (ad_free_until is never touched), and
  * once per inbox for good in welcome_trials (it isn't deleted with the
  * account), with the device it was used on.
@@ -22,17 +27,29 @@ export interface TrialConfig {
   /** The trial's first moment (ms): accounts made from then on qualify, and nothing happens before it. */
   start: number
   hours: number
+  /** The Free Ad-Free Week (PROMO_START, PROMO_END), if set: its sign-ups get the trial from its end. */
+  promo: { start: number; end: number } | null
 }
 
 export function readTrialConfig(env: Record<string, string | undefined>): TrialConfig {
   const start = [env.TRIAL_START, env.PROMO_END, DEFAULT_TRIAL_START].map((raw) => Date.parse(raw?.trim() ?? '')).find(Number.isFinite)!
   const hours = Number(env.TRIAL_HOURS)
+  const promoStart = Date.parse(env.PROMO_START?.trim() ?? '')
+  const promoEnd = Date.parse(env.PROMO_END?.trim() ?? '')
   return {
     enabled: (env.TRIAL_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
     start,
     hours: Number.isFinite(hours) && hours > 0 && hours <= 24 * 30 ? hours : DEFAULT_TRIAL_HOURS,
+    promo: Number.isFinite(promoStart) && Number.isFinite(promoEnd) && promoEnd > promoStart ? { start: promoStart, end: promoEnd } : null,
   }
 }
+
+/** The account was made during the Free Ad-Free Week (its trial starts at PROMO_END). */
+export const promoSignup = (config: TrialConfig, createdAt: number) =>
+  config.promo !== null && createdAt >= config.promo.start && createdAt <= config.promo.end
+
+/** New accounts can qualify now: the trial is live, or the promo has started (its sign-ups qualify early). */
+export const trialOpen = (config: TrialConfig, now: number) => config.enabled && (now > config.start || (config.promo !== null && now >= config.promo.start))
 
 /** The trial runs now: switched on, and past its start (on the server's clock). */
 export const trialLive = (config: TrialConfig, now: number) => config.enabled && now > config.start
@@ -75,15 +92,24 @@ export interface TrialInput {
 export function checkTrial(input: TrialInput): { ok: true; until: string } | { ok: false; reason: TrialRefusal } {
   const { config, now } = input
   if (!config.enabled) return { ok: false, reason: 'off' }
-  if (!trialLive(config, now)) return { ok: false, reason: 'not-started' }
-  if (!(input.createdAt >= config.start)) return { ok: false, reason: 'old-account' }
+  const duringPromo = promoSignup(config, input.createdAt)
+  if (!trialLive(config, now) && !(duringPromo && now >= config.promo!.start)) return { ok: false, reason: 'not-started' }
+  if (!duringPromo && !(input.createdAt >= config.start)) return { ok: false, reason: 'old-account' }
   if (input.emailConfirmedAt === null || !Number.isFinite(input.emailConfirmedAt)) return { ok: false, reason: 'unconfirmed' }
   if ((input.inboxFirstUser !== null && input.inboxFirstUser !== input.userId) || input.inboxTaken) return { ok: false, reason: 'known-inbox' }
   if (input.inboxTrialUser !== null && input.inboxTrialUser !== input.userId) return { ok: false, reason: 'inbox-had-trial' }
   if (input.deviceUsed) return { ok: false, reason: 'device-had-trial' }
-  // From the confirmation, never from before the trial's start.
-  const from = Math.max(input.emailConfirmedAt, config.start)
-  return { ok: true, until: new Date(from + config.hours * HOUR_MS).toISOString() }
+  return { ok: true, until: new Date(trialFrom(config, input.createdAt, input.emailConfirmedAt) + config.hours * HOUR_MS).toISOString() }
+}
+
+/**
+ * When a qualifying account's trial starts: a promo sign-up at PROMO_END (or
+ * its confirmation, if later); otherwise the confirmation, never before the
+ * trial's start.
+ */
+export function trialFrom(config: TrialConfig, createdAt: number, emailConfirmedAt: number): number {
+  if (promoSignup(config, createdAt)) return Math.max(emailConfirmedAt, config.promo!.end)
+  return Math.max(emailConfirmedAt, config.start)
 }
 
 /** The inbox a trial is kept under (Gmail dots and +tags are the same inbox). */

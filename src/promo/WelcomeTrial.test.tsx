@@ -219,6 +219,29 @@ describe('the welcome trial on this device', () => {
     expect(screen.queryByText(/Welcome! You're/)).toBeNull()
   })
 
+  it('a sign-up during the promo (trial from PROMO_END): "🎉 You\'re in!…" once, with the crown', async () => {
+    signIn()
+    const promoEnd = Date.now() + DAY
+    resetReferralStatus({
+      ...trialUser(promoEnd + 48 * HOUR),
+      promo: { start: iso(Date.now() - 5 * DAY), end: iso(promoEnd), state: 'active' },
+      trial: { start: iso(promoEnd), live: false },
+    })
+    const { unmount } = render(
+      <>
+        <PremiumAvatar email="ada@gmail.com" />
+        <TrialWelcomeHost />
+      </>,
+    )
+    expect(await screen.findByText("🎉 You're in! Enjoy ad-free this week, plus 2 extra days of 👑 Premium after the promo.")).toBeInTheDocument()
+    expect(crown()).not.toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Enjoy 🍿' }))
+    unmount()
+    render(<TrialWelcomeHost />)
+    await new Promise((r) => setTimeout(r, 60))
+    expect(screen.queryByText(/You're in!|Welcome! You're/)).toBeNull()
+  })
+
   it('no ended message for paid accounts that also had the trial', async () => {
     signIn()
     resetReferralStatus(base({ ...paid(), trialUntil: iso(Date.now() - HOUR) }))

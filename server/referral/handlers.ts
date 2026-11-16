@@ -22,7 +22,7 @@ import {
 } from './rules.js'
 import { promoActive, promoEmail, promoInfo, promoState, readPromo, type PromoWindow } from '../promo.js'
 import { supabaseStore, supabaseTrialStore, type AdFreeGrant, type AuthUser, type Profile, type ReferralStore, type TrialStore } from './store.js'
-import { checkTrial, readTrialConfig, trialInbox, trialInfo, trialRunning, type TrialConfig } from '../trial.js'
+import { checkTrial, promoSignup, readTrialConfig, trialFrom, trialInbox, trialInfo, trialOpen, trialRunning, type TrialConfig } from '../trial.js'
 
 /**
  * /api/referral/*: the account-based referral program and the ad-free reward.
@@ -178,6 +178,9 @@ export function premiumState(own: { adFree: boolean; until: string | null; perma
   return { premium: true, until: new Date(Math.max(...ends)).toISOString(), permanent: false, trialOnly: !own.adFree }
 }
 
+/** Popups whose "Sign up free" is counted on /admin/live (profiles.signup_source). */
+export const SIGNUP_SOURCES = ['play-popup', 'welcome-popup']
+
 const header = (req: IncomingMessage, name: string) => {
   const value = req.headers[name]
   return (Array.isArray(value) ? value[0] : value)?.trim() ?? ''
@@ -192,11 +195,13 @@ async function welcomeTrial(env: ReferralEnv, store: ReferralStore, trials: Tria
   if (!trials) return null
   try {
     const mine = await trials.trialOf(user.id)
-    // How it signed up (the Play popup), for /admin/live: noted once, on a new account.
-    if (mine && !mine.signup_source && user.signupSource === 'play-popup') await trials.setSignupSource(user.id, 'play-popup').catch(() => undefined)
+    // How it signed up (the Play popup, the welcome popup), for /admin/live: noted once, on a new account.
+    const source = user.signupSource && SIGNUP_SOURCES.includes(user.signupSource) ? user.signupSource : null
+    if (mine && !mine.signup_source && source) await trials.setSignupSource(user.id, source).catch(() => undefined)
     if (mine?.welcome_trial_until) return mine.welcome_trial_until
-    // Most accounts stop here, with no more reads: made before the trial, or it isn't on.
-    if (!env.trial.enabled || now <= env.trial.start || user.createdAt < env.trial.start || !user.email) return null
+    // Most accounts stop here, with no more reads: made before the trial (and not during the promo), or it isn't on.
+    if (!trialOpen(env.trial, now) || !user.email) return null
+    if (user.createdAt < env.trial.start && !promoSignup(env.trial, user.createdAt)) return null
     const inbox = trialInbox(user.email)
     const deviceId = header(req, 'x-device-id').slice(0, 100)
     const deviceHash = deviceId ? hashIp(env.config.salt, `device:${deviceId}`) : null
@@ -229,7 +234,7 @@ async function welcomeTrial(env: ReferralEnv, store: ReferralStore, trials: Tria
       user_id: user.id,
       device_hash: deviceHash,
       source: user.signupSource ?? null,
-      started_at: new Date(Math.max(user.emailConfirmedAt ?? now, env.trial.start)).toISOString(),
+      started_at: new Date(trialFrom(env.trial, user.createdAt, user.emailConfirmedAt ?? now)).toISOString(),
       until: verdict.until,
     })
     if (!inserted) {
@@ -656,7 +661,7 @@ async function handlePremiumAdmin(env: ReferralEnv, req: IncomingMessage, res: S
   }
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
   if (!store || !trials) return sendJson(res, 503, { error: 'not-configured' })
-  const stats = await trials.stats(now, lagosDayStart(now)).catch(() => null)
+  const stats = await trials.stats(now, lagosDayStart(now), env.promo?.end ?? null).catch(() => null)
   if (!stats) return sendJson(res, 503, { error: 'needs-migration' })
   const ids = new Set(stats.premiumIds)
   for (const allowed of env.config.adFreeEmails) {
@@ -669,6 +674,9 @@ async function handlePremiumAdmin(env: ReferralEnv, req: IncomingMessage, res: S
     activeTrials: stats.active,
     playSignups: stats.playSignups,
     playSignupsToday: stats.playSignupsToday,
+    welcomeSignupsPromo: stats.welcomeSignupsPromo ?? 0,
+    welcomeSignupsAfter: stats.welcomeSignupsAfter ?? 0,
+    welcomeSignupsToday: stats.welcomeSignupsToday ?? 0,
     premiumUsers: ids.size,
   })
 }

@@ -20,11 +20,14 @@ import { initAccount } from './account/account'
 import { installQuietZones } from './ads/adManager'
 import { isAuthPath } from './account/pages'
 import { AuthRoot } from './account/AuthRoot'
+import { startWelcomePopup } from './promo/welcomeStore'
 
 listenForInstallPrompt()
 registerServiceWorker()
 // Optional accounts: signed in on this device before, or back from an email link? Then sync starts.
 initAccount()
+// Signed-out visitors: the welcome popup, ~1.5 s in; no ad script until 3 s after it closes (src/promo/welcomeStore.ts).
+startWelcomePopup()
 // Smart TVs (detected in index.html): arrow-key navigation and the Back key.
 if (isTvMode()) installRemote()
 

@@ -4,7 +4,7 @@ import { openSignUpFrom } from '../account/account'
 import { goToPage } from '../account/pages'
 import { holdAdsThisTap, useAdOverlay } from '../ads/adManager'
 import { FROM_PRICE, naira } from '../config/adFree'
-import { goalNow, serverTime, usePremium, useReferralStatus } from '../referral/status'
+import { goalNow, promoOn, serverTime, usePremium, useReferralStatus } from '../referral/status'
 import { isTvMode } from '../tv/tvMode'
 import { useHoldNotices } from '../ui/noticeQueue'
 import { markSeenBy, seenBy, useFreeMoment } from './freeMoment'
@@ -17,7 +17,10 @@ import './PromoWeek.css'
  * server: server/trial.ts). No countdown or timer anywhere.
  *
  * - TrialPromptHost: the Play popup for signed-out visitors (trialPrompt.ts).
- * - TrialWelcomeHost: "🎉 Welcome! You're 👑 Premium (ad-free) for 2 days." once.
+ * - TrialWelcomeHost: "🎉 Welcome! You're 👑 Premium (ad-free) for 2 days." once
+ *   (during the Free Ad-Free Week, whose sign-ups get their 2 days after it:
+ *   "🎉 You're in! Enjoy ad-free this week, plus 2 extra days of 👑 Premium
+ *   after the promo.").
  * - TrialEndedHost: "Your 2-day Premium has ended 🙏" once, when it's over
  *   (not for accounts that are Premium some other way).
  */
@@ -77,11 +80,15 @@ export function TrialWelcomeHost() {
   useAdOverlay(open)
   useHoldNotices(open)
   if (!open) return null
+  // A sign-up during the promo: its trial starts when the promo ends.
+  const duringPromo = promoOn(status?.promo)
   return (
     <div className="promo" role="dialog" aria-modal="true" aria-labelledby="trial-welcome-title">
       <div className="promo__panel">
         <p id="trial-welcome-title" className="promo__title">
-          🎉 Welcome! You're 👑 Premium (ad-free) for 2 days.
+          {duringPromo
+            ? "🎉 You're in! Enjoy ad-free this week, plus 2 extra days of 👑 Premium after the promo."
+            : "🎉 Welcome! You're 👑 Premium (ad-free) for 2 days."}
         </p>
         <div className="promo__actions">
           <button

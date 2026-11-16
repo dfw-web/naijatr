@@ -4,6 +4,7 @@ import { holdAdsThisTap, isPlaybackOpen, lagosDay } from '../ads/adManager'
 import { gateApplies, gateDone } from '../gate/gateStore'
 import { serverTime, trialLiveNow } from '../referral/status'
 import { isTvMode } from '../tv/tvMode'
+import { welcomePopupShown } from './welcomeStore'
 
 /**
  * The Play popup for signed-out visitors, once the welcome trial is on (after
@@ -52,6 +53,8 @@ const somethingOpen = () => isPlaybackOpen() || document.querySelector('[role="d
 export function trialPromptDue(): boolean {
   if (accountStatusNow() !== 'signedOut' || isTvMode()) return false
   if (!trialLiveNow() || trialPromptShownToday()) return false
+  // The welcome popup is up, or was shown on this page load: not both on one visit.
+  if (welcomePopupShown()) return false
   // The Telegram gate asks first on this Play: one popup per Play.
   if (gateApplies() && !gateDone()) return false
   return !somethingOpen()

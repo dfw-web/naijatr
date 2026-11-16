@@ -68,6 +68,9 @@ function fakeTrials(referral: ReturnType<typeof fakeStore>) {
         active: list.filter((t) => Date.parse(t.until) > now).length,
         playSignups: [...profileTrial.values()].filter((p) => p.signup_source === 'play-popup').length,
         playSignupsToday: [...profileTrial.values()].filter((p) => p.signup_source === 'play-popup').length,
+        welcomeSignupsPromo: [...profileTrial.values()].filter((p) => p.signup_source === 'welcome-popup').length,
+        welcomeSignupsAfter: 0,
+        welcomeSignupsToday: [...profileTrial.values()].filter((p) => p.signup_source === 'welcome-popup').length,
         premiumIds,
       }
     },
@@ -109,7 +112,8 @@ function signUp(id: string, email: string, at: number) {
 
 describe('the welcome trial: config', () => {
   it('starts at PROMO_END, for 48 hours, on by default', () => {
-    expect(readTrialConfig({ PROMO_END })).toEqual({ enabled: true, start: END, hours: 48 })
+    expect(readTrialConfig({ PROMO_END })).toEqual({ enabled: true, start: END, hours: 48, promo: null })
+    expect(readTrialConfig({ PROMO_START, PROMO_END }).promo).toEqual({ start: Date.parse(PROMO_START), end: END })
     expect(readTrialConfig({})).toMatchObject({ start: END, hours: 48 })
     expect(readTrialConfig({ PROMO_END, TRIAL_ENABLED: 'false' }).enabled).toBe(false)
     expect(readTrialConfig({ PROMO_END, TRIAL_START: '2026-12-01T00:00:00+01:00', TRIAL_HOURS: '24' })).toMatchObject({ start: Date.parse('2026-12-01T00:00:00+01:00'), hours: 24 })
@@ -125,13 +129,44 @@ describe('the welcome trial: config', () => {
 })
 
 describe('the welcome trial: who gets it', () => {
-  it('does nothing before PROMO_END, even for an account made then', async () => {
-    signUp('early', 'early@gmail.com', DURING)
-    const before = await status('early', END - 1000)
-    expect(before).toMatchObject({ premium: false, trialUntil: null, trialOnly: false, trial: { live: false } })
-    // And an account made during the week doesn't get it later either.
-    expect(await status('early', AFTER)).toMatchObject({ premium: false, trialUntil: null })
-    expect(trials.trials.size).toBe(0)
+  it('a new inbox signing up during the promo gets it too, starting at PROMO_END: until PROMO_END + 48h', async () => {
+    const confirmed = signUp('early', 'ear.ly+x@gmail.com', DURING)
+    const until = new Date(END + 48 * HOUR).toISOString()
+    const during = await status('early', confirmed + 1000, { 'x-device-id': 'phone-early' })
+    // Ad-free now (the trial runs through the promo and 2 days past it), Premium, the crown.
+    expect(during).toMatchObject({ premium: true, adFree: true, trialOnly: true, trialUntil: until, adFreeUntil: until, trial: { live: false } })
+    expect(trials.trials.get('early@gmail.com')).toMatchObject({ user_id: 'early', started_at: new Date(END).toISOString(), until })
+    expect(referral.profiles.get('early')?.ad_free_until).toBeNull()
+    // After the promo: the same end, not a new one, and Premium until then.
+    expect(await status('early', AFTER)).toMatchObject({ premium: true, trialUntil: until })
+    expect(await status('early', END + 48 * HOUR + 1)).toMatchObject({ premium: false, adFree: false, trialUntil: until })
+  })
+
+  it('a promo sign-up confirming after the promo: 48h from its confirmation', async () => {
+    referral.addUser('late', 'late@gmail.com', DURING, false)
+    referral.users.get('late')!.emailConfirmed = true
+    referral.users.get('late')!.emailConfirmedAt = END + 5 * HOUR
+    expect(await status('late', END + 6 * HOUR)).toMatchObject({ premium: true, trialUntil: new Date(END + 53 * HOUR).toISOString() })
+  })
+
+  it('during the promo: a known inbox (or a Gmail variant of it), or a second inbox on the device, gets nothing', async () => {
+    trials.known.set('ada@gmail.com', 'first-account')
+    signUp('again', 'a.da+promo@gmail.com', DURING)
+    expect(await status('again', DURING + HOUR)).toMatchObject({ premium: false, trialUntil: null })
+    signUp('one', 'one@yahoo.com', DURING)
+    signUp('two', 'two@yahoo.com', DURING)
+    expect(await status('one', DURING + HOUR, { 'x-device-id': 'tablet' })).toMatchObject({ premium: true })
+    expect(await status('two', DURING + HOUR, { 'x-device-id': 'tablet' })).toMatchObject({ premium: false, trialUntil: null })
+    // Repeat calls for the first: still one trial.
+    expect(await status('one', DURING + 2 * HOUR, { 'x-device-id': 'tablet' })).toMatchObject({ trialUntil: new Date(END + 48 * HOUR).toISOString() })
+    expect(trials.trials.size).toBe(1)
+  })
+
+  it('an account made before the promo started gets nothing, during it or after', async () => {
+    referral.addUser('before', 'before@gmail.com', Date.parse(PROMO_START) - HOUR)
+    referral.users.get('before')!.emailConfirmedAt = Date.parse(PROMO_START) - HOUR
+    expect(await status('before', DURING)).toMatchObject({ premium: false, promoAdFree: true, trialUntil: null })
+    expect(await status('before', AFTER)).toMatchObject({ premium: false, trialUntil: null })
   })
 
   it('gives a new inbox 48 hours from its email confirmation: ad-free, Premium, ad_free_until untouched', async () => {
@@ -256,6 +291,13 @@ describe('Premium (the crown)', () => {
     expect(checkTrial(base)).toEqual({ ok: true, until: new Date(END + 2 + 48 * HOUR).toISOString() })
     expect(checkTrial({ ...base, now: END })).toEqual({ ok: false, reason: 'not-started' })
     expect(checkTrial({ ...base, createdAt: END - 1 })).toEqual({ ok: false, reason: 'old-account' })
+    // With the promo known: its sign-ups qualify during it, from PROMO_END.
+    const withPromo = readTrialConfig({ PROMO_START, PROMO_END })
+    const promoBase = { ...base, config: withPromo, now: DURING, createdAt: DURING - HOUR, emailConfirmedAt: DURING - HOUR }
+    expect(checkTrial(promoBase)).toEqual({ ok: true, until: new Date(END + 48 * HOUR).toISOString() })
+    expect(checkTrial({ ...promoBase, now: AFTER, createdAt: Date.parse(PROMO_START) - 1 })).toEqual({ ok: false, reason: 'old-account' })
+    expect(checkTrial({ ...promoBase, now: Date.parse(PROMO_START) - 1, createdAt: Date.parse(PROMO_START) - 2 })).toEqual({ ok: false, reason: 'not-started' })
+    expect(checkTrial({ ...promoBase, config: readTrialConfig({ PROMO_START, PROMO_END, TRIAL_ENABLED: 'false' }) })).toEqual({ ok: false, reason: 'off' })
     expect(checkTrial({ ...base, inboxFirstUser: 'other' })).toEqual({ ok: false, reason: 'known-inbox' })
     expect(checkTrial({ ...base, inboxTaken: true })).toEqual({ ok: false, reason: 'known-inbox' })
     expect(checkTrial({ ...base, inboxTrialUser: 'other' })).toEqual({ ok: false, reason: 'inbox-had-trial' })
@@ -282,5 +324,24 @@ describe('/admin/live: Premium and the trial', () => {
     const res = { statusCode: 200, setHeader() {}, end(text: string) { body = text } } as unknown as ServerResponse
     await handleReferral(env, 'admin-premium', req, res, { store: referral.store, trials: trials.store, now: AFTER })
     expect(JSON.parse(body)).toMatchObject({ trialsToday: 2, activeTrials: 2, playSignups: 1, premiumUsers: 4, trial: { live: true, hours: 48 } })
+  })
+
+  it('notes a welcome-popup sign-up and counts it', async () => {
+    signUp('w', 'w@gmail.com', DURING)
+    referral.users.get('w')!.signupSource = 'welcome-popup'
+    signUp('x', 'x@gmail.com', DURING)
+    referral.users.get('x')!.signupSource = 'something-else'
+    await status('w', DURING + HOUR, { 'x-device-id': 'dw' })
+    await status('x', DURING + HOUR, { 'x-device-id': 'dx' })
+    expect(trials.profileTrial.get('w')?.signup_source).toBe('welcome-popup')
+    expect(trials.profileTrial.get('x')?.signup_source ?? null).toBeNull()
+    const req = Readable.from([]) as unknown as IncomingMessage
+    req.method = 'GET'
+    req.url = '/api/referral/admin-premium'
+    req.headers = { authorization: 'Bearer admin-pw' }
+    let body = ''
+    const res = { statusCode: 200, setHeader() {}, end(text: string) { body = text } } as unknown as ServerResponse
+    await handleReferral(env, 'admin-premium', req, res, { store: referral.store, trials: trials.store, now: AFTER })
+    expect(JSON.parse(body)).toMatchObject({ welcomeSignupsPromo: 1, welcomeSignupsAfter: 0 })
   })
 })

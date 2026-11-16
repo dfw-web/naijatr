@@ -322,6 +322,10 @@ export interface TrialStats {
   /** Accounts made from the Play popup's "Sign up free": all, and today's. */
   playSignups: number
   playSignupsToday: number
+  /** Accounts made from the welcome popup's "Sign up free": during the promo (up to its end), after it, and today's. */
+  welcomeSignupsPromo: number
+  welcomeSignupsAfter: number
+  welcomeSignupsToday: number
   /** Accounts Premium now through ad_free_until or the trial (not the promo, not AD_FREE_EMAILS). */
   premiumIds: string[]
 }
@@ -342,7 +346,8 @@ export interface TrialStore {
   insertTrial(row: Omit<WelcomeTrial, 'created_at'>): Promise<boolean>
   setTrialUntil(userId: string, until: string): Promise<void>
   setSignupSource(userId: string, source: string): Promise<void>
-  stats(now: number, dayStart: number): Promise<TrialStats>
+  /** `promoEnd`: the Free Ad-Free Week's end (ms), splitting the welcome popup's sign-ups; null without one. */
+  stats(now: number, dayStart: number, promoEnd?: number | null): Promise<TrialStats>
 }
 
 export function supabaseTrialStore(env: SupabaseEnv, fetchImpl: typeof fetch = fetch): TrialStore {
@@ -411,17 +416,31 @@ export function supabaseTrialStore(env: SupabaseEnv, fetchImpl: typeof fetch = f
     async setSignupSource(userId, source) {
       await patchProfile(userId, { signup_source: source })
     },
-    async stats(now, dayStart) {
+    async stats(now, dayStart, promoEnd = null) {
       const nowIso = q(new Date(now).toISOString())
       const day = q(new Date(dayStart).toISOString())
-      const [startedToday, active, playSignups, playSignupsToday, premium] = await Promise.all([
+      const end = promoEnd !== null && Number.isFinite(promoEnd) ? q(new Date(promoEnd).toISOString()) : null
+      const welcome = 'profiles?signup_source=eq.welcome-popup'
+      const [startedToday, active, playSignups, playSignupsToday, welcomeAll, welcomePromo, welcomeSignupsToday, premium] = await Promise.all([
         count(`welcome_trials?created_at=gte.${day}`),
         count(`welcome_trials?until=gt.${nowIso}`),
         count(`profiles?signup_source=eq.play-popup`),
         count(`profiles?signup_source=eq.play-popup&created_at=gte.${day}`),
+        count(welcome),
+        end ? count(`${welcome}&created_at=lte.${end}`) : Promise.resolve(0),
+        count(`${welcome}&created_at=gte.${day}`),
         rest<{ user_id: string }[]>(`profiles?select=user_id&or=(ad_free_until.gt.${nowIso},welcome_trial_until.gt.${nowIso})&limit=10000`),
       ])
-      return { startedToday, active, playSignups, playSignupsToday, premiumIds: premium.map((row) => row.user_id) }
+      return {
+        startedToday,
+        active,
+        playSignups,
+        playSignupsToday,
+        welcomeSignupsPromo: welcomePromo,
+        welcomeSignupsAfter: welcomeAll - welcomePromo,
+        welcomeSignupsToday,
+        premiumIds: premium.map((row) => row.user_id),
+      }
     },
   }
 }

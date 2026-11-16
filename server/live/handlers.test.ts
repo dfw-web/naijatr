@@ -154,6 +154,7 @@ describe('the count', () => {
       ads: {
         card: 5, play: 1, football: 0, search: 0, list: 0, episode: 0, server: 0, cooldown: 2, cap: 0, upsell: 0,
         'multitag-302667': 0, 'multitag-302667-blocked': 0, 'multitag-306795': 0, 'multitag-306795-blocked': 0,
+        'welcome-shown': 0, 'welcome-signup': 0, 'welcome-login': 0, 'welcome-close': 0,
       },
       adTestStartedAt: null,
       players: {

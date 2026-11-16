@@ -10,6 +10,7 @@ import { TelegramGateHost } from '../gate/TelegramGate'
 import { InstallAppHost } from '../components/InstallApp'
 import { UpdateBar } from '../components/UpdateBar'
 import { FeedbackHost } from '../feedback/Feedback'
+import { WelcomePopupHost } from '../promo/WelcomePopup'
 
 // Loaded on demand, so the movie pages never download the Football section.
 const FootballApp = lazy(() => import('./FootballApp'))
@@ -32,6 +33,7 @@ export function FootballRoot() {
       <InstallAppHost />
       <UpdateBar />
       <FeedbackHost />
+      <WelcomePopupHost />
       <Analytics beforeSend={analyticsBeforeSend} />
     </>
   )

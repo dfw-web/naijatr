@@ -3,6 +3,7 @@ import { AD_RULES, AD_SECTIONS, AD_UPSELL } from '../config/ads'
 import { isTvMode } from '../tv/tvMode'
 import { adsDisabled, isDevHost, openAd } from './directLink'
 import { isNoAdTap } from './authGuard'
+import { adsAllowedNow } from './adGate'
 
 /**
  * The direct-link ad's one set of rules. It opens in a new tab, inside the tap
@@ -139,6 +140,9 @@ const subscribeOverlays = (listener: () => void) => {
 /** True while one of those popups is open. */
 export const useOverlayOpen = () => useSyncExternalStore(subscribeOverlays, () => overlays > 0, () => false)
 
+/** How many of those popups are open now (outside React). */
+export const overlaysOpen = () => overlays
+
 /** How many of those popups are open (a popup subtracts itself to see the others). */
 export const useOverlayCount = () => useSyncExternalStore(subscribeOverlays, () => overlays, () => 0)
 
@@ -155,6 +159,8 @@ export const isPlaybackOpen = () => document.querySelector(PLAYER_SELECTOR) !== 
  */
 function tryAd(trigger: AdTrigger, adKey: string, due: (visit: Visit, now: number) => boolean, opened: (visit: Visit, now: number) => void, event?: Event): boolean {
   if (adsDisabled() || isTvMode()) return false
+  // Held (the welcome popup, and 3 seconds after it closes: src/ads/adGate.ts).
+  if (!adsAllowedNow()) return false
   if (!AD_RULES.triggers[trigger]) return false
   if (!AD_SECTIONS[trigger === 'football' ? 'football' : 'movies']) return false
   const tap = event ?? window.event

@@ -51,6 +51,8 @@ const ADS_KEY_TTL_S = 8 * 24 * 60 * 60
 export const AD_EVENTS = [
   'card', 'play', 'football', 'search', 'list', 'episode', 'server', 'cooldown', 'cap', 'upsell',
   'multitag-302667', 'multitag-302667-blocked', 'multitag-306795', 'multitag-306795-blocked',
+  // The welcome popup for signed-out visitors (src/promo/welcomeStore.ts).
+  'welcome-shown', 'welcome-signup', 'welcome-login', 'welcome-close',
 ] as const
 /** Set the first time the second Multitag loads. */
 const AD_TEST_KEY = 'ads:test:306795'

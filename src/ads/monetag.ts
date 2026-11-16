@@ -4,6 +4,7 @@ import { isTvMode } from '../tv/tvMode'
 import { isPlaybackOpen } from './adManager'
 import { adsDisabled, isDevHost } from './directLink'
 import { whenInteracted } from './authGuard'
+import { adsAllowedNow, whenAdsAllowed } from './adGate'
 import { adFreeReady, isAdFreeNow, subscribeReferralStatus } from '../referral/status'
 
 /**
@@ -25,6 +26,8 @@ import { adFreeReady, isAdFreeNow, subscribeReferralStatus } from '../referral/s
  */
 export function loadMultitag(): boolean {
   if (!ADS_ENABLED || adsDisabled() || isTvMode()) return false
+  // Held: the welcome popup is due or open, or closed less than 3 seconds ago (src/ads/adGate.ts).
+  if (!adsAllowedNow()) return false
   if (document.getElementById(MULTITAG.id) || document.querySelector(`script[data-zone="${MULTITAG.zone}"]`)) return true
   const script = addTag(MULTITAG)
   const next = () => {
@@ -43,7 +46,7 @@ let secondTimer: number | undefined
 
 /** The second Multitag, once: after the first, and not while a player is open. Returns whether it's on the page. */
 export function loadSecondMultitag(): boolean {
-  if (!MULTITAG_2.enabled || !ADS_ENABLED || adsDisabled() || isTvMode()) return false
+  if (!MULTITAG_2.enabled || !ADS_ENABLED || adsDisabled() || isTvMode() || !adsAllowedNow()) return false
   if (document.getElementById(MULTITAG_2.id)) return true
   if (isPlaybackOpen()) {
     window.clearTimeout(secondTimer)
@@ -127,16 +130,27 @@ export function useMultitag(enabled = true) {
     let live = true
     let ready = false
     let cancel = () => undefined as void
+    // After the first tap, and once the ad gate is open (the welcome popup closed 3 s ago, or never due).
+    const arm = () => {
+      let cancelGate = () => undefined as void
+      const cancelTap = whenInteracted(() => {
+        cancelGate = whenAdsAllowed(() => void (live && loadMultitag()))
+      })
+      return () => {
+        cancelTap()
+        cancelGate()
+      }
+    }
     void adFreeReady().then(() => {
       ready = true
-      if (live) cancel = whenInteracted(() => void (live && loadMultitag()))
+      if (live) cancel = arm()
     })
     // Ad-free after it loaded: off the page (dropMultitagIfAdFree). Ad-free
     // over (the Free Ad-Free Week ended, or their own time): on the page now.
     const unsubscribe = subscribeReferralStatus(() => {
       if (dropMultitagIfAdFree() || !ready || !live || isAdFreeNow()) return
       cancel()
-      cancel = whenInteracted(() => void (live && loadMultitag()))
+      cancel = arm()
     })
     return () => {
       live = false
