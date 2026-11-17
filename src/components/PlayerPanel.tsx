@@ -46,6 +46,8 @@ import { availableServers, preferredServer, savePreferredServer, serverLabel, tr
 import { adFreeReady, isServerAdFree, serverStatusKnown, useServerAdFree } from '../referral/status'
 import { hasStoredSession } from '../account/client'
 import { reportPlayer } from '../live/playerStats'
+import { deviceKind, reportPlayerProblem } from '../live/playerProblems'
+import { PlayerNotes, SlowHint, usePlaybackHealth, type HealthProblem } from './PlayerHelp'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import { SubtitleMenu, SubtitleOverlay, usePlayerSubtitles } from '../subtitles/PlayerSubtitles'
 import type { SubtitleTarget } from '../subtitles/subtitles'
@@ -428,6 +430,22 @@ export function PlayerPanel({
       node.src = 'about:blank'
     }
   }, [])
+
+  // Slow to start, or stuck mid-show: the hint above the player, and a line on /admin/live.
+  const healthRun = watchingSrc && active ? `${active.server ?? ''}-${active.attempt}-${watchingSrc}` : null
+  const healthServer = active?.server
+  const health = usePlaybackHealth(healthRun, frameRef, ({ kind, source }: HealthProblem) => {
+    if (!watchingSrc || !healthServer || item.tmdbId === undefined) return
+    const ep = episodeOfSrc(watchingSrc)
+    reportPlayerProblem({
+      kind,
+      item: `${isSeries ? 'tv' : 'movie'}:${item.tmdbId}`,
+      ep: isSeries && ep.season !== undefined ? `s${ep.season}e${ep.episode}` : null,
+      server: healthServer,
+      source,
+      device: deviceKind(),
+    })
+  })
 
   // A film or episode left in a hidden tab (or app) for 2 minutes is closed,
   // its progress saved first (the watching effect's cleanup); Play carries on
@@ -960,6 +978,7 @@ export function PlayerPanel({
     <section ref={sectionRef} className={sectionClass} aria-label="Watch" {...{ [QUIET_ADS_ATTR]: '' }}>
       {active.choice === 'stream' && pickers}
       {active.choice === 'stream' && serverSwitch}
+      {active.choice === 'stream' && <SlowHint problem={health.problem} onDismiss={health.dismiss} />}
       <div
         ref={frameBoxRef}
         className="player__frame"
@@ -1063,7 +1082,7 @@ export function PlayerPanel({
           <X aria-hidden="true" /> Close player
         </button>
       </div>
-      {active.choice === 'stream' && <AudioNote />}
+      {active.choice === 'stream' && <PlayerNotes />}
       {active.choice === 'stream' && (
         <p className="player__hint">
           <Captions aria-hidden="true" />
@@ -1075,48 +1094,8 @@ export function PlayerPanel({
   )
 }
 
-/** Dismissing the audio note hides it this long (on this device). */
-export const AUDIO_NOTE_KEY = 'naijatr.audioNoteDismissedAt'
-export const AUDIO_NOTE_HIDE_MS = 7 * 24 * 60 * 60 * 1000
-
-const audioNoteHidden = () => {
-  try {
-    const at = Number(localStorage.getItem(AUDIO_NOTE_KEY))
-    return at > 0 && Date.now() - at < AUDIO_NOTE_HIDE_MS
-  } catch {
-    return false
-  }
-}
-
-/**
- * Under the player's buttons, never over the video: the player's own source
- * menu (top-left) has sources that may play other audio languages. Read
- * before the first paint, so it never pops in and moves things.
- */
-function AudioNote() {
-  const [hidden, setHidden] = useState(audioNoteHidden)
-  if (hidden) return null
-  const dismiss = () => {
-    try {
-      localStorage.setItem(AUDIO_NOTE_KEY, String(Date.now()))
-    } catch {
-      // This visit only.
-    }
-    setHidden(true)
-  }
-  return (
-    <p className="player__hint player__audio-note">
-      <span>
-        <span aria-hidden="true">🔊 </span>
-        Different sources in the player menu may have different audio languages. Tap the source menu at the
-        top-left of the player to switch.
-      </span>
-      <button type="button" className="player__audio-note-close" onClick={dismiss} aria-label="Dismiss audio note">
-        <X aria-hidden="true" />
-      </button>
-    </p>
-  )
-}
+// The audio note now lives with the "slow to load?" note (PlayerHelp.tsx).
+export { AUDIO_NOTE_HIDE_MS, AUDIO_NOTE_KEY } from './PlayerHelp'
 
 interface FreePlayerProps {
   movie: FreeMovie

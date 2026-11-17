@@ -114,19 +114,32 @@
   background: #000;
 }
 
-/* The audio-language note: small grey text, its ✕ at the end of the first line. */
-.player__audio-note {
+/* The notes under the buttons ("slow to load?", audio languages): small grey text, one under the other, each with its ✕. */
+.player__notes {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player__notes:empty {
+  display: none;
+}
+
+.player__note {
   align-items: flex-start;
   font-size: 0.78rem;
   line-height: 1.4;
 }
 
-.player__audio-note > span {
+.player__note > span,
+.player__slow > span {
   flex: 1;
   min-width: 0;
 }
 
-.player__audio-note-close {
+.player__note-close {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -142,14 +155,59 @@
   cursor: pointer;
 }
 
-.player__audio-note-close:hover,
-.player__audio-note-close:focus-visible {
+.player__note-close:hover,
+.player__note-close:focus-visible {
   color: var(--text);
 }
 
-.player .player__audio-note-close svg {
+.player .player__note-close svg {
   width: 14px;
   height: 14px;
+}
+
+/*
+ * The slot above the player for "Taking too long?": always this tall while a
+ * stream is open, so the hint never moves the video or its buttons. It takes
+ * the place of the gap above the video.
+ */
+.player__status {
+  display: flex;
+  align-items: flex-end;
+  height: 2.4rem;
+  margin-bottom: -0.5rem;
+  overflow: hidden;
+}
+
+.player__slow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgba(245, 197, 24, 0.45);
+  border-radius: 8px;
+  background: rgba(245, 197, 24, 0.1);
+  color: var(--gold);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.player__slow .player__note-close {
+  margin: 0 -0.25rem 0 0;
+  color: var(--gold);
+}
+
+/* Phones: two lines. */
+@media (max-width: 639px) {
+  .player__status {
+    height: 3.05rem;
+  }
+
+  .player__slow {
+    font-size: 0.75rem;
+  }
 }
 
 .player__bar {
@@ -188,6 +246,9 @@
 /* In fullscreen only the video and its buttons: the pickers and hint stay in the page. */
 .player--fill .player__pickers,
 .player--fill .player__hint,
+.player--fill .player__status,
+.player:fullscreen .player__status,
+.player:-webkit-full-screen .player__status,
 .player:fullscreen .player__hint,
 .player--fill .player__howto,
 .player:fullscreen .player__howto {

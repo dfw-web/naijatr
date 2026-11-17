@@ -30,6 +30,14 @@ interface KeyStatus {
   rejectedAt: number | null
 }
 
+type ProblemKind = 'slow' | 'stall'
+interface ProblemCounts {
+  totals: Record<ProblemKind, number>
+  breakdown: Record<string, number>
+  titles: { item: string; slow: number; stall: number }[]
+  recent: { at: number; kind: ProblemKind; item: string; ep: string | null; server: string; source: string | null; device: string }[]
+}
+
 interface LiveCount {
   watching: number
   browsing: number
@@ -41,6 +49,8 @@ interface LiveCount {
   /** Today's player stats per server, and our CodeSpecter key (server/live/handlers.ts). */
   players?: PlayerCounts
   key?: KeyStatus
+  /** Today's slow starts and stalls (server/live/handlers.ts). */
+  problems?: ProblemCounts
 }
 
 /** Warn this many days before the CodeSpecter key's 30 days are up. */
@@ -154,6 +164,7 @@ async function render(count: LiveCount) {
   renderWelcome(count.ads)
   renderTags(count.ads, count.adTestStartedAt ?? null)
   renderServers(count.players, count.key)
+  await renderProblems(count.problems)
   $('empty').hidden = rows.length > 0
   $('updated').textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 30 seconds`
 }
@@ -205,6 +216,69 @@ function renderServers(players: PlayerCounts | undefined, key: KeyStatus | undef
   $('key-note').textContent = key?.expiresAt
     ? `Server 1 key expires on ${new Date(key.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })} (issued ${key.issued}, 30 days).`
     : 'Set NEXTSTREAM_KEY_ISSUED=YYYY-MM-DD (the day the CodeSpecter key was issued) on Vercel to get an expiry warning.'
+}
+
+const SERVER_NAMES: Record<string, string> = { nextstream: 'Server 1', embedmaster: 'Server 2' }
+const DEVICE_NAMES: Record<string, string> = {
+  iphone: 'iPhone',
+  ipad: 'iPad',
+  android: 'Android phone',
+  'android-tablet': 'Android tablet',
+  desktop: 'Desktop',
+  tv: 'TV',
+}
+
+/** "Server 2 4 · iPhone 3 · MovieJoy 2", most first, for one kind. */
+export function problemBreakdown(breakdown: Record<string, number>, kind: ProblemKind): string {
+  const parts = Object.entries(breakdown)
+    .filter(([field, n]) => field.startsWith(`${kind}:`) && n > 0)
+    .map(([field, n]) => {
+      const [, group, value] = field.split(':')
+      const name = group === 'server' ? (SERVER_NAMES[value] ?? value) : group === 'device' ? (DEVICE_NAMES[value] ?? value) : value
+      return { name, n, order: group === 'server' ? 0 : group === 'device' ? 1 : 2 }
+    })
+    .sort((a, b) => a.order - b.order || b.n - a.n)
+  return parts.map(({ name, n }) => `${name} ${n}`).join(' · ')
+}
+
+async function renderProblems(problems: ProblemCounts | undefined) {
+  $('pp-slow').textContent = problems ? String(problems.totals.slow) : '–'
+  $('pp-stall').textContent = problems ? String(problems.totals.stall) : '–'
+  const slow = problems ? problemBreakdown(problems.breakdown, 'slow') : ''
+  const stall = problems ? problemBreakdown(problems.breakdown, 'stall') : ''
+  $('pp-breakdown').textContent = [slow && `Slow: ${slow}`, stall && `Stalls: ${stall}`].filter(Boolean).join('. ')
+  const titles = await Promise.all(
+    (problems?.titles ?? []).map(async ({ item, slow: s, stall: st }) => {
+      const li = document.createElement('li')
+      const name = document.createElement('span')
+      name.textContent = await nameOf(item)
+      const numbers = document.createElement('span')
+      numbers.textContent = [s && `${s} slow`, st && `${st} stalled`].filter(Boolean).join(' · ')
+      li.append(name, numbers)
+      return li
+    }),
+  )
+  $('pp-titles').replaceChildren(...titles)
+  $('pp-titles-empty').hidden = titles.length > 0
+  const recent = await Promise.all(
+    (problems?.recent ?? []).slice(0, 15).map(async (p) => {
+      const li = document.createElement('li')
+      const name = document.createElement('span')
+      name.textContent = `${p.kind === 'slow' ? '🐢 Slow' : '⏸ Stall'}: ${await nameOf(p.item)}${p.ep ? ` ${p.ep.toUpperCase()}` : ''}`
+      const detail = document.createElement('span')
+      detail.textContent = [
+        SERVER_NAMES[p.server] ?? p.server,
+        p.source,
+        DEVICE_NAMES[p.device] ?? p.device,
+        new Date(p.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      li.append(name, detail)
+      return li
+    }),
+  )
+  $('pp-recent').replaceChildren(...recent)
 }
 
 /** The CodeSpecter key: refused by NextStream, expired, or due to expire within KEY_WARN_DAYS; else null. */

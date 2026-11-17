@@ -25,6 +25,15 @@
  *                 viewer's daily limit), automatic switches away, the "daily
  *                 limit" message shown (src/live/playerStats.ts), and calls on
  *                 our NextStream key (/api/play). Kept 8 days.
+ * - problems:<day>  hash of today's player problems (src/live/playerProblems.ts):
+ *                 "slow" (no ready/play/time event 12 s after opening) and
+ *                 "stall" (no time update for 10 s while playing), counted
+ *                 "<kind>:server:<server>", "<kind>:device:<device>" and
+ *                 "<kind>:source:<in-player source>". Kept 8 days.
+ * - problems:titles:<kind>:<day>  sorted set of the titles ("movie:550",
+ *                 "tv:1399") with that problem today, by count. Kept 8 days.
+ * - problems:recent  list of the last 30 problems (JSON: when, kind, title,
+ *                 episode, server, source, device), newest first.
  * - codespecter:key  hash of when NextStream last took ("ok") and refused
  *                 ("rejected") our API key, in ms.
  * A heartbeat is one Redis command (three or four on a football match page).
@@ -67,6 +76,37 @@ export type PlayerServer = (typeof PLAYER_SERVERS)[number]
 export type PlayerEvent = (typeof PLAYER_EVENTS)[number]
 /** Per server: today's counts of each player event, and (NextStream) the calls on our key. */
 export type PlayerCounts = Record<PlayerServer, Record<PlayerEvent, number>> & { calls: number }
+/** Player problems (src/live/playerProblems.ts): slow to start, or stalled mid-show. */
+export const PROBLEM_KINDS = ['slow', 'stall'] as const
+export const PROBLEM_DEVICES = ['iphone', 'ipad', 'android', 'android-tablet', 'desktop', 'tv'] as const
+export type ProblemKind = (typeof PROBLEM_KINDS)[number]
+export type ProblemDevice = (typeof PROBLEM_DEVICES)[number]
+export interface ProblemReport {
+  kind: ProblemKind
+  /** "movie:550" or "tv:1399": /admin/live looks the name up. */
+  item: string
+  /** Series: "s1e3". */
+  ep: string | null
+  server: PlayerServer
+  /** The source picked inside the player's own menu (MovieJoy, VidStore…), when it said. */
+  source: string | null
+  device: ProblemDevice
+}
+export interface ProblemCounts {
+  totals: Record<ProblemKind, number>
+  /** "<kind>:server:<server>", "<kind>:device:<device>", "<kind>:source:<source>" → count. */
+  breakdown: Record<string, number>
+  /** The titles with the most problems today. */
+  titles: { item: string; slow: number; stall: number }[]
+  /** The last few, newest first. */
+  recent: (ProblemReport & { at: number })[]
+}
+const problemsKey = (day: string) => `problems:${day}`
+const problemTitlesKey = (kind: ProblemKind, day: string) => `problems:titles:${kind}:${day}`
+const PROBLEMS_RECENT = 'problems:recent'
+const RECENT_KEEP = 30
+const TOP_PROBLEM_TITLES = 10
+
 /** CodeSpecter keys are valid for 30 days from the day they're issued. */
 export const KEY_VALID_DAYS = 30
 
@@ -166,6 +206,71 @@ export async function recordPlayerEvent(env: RedisEnv, server: PlayerServer, eve
   await redis(env, [['HINCRBY', key, `${server}:${event}`, 1], ['EXPIRE', key, ADS_KEY_TTL_S]], fetchImpl)
 }
 
+/** A valid problem report, or null (only known values: nothing free-form reaches Redis or /admin/live). */
+export function parseProblem(body: unknown): ProblemReport | null {
+  const b = body as Record<string, unknown> | null
+  if (!b || typeof b !== 'object') return null
+  const kind = b.kind as ProblemKind
+  const server = b.server as PlayerServer
+  const device = b.device as ProblemDevice
+  if (!PROBLEM_KINDS.includes(kind) || !PLAYER_SERVERS.includes(server) || !PROBLEM_DEVICES.includes(device)) return null
+  if (typeof b.item !== 'string' || !/^(movie|tv):\d{1,9}$/.test(b.item)) return null
+  const ep = typeof b.ep === 'string' && /^s\d{1,3}e\d{1,4}$/.test(b.ep) ? b.ep : null
+  const source = typeof b.source === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,23}$/.test(b.source) ? b.source : null
+  return { kind, item: b.item, ep, server, source, device }
+}
+
+/** Counts one player problem for today, and keeps it among the recent ones. */
+export async function recordProblem(env: RedisEnv, report: ProblemReport, now: number, fetchImpl: typeof fetch = fetch) {
+  const day = lagosDay(now)
+  const key = problemsKey(day)
+  const titles = problemTitlesKey(report.kind, day)
+  const fields = [`${report.kind}:server:${report.server}`, `${report.kind}:device:${report.device}`]
+  if (report.source) fields.push(`${report.kind}:source:${report.source}`)
+  const commands: Command[] = [
+    ...fields.map((field): Command => ['HINCRBY', key, field, 1]),
+    ['EXPIRE', key, ADS_KEY_TTL_S],
+    ['ZINCRBY', titles, 1, report.item],
+    ['EXPIRE', titles, ADS_KEY_TTL_S],
+    ['LPUSH', PROBLEMS_RECENT, JSON.stringify({ at: now, ...report })],
+    ['LTRIM', PROBLEMS_RECENT, 0, RECENT_KEEP - 1],
+    ['EXPIRE', PROBLEMS_RECENT, ADS_KEY_TTL_S],
+  ]
+  await redis(env, commands, fetchImpl)
+}
+
+/** Redis's ZRANGE … WITHSCORES answer as item → count. */
+function scores(flat: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  if (!Array.isArray(flat)) return out
+  for (let i = 0; i + 1 < flat.length; i += 2) out.set(String(flat[i]), Number(flat[i + 1]) || 0)
+  return out
+}
+
+function problemCounts(breakdownFlat: unknown, slowFlat: unknown, stallFlat: unknown, recentRaw: unknown): ProblemCounts {
+  const breakdown = hash(breakdownFlat)
+  const totals = Object.fromEntries(
+    PROBLEM_KINDS.map((kind) => [kind, PLAYER_SERVERS.reduce((sum, server) => sum + (breakdown[`${kind}:server:${server}`] ?? 0), 0)]),
+  ) as Record<ProblemKind, number>
+  const slow = scores(slowFlat)
+  const stall = scores(stallFlat)
+  const titles = [...new Set([...slow.keys(), ...stall.keys()])]
+    .map((item) => ({ item, slow: slow.get(item) ?? 0, stall: stall.get(item) ?? 0 }))
+    .sort((a, b) => b.slow + b.stall - (a.slow + a.stall) || a.item.localeCompare(b.item))
+    .slice(0, TOP_PROBLEM_TITLES)
+  const recent: ProblemCounts['recent'] = []
+  for (const raw of Array.isArray(recentRaw) ? recentRaw : []) {
+    try {
+      const parsed = JSON.parse(String(raw)) as Record<string, unknown>
+      const report = parseProblem(parsed)
+      if (report && typeof parsed.at === 'number') recent.push({ ...report, at: parsed.at })
+    } catch {
+      // Skipped.
+    }
+  }
+  return { totals, breakdown, titles, recent }
+}
+
 /** What /api/play saw: a call on our NextStream key, or NextStream taking or refusing the key. */
 export async function recordPlayReport(env: RedisEnv, report: 'call' | 'key-ok' | 'key-rejected', now: number, fetchImpl: typeof fetch = fetch) {
   if (report === 'call') {
@@ -228,6 +333,8 @@ export interface LiveCount {
   players: PlayerCounts
   /** Our CodeSpecter (NextStream) API key. */
   key: KeyStatus
+  /** Today's player problems: slow starts and stalls (Lagos date). */
+  problems: ProblemCounts
 }
 
 /** Everyone seen in the last WINDOW_MS, each counted once (their latest heartbeat). */
@@ -242,6 +349,10 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
       ['HGETALL', playersKey(lagosDay(now))],
       ['HGETALL', KEY_STATUS],
       ['GET', AD_TEST_KEY],
+      ['HGETALL', problemsKey(lagosDay(now))],
+      ['ZRANGE', problemTitlesKey('slow', lagosDay(now)), 0, TOP_PROBLEM_TITLES * 3 - 1, 'REV', 'WITHSCORES'],
+      ['ZRANGE', problemTitlesKey('stall', lagosDay(now)), 0, TOP_PROBLEM_TITLES * 3 - 1, 'REV', 'WITHSCORES'],
+      ['LRANGE', PROBLEMS_RECENT, 0, RECENT_KEEP - 1],
     ],
     fetchImpl,
   )
@@ -270,7 +381,7 @@ export async function countLive(env: LiveEnv, now: number, fetchImpl: typeof fet
     .map(([item, count]) => ({ item, viewers: count }))
     .sort((a, b) => b.viewers - a.viewers || a.item.localeCompare(b.item))
     .slice(0, TOP_COUNT)
-  return { watching, browsing, top, ads: adCounts(results?.[2]), adTestStartedAt: Number(results?.[5]) || null, players: playerCounts(results?.[3]), key: keyStatus(env, results?.[4]) }
+  return { watching, browsing, top, ads: adCounts(results?.[2]), adTestStartedAt: Number(results?.[5]) || null, players: playerCounts(results?.[3]), key: keyStatus(env, results?.[4]), problems: problemCounts(results?.[6], results?.[7], results?.[8], results?.[9]) }
 }
 
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -301,7 +412,7 @@ async function readJsonBody(req: IncomingMessage & { body?: unknown }): Promise<
   return JSON.parse(raw || 'null')
 }
 
-/** Serves POST /api/live/heartbeat, POST /api/live/ad, POST /api/live/player and GET /api/live/count (admin only). */
+/** Serves POST /api/live/heartbeat, /ad, /player and /problem, and GET /api/live/count (admin only). */
 export async function handleLive(
   env: LiveEnv,
   action: string,
@@ -346,6 +457,19 @@ export async function handleLive(
     const report = parsePlayerEvent(body)
     if (!report) return sendJson(res, 400, { error: 'bad-request' })
     await recordPlayerEvent(env, report.server, report.event, now, fetchImpl)
+    return sendJson(res, 200, {})
+  }
+  if (action === 'problem') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return sendJson(res, 400, { error: 'bad-request' })
+    }
+    const report = parseProblem(body)
+    if (!report) return sendJson(res, 400, { error: 'bad-request' })
+    await recordProblem(env, report, now, fetchImpl)
     return sendJson(res, 200, {})
   }
   if (action === 'count') {

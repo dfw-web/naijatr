@@ -163,6 +163,7 @@ describe('the count', () => {
         embedmaster: { load: 0, nostart: 0, fallback: 0, limited: 0 },
       },
       key: { issued: null, expiresAt: null, okAt: null, rejectedAt: null },
+      problems: { totals: { slow: 0, stall: 0 }, breakdown: {}, titles: [], recent: [] },
     })
     expect(calls[0]).toEqual([
       ['ZREMRANGEBYSCORE', 'live:now', '-inf', `(${NOW - WINDOW_MS}`],
@@ -171,7 +172,71 @@ describe('the count', () => {
       ['HGETALL', `players:${lagosDay(NOW)}`],
       ['HGETALL', 'codespecter:key'],
       ['GET', 'ads:test:306795'],
+      ['HGETALL', `problems:${lagosDay(NOW)}`],
+      ['ZRANGE', `problems:titles:slow:${lagosDay(NOW)}`, '0', '29', 'REV', 'WITHSCORES'],
+      ['ZRANGE', `problems:titles:stall:${lagosDay(NOW)}`, '0', '29', 'REV', 'WITHSCORES'],
+      ['LRANGE', 'problems:recent', '0', '29'],
     ])
+  })
+
+  it('logs a slow start or a stall: by server, device and in-player source, by title, and among the recent ones', async () => {
+    const { fetchImpl, calls } = upstash([1, 1, 1, 1, '1', 1, 1, 'OK', 1])
+    const report = { kind: 'stall', item: 'tv:1399', ep: 's1e3', server: 'embedmaster', source: 'MovieJoy', device: 'iphone' }
+    expect((await call('problem', request('POST', report), fetchImpl)).statusCode).toBe(200)
+    const day = lagosDay(NOW)
+    expect(calls[0]).toEqual([
+      ['HINCRBY', `problems:${day}`, 'stall:server:embedmaster', '1'],
+      ['HINCRBY', `problems:${day}`, 'stall:device:iphone', '1'],
+      ['HINCRBY', `problems:${day}`, 'stall:source:MovieJoy', '1'],
+      ['EXPIRE', `problems:${day}`, String(8 * 24 * 60 * 60)],
+      ['ZINCRBY', `problems:titles:stall:${day}`, '1', 'tv:1399'],
+      ['EXPIRE', `problems:titles:stall:${day}`, String(8 * 24 * 60 * 60)],
+      ['LPUSH', 'problems:recent', JSON.stringify({ at: NOW, ...report })],
+      ['LTRIM', 'problems:recent', '0', '29'],
+      ['EXPIRE', 'problems:recent', String(8 * 24 * 60 * 60)],
+    ])
+
+    // Only known values: anything else is refused, and an odd source or episode is left out.
+    for (const bad of [
+      { ...report, kind: 'crash' },
+      { ...report, item: 'movie:<script>' },
+      { ...report, server: 'other' },
+      { ...report, device: 'fridge' },
+      { ...report, item: undefined },
+    ]) {
+      const refused = upstash()
+      expect((await call('problem', request('POST', bad), refused.fetchImpl)).statusCode).toBe(400)
+      expect(refused.calls).toEqual([])
+    }
+    const odd = upstash([1, 1, 1, '1', 1, 1, 'OK', 1])
+    expect((await call('problem', request('POST', { ...report, source: '<b>x</b>', ep: 'S1 E3', kind: 'slow' }), odd.fetchImpl)).statusCode).toBe(200)
+    expect(odd.calls[0].map((c) => c[2])).not.toContain('slow:source:<b>x</b>')
+    expect(JSON.parse(odd.calls[0].find((c) => c[0] === 'LPUSH')![2])).toMatchObject({ ep: null, source: null })
+    expect((await call('problem', request('GET'), upstash().fetchImpl)).statusCode).toBe(405)
+  })
+
+  it('shows today\'s problems on /admin/live: totals, the worst titles, and the latest', async () => {
+    const recent = [
+      JSON.stringify({ at: NOW - 1000, kind: 'slow', item: 'movie:550', ep: null, server: 'nextstream', source: null, device: 'android' }),
+      JSON.stringify({ at: NOW - 5000, kind: 'stall', item: 'tv:1399', ep: 's1e3', server: 'embedmaster', source: 'VidStore', device: 'desktop' }),
+      'not json',
+    ]
+    const { fetchImpl } = upstash([
+      0, [], [], [], [], null,
+      ['slow:server:nextstream', '4', 'slow:server:embedmaster', '1', 'stall:server:embedmaster', '2', 'slow:device:android', '3'],
+      ['movie:550', '3', 'tv:1399', '2'],
+      ['tv:1399', '2'],
+      recent,
+    ])
+    const count = await countLive(ENV, NOW, fetchImpl)
+    expect(count?.problems.totals).toEqual({ slow: 5, stall: 2 })
+    expect(count?.problems.breakdown).toMatchObject({ 'slow:device:android': 3 })
+    expect(count?.problems.titles).toEqual([
+      { item: 'tv:1399', slow: 2, stall: 2 },
+      { item: 'movie:550', slow: 3, stall: 0 },
+    ])
+    expect(count?.problems.recent).toHaveLength(2)
+    expect(count?.problems.recent[1]).toMatchObject({ kind: 'stall', item: 'tv:1399', source: 'VidStore', at: NOW - 5000 })
   })
 
   it('counts the new triggers and the "Too many ads?" banner', async () => {
