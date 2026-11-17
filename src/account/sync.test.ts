@@ -10,7 +10,7 @@ import {
   type ContinueEntry,
 } from '../utils/continueWatching'
 import { readWatchLater, removeFromLater, saveForLater } from '../utils/watchLater'
-import { readDramaHistory, recordDramaView, removeDramaEntry, resetDramaHistory, setDramaEpisode, type DramaHistoryEntry } from '../dramas/history'
+import { readDramaHistory, recordDramaProgress, recordDramaView, removeDramaEntry, resetDramaHistory, setDramaEpisode, type DramaHistoryEntry } from '../dramas/history'
 import {
   combineTaste,
   continueEntry,
@@ -139,6 +139,9 @@ const dramaItem = (over: Partial<DramaHistoryEntry>): DramaHistoryEntry => ({
   title: 'One',
   poster: null,
   episode: null,
+  episodeId: null,
+  position: null,
+  duration: null,
   episodeCount: 80,
   viewedAt: 1,
   ...over,
@@ -245,6 +248,9 @@ describe('merging', () => {
       episode: 12,
       episode_count: 80,
       viewed_at: '2026-11-17T10:00:00.000Z',
+      episode_id: null,
+      position_s: null,
+      duration_s: null,
     })
     expect(dramaEntry(row)).toEqual(entry)
     expect(dramaEntry({ ...row, entry_id: 'dramabox:2' })).toBeNull()
@@ -418,6 +424,20 @@ describe('syncing', () => {
     await startSync('user-1', account.backend)
     expect(readDramaHistory()[0]).toMatchObject({ id: 'dramabox:42000023802', episode: 20, episodeCount: 52 })
     expect(readDramaHistory()).toHaveLength(2)
+  })
+
+  it('resumes a short drama on another phone at the same episode and time', async () => {
+    const account = fakeAccount()
+    useDevice('phone A')
+    await startSync('user-1', account.backend)
+    recordDramaView(drama('42000023802', 'He Broke the Heart That Saved Him', 52), 1000)
+    recordDramaProgress('dramabox:42000023802', { episode: 12, episodeId: 'ep12', position: 225, duration: 95 }, 2000)
+    await requestSyncNow()
+    expect(account.data.dramas.get('dramabox:42000023802')).toMatchObject({ episode: 12, episode_id: 'ep12', position_s: 225, duration_s: 95 })
+
+    useDevice('phone B')
+    await startSync('user-1', account.backend)
+    expect(readDramaHistory()[0]).toMatchObject({ episode: 12, episodeId: 'ep12', position: 225, duration: 95 })
   })
 
   it('carries a removed short drama to the other phone', async () => {

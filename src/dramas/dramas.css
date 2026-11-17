@@ -434,3 +434,20 @@
 .dr-picker__of {
   color: var(--text-muted);
 }
+
+.dr-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.dr-button--ghost {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.dr-button--ghost:hover {
+  background: var(--surface);
+  border-color: var(--text-muted);
+}

@@ -5,15 +5,17 @@ import { installQuietZones } from '../ads/adManager'
 import { DramaHistoryRow } from '../components/DramaHistoryRow'
 import { EpisodePicker } from './EpisodePicker'
 import {
+  clock,
+  continueLabel,
   DRAMA_HISTORY_KEY,
   episodeProgress,
   readDramaHistory,
+  recordDramaProgress,
   recordDramaView,
   removeDramaEntry,
   resetDramaHistory,
   setDramaEpisode,
 } from './history'
-import { officialDramaUrl, titleSlug } from './officialLinks'
 
 const view = (dramaId: string, over: Partial<Parameters<typeof recordDramaView>[0]> = {}) => ({
   provider: 'dramabox',
@@ -73,22 +75,39 @@ describe('short drama history', () => {
   })
 })
 
-describe('official links', () => {
-  it('opens the drama on its app’s own site', () => {
-    expect(officialDramaUrl({ provider: 'dramabox', dramaId: '42000023802', title: 'He Broke the Heart That Saved Him' })).toBe(
-      'https://www.dramaboxdb.com/movie/42000023802',
-    )
-    expect(
-      officialDramaUrl({ provider: 'netshort', dramaId: '2118996275277217793', title: 'Satan’s Daughter, Revenge With Demonic Might' }),
-    ).toBe('https://www.netshort.com/episode/satans-daughter-revenge-with-demonic-might-2118996275277217793')
-    expect(titleSlug('Shock！My Teacher Is a Crime Boss')).toBe('shockmy-teacher-is-a-crime-boss')
-    expect(titleSlug('!!!')).toBe('drama')
+describe('where they stopped', () => {
+  it('saves the episode and time from our player, and the picker follows', () => {
+    recordDramaView(view('1'), 1)
+    recordDramaProgress('dramabox:1', { episode: 12, episodeId: 'ep12', position: 225.7, duration: 95 }, 2)
+    expect(readDramaHistory()[0]).toMatchObject({ episode: 12, episodeId: 'ep12', position: 225, duration: 95, viewedAt: 2 })
+    expect(continueLabel(readDramaHistory()[0])).toBe('Continue Ep 12 · 3:45')
+    // Opened again: kept.
+    recordDramaView(view('1'), 3)
+    expect(readDramaHistory()[0]).toMatchObject({ episode: 12, episodeId: 'ep12', position: 225 })
+    // Finished (null): no time, just the episode.
+    recordDramaProgress('dramabox:1', { episode: 12, episodeId: 'ep12', position: null, duration: 95 }, 4)
+    expect(continueLabel(readDramaHistory()[0])).toBe('Continue Ep 12')
+    // Another episode set by hand: from its start.
+    recordDramaProgress('dramabox:1', { episode: 12, episodeId: 'ep12', position: 60, duration: 95 }, 5)
+    setDramaEpisode('dramabox:1', 15, 6)
+    expect(readDramaHistory()[0]).toMatchObject({ episode: 15, episodeId: null, position: null })
+    expect(continueLabel(readDramaHistory()[0])).toBe('Continue Ep 15')
   })
 
-  it('finds DramaWave in the phone’s app store', () => {
-    const entry = { provider: 'dramawave', dramaId: 'abc', title: 'X' }
-    expect(officialDramaUrl(entry, 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)')).toBe('https://apps.apple.com/us/iphone/search?term=DramaWave')
-    expect(officialDramaUrl(entry, 'Mozilla/5.0 (Linux; Android 14)')).toBe('https://play.google.com/store/search?q=DramaWave&c=apps')
+  it('labels the time, and needs 5 seconds in to offer it', () => {
+    expect(clock(225)).toBe('3:45')
+    expect(clock(5)).toBe('0:05')
+    expect(clock(3725)).toBe('1:02:05')
+    expect(continueLabel({ episode: 3, position: 4 })).toBe('Continue Ep 3')
+    expect(continueLabel({ episode: null, position: null })).toBe('Start watching')
+  })
+
+  it('reads entries saved before the time was kept', () => {
+    localStorage.setItem(
+      DRAMA_HISTORY_KEY,
+      JSON.stringify([{ id: 'dramabox:1', provider: 'dramabox', dramaId: '1', title: 'One', poster: null, episode: 4, episodeCount: 80, viewedAt: 1 }]),
+    )
+    expect(readDramaHistory()[0]).toMatchObject({ episode: 4, episodeId: null, position: null, duration: null })
   })
 })
 
@@ -98,10 +117,10 @@ describe('Your short dramas row', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows each drama with its episode and a link to carry on in its app', () => {
+  it('shows each drama with its episode, and Continue opens our player where they stopped', () => {
     recordDramaView(view('42000023802', { title: 'He Broke the Heart That Saved Him' }), 1)
     recordDramaView(view('2118996275277217793', { provider: 'netshort', title: 'When Housewives Turn Deadly', episodeCount: null }), 2)
-    setDramaEpisode('dramabox:42000023802', 12, 3)
+    recordDramaProgress('dramabox:42000023802', { episode: 12, episodeId: 'ep12', position: 225, duration: 95 }, 3)
     render(<DramaHistoryRow />)
     const row = screen.getByRole('region', { name: 'Your short dramas' })
     const cards = within(row).getAllByRole('article')
@@ -109,15 +128,16 @@ describe('Your short dramas row', () => {
     // Newest first: the episode was just set.
     expect(within(cards[0]).getByRole('heading')).toHaveTextContent('He Broke the Heart That Saved Him')
     expect(within(cards[0]).getByText('Episode 12 of 80')).toBeInTheDocument()
-    expect(within(cards[0]).getByRole('link', { name: 'Continue on DramaBox' })).toHaveAttribute('href', 'https://www.dramaboxdb.com/movie/42000023802')
-    expect(within(cards[0]).getByRole('link', { name: 'Continue on DramaBox' })).toHaveAttribute('target', '_blank')
-    expect(within(cards[0]).getByRole('link', { name: /He Broke the Heart/ })).toHaveAttribute('href', '/dramas/dramabox/42000023802')
-    // No episode set: no episode line.
+    const resume = within(cards[0]).getByRole('link', { name: /^Continue Ep 12 · 3:45/ })
+    expect(resume).toHaveAttribute('href', '/dramas/dramabox/42000023802?resume=1')
+    expect(resume).not.toHaveAttribute('target')
+    expect(within(cards[0]).getByRole('link', { name: /^He Broke the Heart/ })).toHaveAttribute('href', '/dramas/dramabox/42000023802')
+    // Nothing anywhere else: no link to the drama's own app.
+    expect(within(row).queryByRole('link', { name: /Continue on|Open in/ })).toBeNull()
+    expect(row.querySelectorAll('a[target="_blank"], a[href^="http"]')).toHaveLength(0)
+    // Never watched: no episode line, and it starts.
     expect(within(cards[1]).queryByText(/^Episode/)).toBeNull()
-    expect(within(cards[1]).getByRole('link', { name: 'Continue on NetShort' })).toHaveAttribute(
-      'href',
-      'https://www.netshort.com/episode/when-housewives-turn-deadly-2118996275277217793',
-    )
+    expect(within(cards[1]).getByRole('link', { name: /^Start watching/ })).toHaveAttribute('href', '/dramas/netshort/2118996275277217793?resume=1')
   })
 
   it('removes a drama with its ✕, and the tap never reaches the ad script', async () => {

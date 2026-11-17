@@ -2,9 +2,10 @@ import { useSyncExternalStore } from 'react'
 
 /**
  * "Your short dramas": every short drama opened on this device, newest first,
- * kept in localStorage under one key (max 20). Each entry can carry the
- * episode the viewer says they're on ("I'm on episode __" on the drama page),
- * since most episodes are watched in the drama's own app.
+ * kept in localStorage under one key (max 20). Each entry carries the episode
+ * the viewer is on, from our player as they watch (with the minute and second
+ * they stopped at, for "Continue Ep 12 · 3:45") or set by hand on the
+ * "I'm on episode __" picker.
  *
  * Signed in, the account keeps the same list (src/account/sync.ts): the
  * newest entry of each drama wins, as with Continue Watching.
@@ -26,8 +27,14 @@ export interface DramaHistoryEntry {
   dramaId: string
   title: string
   poster: string | null
-  /** The episode the viewer set on the picker; null until they do. */
+  /** The episode the viewer is on (watched here, or set on the picker); null until then. */
   episode: number | null
+  /** That episode's id, when it was watched here (the picker only knows its number). */
+  episodeId: string | null
+  /** Where they stopped in it (seconds), when watched here; null: from the start. */
+  position: number | null
+  /** The episode's length (seconds), when known. */
+  duration: number | null
   /** How many episodes the drama has, when known. */
   episodeCount: number | null
   /** Opened, or the episode changed: the newest is first, and wins when syncing. */
@@ -41,6 +48,9 @@ let cache: { raw: string | null; list: DramaHistoryEntry[] } | null = null
 const emit = () => listeners.forEach((listener) => listener())
 
 const positiveInt = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0
+const seconds = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 24 * 3600
+const optional = <T>(value: unknown, ok: (v: unknown) => v is T) => value === undefined || value === null || ok(value)
+const isEpisodeId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(value)
 
 export const isDramaEntry = (value: unknown): value is DramaHistoryEntry => {
   const e = value as Partial<DramaHistoryEntry> | null
@@ -55,9 +65,20 @@ export const isDramaEntry = (value: unknown): value is DramaHistoryEntry => {
     typeof e.viewedAt === 'number' &&
     (e.poster === null || typeof e.poster === 'string') &&
     (e.episode === null || positiveInt(e.episode)) &&
-    (e.episodeCount === null || positiveInt(e.episodeCount))
+    (e.episodeCount === null || positiveInt(e.episodeCount)) &&
+    optional(e.episodeId, isEpisodeId) &&
+    optional(e.position, seconds) &&
+    optional(e.duration, seconds)
   )
 }
+
+/** Entries saved before progress was kept have no episodeId / position / duration. */
+export const normalizeDramaEntry = (e: DramaHistoryEntry): DramaHistoryEntry => ({
+  ...e,
+  episodeId: e.episodeId ?? null,
+  position: e.position ?? null,
+  duration: e.duration ?? null,
+})
 
 const newestFirst = (list: DramaHistoryEntry[]) => [...list].sort((a, b) => b.viewedAt - a.viewedAt).slice(0, DRAMA_HISTORY_LIMIT)
 
@@ -73,7 +94,7 @@ export function readDramaHistory(): DramaHistoryEntry[] {
   let list: DramaHistoryEntry[] = []
   try {
     const parsed = raw ? (JSON.parse(raw) as unknown) : []
-    list = Array.isArray(parsed) ? newestFirst(parsed.filter(isDramaEntry)) : []
+    list = Array.isArray(parsed) ? newestFirst(parsed.filter(isDramaEntry).map(normalizeDramaEntry)) : []
   } catch {
     list = []
   }
@@ -115,10 +136,37 @@ export function recordDramaView(view: DramaView, now = Date.now()): void {
     title: view.title || before?.title || '',
     poster: view.poster || before?.poster || null,
     episode: before?.episode != null ? clampEpisode(before.episode, episodeCount) : null,
+    episodeId: before?.episodeId ?? null,
+    position: before?.position ?? null,
+    duration: before?.duration ?? null,
     episodeCount,
     viewedAt: now,
   }
   write([entry, ...list.filter((e) => e.id !== id)])
+}
+
+export interface DramaProgress {
+  episode: number
+  episodeId: string
+  /** Seconds in; null: finished (the last episode) or not started. */
+  position: number | null
+  duration: number | null
+}
+
+/**
+ * Our player: the episode playing and where in it (saved every few seconds,
+ * on pause, and on leaving). The picker shows the same episode.
+ */
+export function recordDramaProgress(id: string, progress: DramaProgress, now = Date.now()): void {
+  const list = readDramaHistory()
+  const entry = list.find((e) => e.id === id)
+  if (!entry || !positiveInt(progress.episode) || !isEpisodeId(progress.episodeId)) return
+  const position = seconds(progress.position) ? Math.floor(progress.position) : null
+  const sameEpisode = entry.episodeId === progress.episodeId
+  const duration = seconds(progress.duration) && progress.duration > 0 ? Math.round(progress.duration) : sameEpisode ? entry.duration : null
+  if (sameEpisode && entry.episode === progress.episode && entry.position === position && entry.duration === duration) return
+  const next = { ...entry, episode: clampEpisode(progress.episode, entry.episodeCount), episodeId: progress.episodeId, position, duration, viewedAt: now }
+  write([next, ...list.filter((e) => e.id !== id)])
 }
 
 /** The picker: the episode the viewer is on (null clears it). Counts as a view, so it's the newest. */
@@ -128,7 +176,8 @@ export function setDramaEpisode(id: string, episode: number | null, now = Date.n
   if (!entry) return
   const next = episode === null || !Number.isFinite(episode) ? null : clampEpisode(episode, entry.episodeCount)
   if (next === entry.episode) return
-  write([{ ...entry, episode: next, viewedAt: now }, ...list.filter((e) => e.id !== id)])
+  // Another episode by hand: from its start (only the number is known).
+  write([{ ...entry, episode: next, episodeId: null, position: null, duration: null, viewedAt: now }, ...list.filter((e) => e.id !== id)])
 }
 
 /** The card's ✕. */
@@ -141,6 +190,25 @@ export function removeDramaEntry(id: string): void {
 export function episodeProgress(entry: Pick<DramaHistoryEntry, 'episode' | 'episodeCount'>): string | null {
   if (entry.episode === null) return null
   return entry.episodeCount ? `Episode ${entry.episode} of ${entry.episodeCount}` : `Episode ${entry.episode}`
+}
+
+/** 225 → "3:45", 3725 → "1:02:05". */
+export function clock(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = String(s % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
+}
+
+/** Where to pick up: worth a time only from 5 seconds in. */
+export const resumeSeconds = (entry: Pick<DramaHistoryEntry, 'position'>) => (entry.position !== null && entry.position >= 5 ? entry.position : null)
+
+/** The card's button: "Continue Ep 12 · 3:45", "Continue Ep 12", or "Start watching". */
+export function continueLabel(entry: Pick<DramaHistoryEntry, 'episode' | 'position'>): string {
+  if (entry.episode === null) return 'Start watching'
+  const at = resumeSeconds(entry)
+  return at !== null ? `Continue Ep ${entry.episode} · ${clock(at)}` : `Continue Ep ${entry.episode}`
 }
 
 const subscribe = (listener: () => void) => {

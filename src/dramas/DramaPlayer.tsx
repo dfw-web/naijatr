@@ -12,7 +12,16 @@ interface DramaPlayerProps {
   previous: Episode | null
   onEpisode: (episode: Episode) => void
   onClose: () => void
+  /** Start here (seconds): where the viewer stopped in this episode before. */
+  startAt?: number | null
+  /** Where it is now (seconds; null: finished), every few seconds, on pause and on leaving. */
+  onProgress?: (position: number | null, duration: number | null) => void
 }
+
+/** How often the position is saved while playing. */
+export const PROGRESS_EVERY_MS = 5000
+/** This close to the end counts as finished. */
+const END_S = 3
 
 /**
  * The vertical (9:16) player for one episode. MP4 links play in the <video>
@@ -20,10 +29,53 @@ interface DramaPlayerProps {
  * otherwise hls.js, downloaded only when needed. When an episode ends, the
  * next one starts.
  */
-export function DramaPlayer({ provider, dramaId, title, episode, next, previous, onEpisode, onClose }: DramaPlayerProps) {
+export function DramaPlayer({ provider, dramaId, title, episode, next, previous, onEpisode, onClose, startAt = null, onProgress }: DramaPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [sources, setSources] = useState<VideoSource[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Taken once, as the player opens (the saved time moves on as it plays).
+  const [resumeAt] = useState(startAt)
+  const progressRef = useRef(onProgress)
+  useEffect(() => {
+    progressRef.current = onProgress
+  })
+
+  // "Your short dramas": this episode, from where it starts; then every few
+  // seconds, on pause, and when it's left (another episode, closing, the page).
+  useEffect(() => {
+    progressRef.current?.(resumeAt ?? 0, null)
+    const video = videoRef.current
+    let savedAt = 0
+    const where = (): [number | null, number | null] | null => {
+      if (!video || !Number.isFinite(video.currentTime)) return null
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
+      if (duration !== null && (video.ended || video.currentTime >= duration - END_S)) return [null, duration]
+      return video.currentTime > 0 ? [video.currentTime, duration] : null
+    }
+    const save = () => {
+      const now = where()
+      if (now) progressRef.current?.(...now)
+    }
+    const onTime = () => {
+      if (Date.now() - savedAt < PROGRESS_EVERY_MS) return
+      savedAt = Date.now()
+      save()
+    }
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') save()
+    }
+    video?.addEventListener('timeupdate', onTime)
+    video?.addEventListener('pause', save)
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', save)
+    return () => {
+      video?.removeEventListener('timeupdate', onTime)
+      video?.removeEventListener('pause', save)
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', save)
+      save()
+    }
+  }, [resumeAt])
 
   // The episode's links, asked for when it's opened (they're signed and expire).
   // The page gives each episode its own player (key), so this starts empty.
@@ -41,6 +93,11 @@ export function DramaPlayer({ provider, dramaId, title, episode, next, previous,
     if (!video || !source) return
     let destroy: (() => void) | undefined
     let cancelled = false
+    // Back where they stopped (not when that's the very end).
+    const seek = () => {
+      if (resumeAt !== null && resumeAt > 0 && !(Number.isFinite(video.duration) && resumeAt >= video.duration - END_S)) video.currentTime = resumeAt
+    }
+    video.addEventListener('loadedmetadata', seek, { once: true })
     const play = () => void video.play().catch(() => {})
     const failed = () =>
       setError(
@@ -74,11 +131,13 @@ export function DramaPlayer({ provider, dramaId, title, episode, next, previous,
     video.addEventListener('error', failed)
     return () => {
       cancelled = true
+      video.removeEventListener('loadedmetadata', seek)
       video.removeEventListener('error', failed)
       destroy?.()
       video.removeAttribute('src')
       video.load()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sources])
 
   // Escape closes; the arrow keys change episode.

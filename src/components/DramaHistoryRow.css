@@ -1,4 +1,4 @@
-/* "Your short dramas": portrait posters, the episode the viewer is on, and "Continue on DramaBox". */
+/* "Your short dramas": portrait posters, the episode the viewer is on, and "Continue Ep 12 · 3:45". */
 .drama-history {
   position: relative;
   flex-shrink: 0;
@@ -90,21 +90,21 @@
   justify-content: center;
   min-height: 40px;
   margin-top: 0.35rem;
-  padding: 0 0.6rem;
-  border: 1px solid var(--border-strong);
+  padding: 0.3rem 0.5rem;
+  border: 0;
   border-radius: var(--radius);
-  color: var(--text);
+  background: var(--accent);
+  color: #fff;
   font-size: 0.82rem;
   font-weight: 700;
   text-align: center;
+  line-height: 1.25;
   text-decoration: none;
 }
 
 .drama-history__continue:hover,
 .drama-history__continue:focus-visible {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-hover);
 }
 
 /* The ✕ sits under the poster, right of the title: always reachable on touch screens. */

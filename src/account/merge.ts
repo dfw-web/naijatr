@@ -53,6 +53,10 @@ export interface DramaRow {
   episode: number | null
   episode_count: number | null
   viewed_at: string
+  /** Where they stopped (006_drama_progress.sql); left out while those columns don't exist. */
+  episode_id?: string | null
+  position_s?: number | null
+  duration_s?: number | null
 }
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -128,6 +132,9 @@ export const dramaRow = (userId: string, e: DramaHistoryEntry): DramaRow => ({
   episode: e.episode,
   episode_count: e.episodeCount,
   viewed_at: iso(e.viewedAt),
+  episode_id: e.episodeId,
+  position_s: e.position,
+  duration_s: e.duration,
 })
 
 export function dramaEntry(row: DramaRow): DramaHistoryEntry | null {
@@ -138,6 +145,9 @@ export function dramaEntry(row: DramaRow): DramaHistoryEntry | null {
     title: row.title ?? '',
     poster: row.poster ?? null,
     episode: row.episode ?? null,
+    episodeId: row.episode_id ?? null,
+    position: row.position_s ?? null,
+    duration: row.duration_s ?? null,
     episodeCount: row.episode_count ?? null,
     viewedAt: ms(row.viewed_at),
   }

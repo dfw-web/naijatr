@@ -1,18 +1,21 @@
 import { X } from 'lucide-react'
 import { QUIET_ADS_ATTR } from '../ads/adManager'
-import { isProvider, pathForDrama } from '../dramas/format'
-import { episodeProgress, removeDramaEntry, useDramaHistory, type DramaHistoryEntry } from '../dramas/history'
-import { officialDramaUrl, providerLabel } from '../dramas/officialLinks'
+import { isProvider, pathForDrama, providerLabel, resumePath } from '../dramas/format'
+import { continueLabel, episodeProgress, removeDramaEntry, useDramaHistory, type DramaHistoryEntry } from '../dramas/history'
 import { MediaRow } from './MediaRow'
 import './DramaHistoryRow.css'
 
 const noSelect = () => {}
 
+const NO_BREAK = String.fromCharCode(160)
+
+/** "Continue Ep 12 · 3:45" with no-break spaces, so "Ep 12" and "· 3:45" never split across lines. */
+const keepTogether = (label: string) => label.replace(/Ep (\d+)/, `Ep${NO_BREAK}$1`).replace(' · ', ` ·${NO_BREAK}`)
+
 /**
  * "Your short dramas" on the home page: the short dramas opened on this
- * device (or, signed in, on any), newest first, with the episode the viewer
- * said they're on and a link to carry on in the drama's own app. Hidden while
- * empty.
+ * device (or, signed in, on any), newest first. "Continue Ep 12 · 3:45" opens
+ * our own player at the episode and time they stopped at. Hidden while empty.
  */
 export function DramaHistoryRow() {
   const entries = useDramaHistory()
@@ -29,8 +32,11 @@ export function DramaHistoryRow() {
 function DramaHistoryCard({ entry }: { entry: DramaHistoryEntry }) {
   const app = providerLabel(entry.provider)
   const progress = episodeProgress(entry)
-  const page = isProvider(entry.provider) ? pathForDrama(entry.provider, entry.dramaId) : null
+  const { provider } = entry
+  const page = isProvider(provider) ? pathForDrama(provider, entry.dramaId) : null
+  const resume = isProvider(provider) ? resumePath(provider, entry.dramaId) : null
   const title = entry.title || 'Short drama'
+  const label = continueLabel(entry)
   const poster = (
     <span className="drama-history__poster">
       {entry.poster ? <img src={entry.poster} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="drama-history__initial">{title.charAt(0)}</span>}
@@ -49,9 +55,11 @@ function DramaHistoryCard({ entry }: { entry: DramaHistoryEntry }) {
       <div className="drama-history__info">
         <h3 className="drama-history__title">{title}</h3>
         {progress ? <p className="drama-history__episode">{progress}</p> : null}
-        <a className="drama-history__continue" href={officialDramaUrl(entry)} target="_blank" rel="noopener noreferrer">
-          Continue on {app}
-        </a>
+        {resume ? (
+          <a className="drama-history__continue" href={resume} aria-label={`${label}, ${title}`}>
+            <span aria-hidden="true">▶ {keepTogether(label)}</span>
+          </a>
+        ) : null}
       </div>
       <button
         type="button"

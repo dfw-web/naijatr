@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Footer } from '../components/Footer'
 import { GreetingHost } from '../components/Greeting'
 import { Navbar } from '../components/Navbar'
@@ -6,7 +6,7 @@ import { hashForView, NAV_LINKS, type NavLink } from '../navigation'
 import { errorMessage, fetchDrama, fetchShelves, searchDramas, type Drama, type DramaDetails, type Episode, type Shelf } from './api'
 import { DramaPlayer } from './DramaPlayer'
 import { EpisodePicker } from './EpisodePicker'
-import { dramaEntryId, recordDramaView } from './history'
+import { continueLabel, dramaEntryId, recordDramaProgress, recordDramaView, resumeSeconds, useDramaHistory } from './history'
 import {
   DRAMA_PROVIDERS,
   DRAMAS_PATH,
@@ -149,7 +149,7 @@ function DramasHome({ provider, query, go }: { provider: DramaProvider; query: s
   )
 }
 
-function DramaPage({ provider, id, ep, go }: { provider: DramaProvider; id: string; ep: string | null; go: Go }) {
+function DramaPage({ provider, id, ep, resume, go }: { provider: DramaProvider; id: string; ep: string | null; resume: boolean; go: Go }) {
   const details = useLoad<DramaDetails>((signal) => fetchDrama(provider, id, signal), [provider, id])
   const episodes = useMemo(() => details.data?.episodes ?? [], [details.data])
   const playable = useMemo(() => episodes.filter((e) => e.playable), [episodes])
@@ -177,10 +177,31 @@ function DramaPage({ provider, id, ep, go }: { provider: DramaProvider; id: stri
   const open = useCallback((episode: Episode) => go(pathForDrama(provider, id, episode.id), Boolean(ep)), [go, provider, id, ep])
   const close = useCallback(() => go(pathForDrama(provider, id), true), [go, provider, id])
 
+  // Where they stopped ("Your short dramas"): the episode watched here, else the one set on the picker.
+  const entryId = dramaEntryId(provider, id)
+  const saved = useDramaHistory().find((e) => e.id === entryId) ?? null
+  const savedEpisode =
+    saved && saved.episode !== null
+      ? (episodes.find((e) => saved.episodeId !== null && e.id === saved.episodeId) ?? episodes.find((e) => e.number === saved.episode) ?? null)
+      : null
+  // "Continue Ep 12 · 3:45" from the home page (?resume=1): straight into the player, at that time.
+  // Came here to resume (the address loses ?resume=1 once it's handled).
+  const [cameToResume] = useState(resume)
+  // Paid in the app: the page instead, saying so.
+  const lockedResume = cameToResume && savedEpisode && !savedEpisode.playable ? savedEpisode.number : null
+  const resumed = useRef(false)
+  useEffect(() => {
+    if (!resume || !loaded || resumed.current) return
+    resumed.current = true
+    go(savedEpisode?.playable ? pathForDrama(provider, id, savedEpisode.id) : pathForDrama(provider, id), true)
+  }, [resume, loaded, savedEpisode, go, provider, id])
+
   if (details.loading) return <div className="dr-page"><SkeletonGrid /></div>
   if (details.error || !details.data) return <div className="dr-page"><Problem message={details.error ?? errorMessage(null)} onRetry={details.reload} /></div>
 
   const drama = details.data.drama
+  // More than "Play episode 1": another episode, or a time to go back to.
+  const canContinue = saved !== null && savedEpisode !== null && savedEpisode.playable && (savedEpisode !== playable[0] || resumeSeconds(saved) !== null)
   const lockedCount = episodes.filter((e) => !e.playable).length
 
   return (
@@ -204,12 +225,24 @@ function DramaPage({ provider, id, ep, go }: { provider: DramaProvider; id: stri
             </ul>
           ) : null}
           {drama?.description ? <p className="dr-detail__desc">{drama.description}</p> : null}
-          <EpisodePicker entryId={dramaEntryId(provider, id)} />
-          {playable[0] ? (
-            <button type="button" className="dr-button" onClick={() => open(playable[0])}>
-              ▶ Play episode {playable[0].number}
-            </button>
+          <EpisodePicker entryId={entryId} />
+          {lockedResume !== null ? (
+            <p className="dr-muted" role="status">
+              🔒 Episode {lockedResume} is paid in the {PROVIDER_NAMES[provider]} app, so it can’t play here.
+            </p>
           ) : null}
+          <div className="dr-detail__actions">
+            {canContinue ? (
+              <button type="button" className="dr-button" onClick={() => open(savedEpisode)}>
+                ▶ {continueLabel(saved)}
+              </button>
+            ) : null}
+            {playable[0] ? (
+              <button type="button" className={`dr-button${canContinue ? ' dr-button--ghost' : ''}`} onClick={() => open(playable[0])}>
+                ▶ Play episode {playable[0].number}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -248,6 +281,10 @@ function DramaPage({ provider, id, ep, go }: { provider: DramaProvider; id: stri
           previous={playable[index - 1] ?? null}
           onEpisode={open}
           onClose={close}
+          startAt={saved?.episodeId === current.id ? resumeSeconds(saved) : null}
+          onProgress={(position, duration) =>
+            recordDramaProgress(entryId, { episode: current.number, episodeId: current.id, position, duration })
+          }
         />
       ) : null}
     </div>
@@ -303,7 +340,7 @@ export default function DramasApp() {
       <Navbar links={NAV_LINKS} activeId="dramas" query={query} onQueryChange={handleQueryChange} onNavigate={handleNavigate} />
       <main className="dr-main">
         {route.page === 'drama' ? (
-          <DramaPage key={`${route.provider}:${route.id}`} provider={route.provider} id={route.id} ep={route.ep} go={go} />
+          <DramaPage key={`${route.provider}:${route.id}`} provider={route.provider} id={route.id} ep={route.ep} resume={route.resume} go={go} />
         ) : (
           <DramasHome provider={route.provider} query={query} go={go} />
         )}
