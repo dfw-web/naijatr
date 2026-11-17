@@ -27,6 +27,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAdmin } from '../live/handlers.js'
 import { redis, type RedisEnv } from '../redis.js'
 import {
+  fetchCatalog,
+  searchCatalog,
+  type Drama,
   fetchDetail,
   fetchEpisodes,
   fetchHome,
@@ -48,6 +51,8 @@ export const SHOW_LOCKED_KEY = 'dramas:show-locked'
 export const DRAMA_TTL = {
   home: 30 * 60_000,
   search: 30 * 60_000,
+  /** Every drama we can list for an app (searched when its own search finds nothing). */
+  catalog: 60 * 60_000,
   detail: 6 * 60 * 60_000,
   /** Episode lists carry signed video links (DramaBox, DramaWave): kept well inside their expiry. */
   episodes: 30 * 60_000,
@@ -117,6 +122,8 @@ export interface DramaContext {
   authorization?: string
   fetchImpl?: Fetch
   now?: () => number
+  /** Vercel's waitUntil: keeps the function alive for work after the answer is sent. */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 export function readEzvidKey(env: Record<string, string | undefined>) {
@@ -219,6 +226,9 @@ export async function handleDramas(ctx: DramaContext, req: IncomingMessage & { b
 
   try {
     if (route === 'home') {
+      // Loads the app's searchable list now, so a search moments later is quick.
+      const warm = ctx.cache.get(`catalog:${provider}`, DRAMA_TTL.catalog, () => fetchCatalog(ctx.key, provider, ctx.fetchImpl)).catch(() => {})
+      ctx.waitUntil?.(warm)
       const { value, stale } = await ctx.cache.get(`home:${provider}`, DRAMA_TTL.home, () => fetchHome(ctx.key, provider, ctx.fetchImpl))
       return sendJson(res, 200, { provider, shelves: value, stale }, stale ? 0 : 300)
     }
@@ -226,8 +236,17 @@ export async function handleDramas(ctx: DramaContext, req: IncomingMessage & { b
     if (route === 'search') {
       const q = (params.get('q') ?? '').trim().slice(0, 80)
       if (q.length < 2) return sendJson(res, 400, { error: 'bad-request' })
-      const { value } = await ctx.cache.get(`search:${provider}:${q.toLowerCase()}`, DRAMA_TTL.search, () => fetchSearch(ctx.key, provider, q, ctx.fetchImpl))
-      return sendJson(res, 200, { provider, dramas: value }, 600)
+      // The app's own search, then the dramas we can list for it: DramaBox's search
+      // returns nothing, and DramaWave's often fails.
+      const upstream = await ctx.cache
+        .get(`search:${provider}:${q.toLowerCase()}`, DRAMA_TTL.search, () => fetchSearch(ctx.key, provider, q, ctx.fetchImpl))
+        .then((r) => r.value, () => [] as Drama[])
+      const catalog = await ctx.cache
+        .get(`catalog:${provider}`, DRAMA_TTL.catalog, () => fetchCatalog(ctx.key, provider, ctx.fetchImpl))
+        .then((r) => r.value, () => [] as Drama[])
+      const found = [...upstream, ...searchCatalog(catalog, q)]
+      const dramas = found.filter((d, i) => found.findIndex((o) => o.id === d.id) === i)
+      return sendJson(res, 200, { provider, dramas }, dramas.length ? 600 : 0)
     }
 
     const id = params.get('id') ?? ''

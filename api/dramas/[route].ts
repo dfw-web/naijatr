@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { waitUntil } from '@vercel/functions'
 import { handleDramas, readEzvidKey, sharedDramaCache, splitDramaUrl } from '../../server/dramas/handlers.js'
 import { readRedisEnv } from '../../server/redis.js'
 
@@ -19,6 +20,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     redis: redisEnv,
     adminPassword: process.env.ADMIN_PASSWORD ?? '',
     authorization: req.headers?.authorization,
+    waitUntil,
   }
   await handleDramas(ctx, req, route, params, res)
 }

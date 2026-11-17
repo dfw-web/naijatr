@@ -263,6 +263,63 @@ function dedupeShelves(shelves: Shelf[]): Shelf[] {
   return shelves.map((shelf) => ({ ...shelf, dramas: shelf.dramas.filter((d, i, all) => all.findIndex((o) => o.id === d.id) === i) })).filter((shelf) => shelf.dramas.length)
 }
 
+/** Every drama we can list for an app, for searching when its own search fails (DramaBox's returns nothing; DramaWave's often errors). */
+export async function fetchCatalog(key: string, provider: DramaProvider, fetchImpl: Fetch = fetch): Promise<Drama[]> {
+  const lists: Promise<Drama[]>[] = []
+  const settle = async (load: () => Promise<Drama[]>) => load().catch(() => [] as Drama[])
+  if (provider === 'dramabox') {
+    const books = (path: string, params: Record<string, string>, pick: (data: unknown) => unknown[] = arr) =>
+      settle(async () => present(pick(await ezvid(key, path, params, fetchImpl)).map(dramaboxDrama)))
+    lists.push(books('dramabox/latest', { lang: 'en' }), books('dramabox/trending', { lang: 'en' }), books('dramabox/populersearch', { lang: 'en' }))
+    lists.push(books('dramabox/dubbed', { lang: 'en', page: '1' }))
+    for (let page = 1; page <= 8; page++) lists.push(books('dramabox/browse', { lang: 'en', page: String(page) }, (data) => arr(obj(data).items)))
+  } else if (provider === 'dramawave') {
+    lists.push(
+      settle(async () => {
+        // The home feed, then a few more of its pages.
+        const dramas: Drama[] = []
+        let data = obj(await ezvid(key, 'dramawave/home', { language: 'en-US', limit: '30' }, fetchImpl))
+        for (let page = 0; page < 5; page++) {
+          dramas.push(...present(arr(data.items).map(dramawaveHomeDrama)))
+          const cursor = str(data.nextCursor)
+          if (!cursor) break
+          data = obj(await ezvid(key, 'dramawave/loadmore', { language: 'en-US', cursor }, fetchImpl).catch(() => ({})))
+        }
+        return dramas
+      }),
+      settle(async () => present(arr(obj(await ezvid(key, 'dramawave/search/hot-list', { language: 'en-US' }, fetchImpl)).items).map((item) => normalizedDrama('dramawave', item)))),
+    )
+  } else {
+    lists.push(settle(async () => (await fetchHome(key, provider, fetchImpl)).flatMap((shelf) => shelf.dramas)))
+  }
+  const all = (await Promise.all(lists)).flat()
+  return all.filter((d, i) => all.findIndex((o) => o.id === d.id) === i)
+}
+
+const words = (text: string) => text.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean)
+
+/** Dramas matching the query: title first, then tags, then the story. */
+export function searchCatalog(catalog: Drama[], query: string): Drama[] {
+  const terms = words(query)
+  if (!terms.length) return []
+  const phrase = terms.join(' ')
+  const scored = catalog.map((drama) => {
+    const title = words(drama.title).join(' ')
+    const tags = words(drama.tags.join(' ')).join(' ')
+    const story = words(drama.description).join(' ')
+    let score = title.includes(phrase) ? 10 : 0
+    for (const term of terms) {
+      if (title.split(' ').some((w) => w.startsWith(term))) score += 3
+      else if (tags.includes(term)) score += 2
+      else if (story.split(' ').some((w) => w.startsWith(term))) score += 1
+      // Every word must appear somewhere.
+      else return { drama, score: 0 }
+    }
+    return { drama, score }
+  })
+  return scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).map((s) => s.drama).slice(0, 40)
+}
+
 export async function fetchSearch(key: string, provider: DramaProvider, query: string, fetchImpl: Fetch = fetch): Promise<Drama[]> {
   if (provider === 'dramabox') return present(arr(await ezvid(key, 'dramabox/search', { lang: 'en', query }, fetchImpl)).map(dramaboxDrama))
   const language = provider === 'dramawave' ? 'en-US' : 'en_US'

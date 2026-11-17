@@ -188,6 +188,33 @@ describe('/api/dramas', () => {
     expect((await call('/api/dramas/play?provider=dramawave&id=abc&ep=e2')).statusCode).toBe(403)
   })
 
+  it('finds DramaBox dramas from its lists when its own search returns nothing', async () => {
+    const book = (bookId: string, bookName: string, tags: string[] = []) => ({ bookId, bookName, tags, introduction: '' })
+    const { call } = setup((url) => {
+      if (url.pathname === '/api/dramabox/search') return ok([])
+      if (url.pathname === '/api/dramabox/latest') return ok([book('1', 'The Mafia Boss’s Bride'), book('2', 'Cinderella Returns')])
+      if (url.pathname === '/api/dramabox/browse') return ok({ items: url.searchParams.get('page') === '1' ? [book('3', 'Rich Heiress', ['Mafia'])] : [] })
+      return ok([])
+    })
+    const res = await call('/api/dramas/search?provider=dramabox&q=mafia')
+    expect(res.statusCode).toBe(200)
+    // Title matches before tag matches.
+    expect((json(res).dramas as { id: string }[]).map((d) => d.id)).toEqual(['1', '3'])
+    expect((json(await call('/api/dramas/search?provider=dramabox&q=mafia bride')).dramas as { id: string }[]).map((d) => d.id)).toEqual(['1'])
+  })
+
+  it('still searches DramaWave’s lists when its search fails', async () => {
+    const { call } = setup((url) => {
+      if (url.pathname === '/api/dramawave/search') return new Response(JSON.stringify({ ok: false, message: 'Upstream error' }), { status: 400 })
+      if (url.pathname === '/api/dramawave/home') return ok({ items: [{ key: 'abc', title: 'Love in the Rain' }] })
+      if (url.pathname === '/api/dramawave/search/hot-list') return ok({ items: [{ id: 'def', title: 'Lovely Liar' }] })
+      return ok({ items: [] })
+    })
+    const res = await call('/api/dramas/search?provider=dramawave&q=love')
+    expect(res.statusCode).toBe(200)
+    expect((json(res).dramas as { id: string }[]).map((d) => d.id).sort()).toEqual(['abc', 'def'])
+  })
+
   it('serves the last good answer when Ezvid fails', async () => {
     let now = 0
     let failing = false
