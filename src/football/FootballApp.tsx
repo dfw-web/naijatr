@@ -38,7 +38,8 @@ export default function FootballApp() {
       setQuery('')
       return go(FOOTBALL_PATH)
     }
-    window.location.assign(`/${hashForView(link.view)}`)
+    // Another section (e.g. /dramas) by its path, a movie view by its hash.
+    window.location.assign(link.href ?? `/${hashForView(link.view)}`)
   }
 
   // Typing in the navbar search filters matches by team or league.

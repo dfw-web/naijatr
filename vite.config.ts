@@ -21,6 +21,7 @@ import {
   type WorkerDownloadConfig,
 } from './server/workerDownloads.ts'
 import { footballApi } from './server/football/vite.ts'
+import { dramasApi } from './server/dramas/vite.ts'
 import { handleSubtitles, readSubtitlesEnv } from './server/subtitles/handlers.ts'
 import { TELEGRAM_CHANNEL_URL } from './src/config/telegram.ts'
 
@@ -192,7 +193,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), authPageHeaders(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? '')],
+    plugins: [react(), authPageHeaders(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? ''), dramasApi(env)],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

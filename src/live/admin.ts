@@ -10,6 +10,7 @@
 import { initAdFree, loadAdFree } from './adFree'
 import { AD_LEVEL, AD_RULES, MULTITAG, MULTITAG_2 } from '../config/ads'
 import { initPromoEmail } from './promoEmail'
+import { initDramasSwitch, loadDramasSwitch } from './dramasSwitch'
 
 export const REFRESH_MS = 30_000
 const PASSWORD_KEY = 'naijatr.admin.password'
@@ -547,6 +548,7 @@ async function start() {
   $('stats').hidden = false
   // Give ad-free: loaded once on unlock (and after each change), not on every refresh.
   void loadAdFree()
+  void loadDramasSwitch()
   window.clearInterval(timer)
   timer = window.setInterval(() => {
     if (document.visibilityState !== 'hidden') void refresh()
@@ -556,6 +558,7 @@ async function start() {
 export function initAdmin() {
   initAdFree(() => password)
   initPromoEmail(() => password)
+  initDramasSwitch(() => password)
   // Clears one title's cached subtitles on the server (a stale "No subtitles found", a bad file).
   $('sb-flush').addEventListener('submit', (event) => {
     event.preventDefault()

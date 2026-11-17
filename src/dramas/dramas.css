@@ -1,0 +1,364 @@
+/* Short Dramas section (/dramas). Uses the site's tokens from src/index.css. */
+
+.dr-main {
+  min-height: 70vh;
+}
+
+.dr-page {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: calc(var(--header-height, var(--nav-height)) + 2rem) var(--gutter) 3rem;
+}
+
+.dr-head__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.dr-head__lead,
+.dr-muted {
+  color: var(--text-muted);
+}
+
+.dr-head__lead {
+  margin-top: 0.5rem;
+}
+
+.dr-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.5rem 0 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dr-tab {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dr-tab:hover,
+.dr-tab:focus-visible {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.dr-tab--active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.dr-shelf {
+  margin-top: 2rem;
+}
+
+.dr-shelf__title {
+  margin-bottom: 0.9rem;
+  font-size: 1.2rem;
+}
+
+.dr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(140px, 42vw), 1fr));
+  gap: var(--card-gap);
+}
+
+.dr-card {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.dr-card__poster {
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.dr-card__poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.dr-card:hover .dr-card__poster img,
+.dr-card:focus-visible .dr-card__poster img {
+  transform: scale(1.04);
+}
+
+.dr-card:focus-visible {
+  outline: none;
+}
+
+.dr-card:focus-visible .dr-card__poster {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.dr-card__badge {
+  position: absolute;
+  left: 0.4rem;
+  bottom: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.dr-card__title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.dr-card__tags {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dr-card--skeleton .dr-card__poster {
+  background: var(--surface-2) var(--shimmer);
+  background-size: 200% 100%;
+  animation: dr-shimmer 1.4s linear infinite;
+}
+
+@keyframes dr-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.dr-button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dr-button:hover {
+  background: var(--accent-hover);
+}
+
+.dr-problem {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.dr-back {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dr-back:hover {
+  color: var(--text);
+}
+
+.dr-detail {
+  display: grid;
+  grid-template-columns: minmax(120px, 220px) 1fr;
+  gap: clamp(1rem, 3vw, 2rem);
+  align-items: start;
+}
+
+.dr-detail__poster {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.dr-detail__info {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.dr-detail__title {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  line-height: 1.2;
+}
+
+.dr-detail__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  list-style: none;
+}
+
+.dr-detail__tags li {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.dr-detail__desc {
+  max-width: 60ch;
+  color: var(--text-muted);
+}
+
+@media (max-width: 560px) {
+  .dr-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .dr-detail__poster {
+    width: min(60%, 220px);
+  }
+}
+
+.dr-episodes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+  padding: 0;
+  list-style: none;
+}
+
+.dr-ep {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dr-ep:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.dr-ep--current {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.dr-ep--locked {
+  border-style: dashed;
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+/* Player: full screen, the video in a 9:16 column. */
+.dr-player {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: #000;
+}
+
+.dr-player__bar,
+.dr-player__nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+}
+
+.dr-player__nav {
+  justify-content: center;
+  padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+}
+
+.dr-player__close,
+.dr-player__nav button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dr-player__nav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dr-player__title {
+  overflow: hidden;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dr-player__title span {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.dr-player__stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Fills the space between the bars without pushing them off screen (the video is 1080×1920). */
+.dr-player__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.dr-player__message {
+  max-width: 28rem;
+  padding: 1rem;
+  color: var(--text-muted);
+  text-align: center;
+}

@@ -14,6 +14,8 @@ import { startLiveHeartbeat } from './live/heartbeat'
 import { listenForInstallPrompt, registerServiceWorker } from './pwa'
 import { isFootballPath } from './football/format'
 import { FootballRoot } from './football/FootballRoot'
+import { isDramasPath } from './dramas/format'
+import { DramasRoot } from './dramas/DramasRoot'
 import { installRemote } from './tv/remote'
 import { isTvMode } from './tv/tvMode'
 import { initAccount } from './account/account'
@@ -42,6 +44,8 @@ app.render(
       <AuthRoot />
     ) : isFootballPath(window.location.pathname) ? (
       <FootballRoot />
+    ) : isDramasPath(window.location.pathname) ? (
+      <DramasRoot />
     ) : (
       <App />
     )}

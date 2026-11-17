@@ -208,7 +208,7 @@
   <body>
     <main>
       <h1>Live viewers</h1>
-      <p class="muted"><a href="/admin/feedback" style="color: inherit">Feedback inbox →</a> · <a href="/admin/referrals" style="color: inherit">Referrals →</a> · <a href="#give-ad-free" style="color: inherit">Give ad-free ↓</a></p>
+      <p class="muted"><a href="/admin/feedback" style="color: inherit">Feedback inbox →</a> · <a href="/admin/referrals" style="color: inherit">Referrals →</a> · <a href="#give-ad-free" style="color: inherit">Give ad-free ↓</a> · <a href="#short-dramas" style="color: inherit">Short Dramas ↓</a></p>
 
       <form id="login" hidden>
         <label class="muted" for="password">Admin password</label>
@@ -326,6 +326,14 @@
         <p class="muted" id="sl-calls-empty" hidden>No calls yet.</p>
         <p class="error" id="sl-error" role="alert" hidden></p>
 
+        <h2 id="short-dramas">🎬 Short Dramas</h2>
+        <p class="stat"><strong id="dr-state">–</strong><span>paid episodes on /dramas</span></p>
+        <button type="button" id="dr-toggle" disabled>…</button>
+        <p class="muted" id="dr-note">
+          Off: only each drama's free episodes play; paid ones show 🔒. On: every episode plays. Only switch this on for
+          dramas you have the rights to show. Takes up to a minute to reach every visitor.
+        </p>
+        <p class="error" id="dr-error" role="alert" hidden></p>
         <h2 id="give-ad-free">Give ad-free</h2>
         <p class="muted">After they pay on Telegram. Adds the days to their ad-free time (on top of any time left). Their ads stop within 5 minutes on an open page (it reloads once, after any video is closed), or on their next visit.</p>
         <div class="stats">

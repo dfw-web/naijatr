@@ -16,6 +16,7 @@ export const NAV_LINKS: NavLink[] = [
   { id: 'series', label: 'Series', view: 'series' },
   { id: 'recent', label: 'New & Recent', view: 'home', section: 'recent' },
   { id: 'football', label: 'Football', view: 'home', href: '/football' },
+  { id: 'dramas', label: 'Short Dramas', view: 'home', href: '/dramas' },
 ]
 
 /** Views live in the URL hash (#/movies, #/series) so Back and deep links work. */
