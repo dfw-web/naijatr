@@ -290,7 +290,8 @@ export async function fetchCatalog(key: string, provider: DramaProvider, fetchIm
       settle(async () => present(arr(obj(await ezvid(key, 'dramawave/search/hot-list', { language: 'en-US' }, fetchImpl)).items).map((item) => normalizedDrama('dramawave', item)))),
     )
   } else {
-    lists.push(settle(async () => (await fetchHome(key, provider, fetchImpl)).flatMap((shelf) => shelf.dramas)))
+    // Its home shelves are added by the caller; this is its trending list.
+    lists.push(settle(async () => present(arr(obj(await ezvid(key, 'netshort/trending', { language: 'en_US', limit: '50' }, fetchImpl)).items).map((item) => normalizedDrama('netshort', item)))))
   }
   const all = (await Promise.all(lists)).flat()
   return all.filter((d, i) => all.findIndex((o) => o.id === d.id) === i)

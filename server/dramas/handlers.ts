@@ -182,6 +182,26 @@ async function readBody(req: IncomingMessage & { body?: unknown }): Promise<unkn
 const episodes = (ctx: DramaContext, provider: DramaProvider, id: string) =>
   ctx.cache.get<EpisodeList>(`episodes:${provider}:${id}`, DRAMA_TTL.episodes, () => fetchEpisodes(ctx.key, provider, id, ctx.fetchImpl))
 
+/**
+ * Every drama we can list for an app, for search: the shelves already loaded
+ * for its tab, plus its other lists. Never empty in the cache: a list that
+ * failed to load is asked for again on the next search.
+ */
+async function catalogFor(ctx: DramaContext, provider: DramaProvider): Promise<Drama[]> {
+  const [home, more] = await Promise.all([
+    ctx.cache.get(`home:${provider}`, DRAMA_TTL.home, () => fetchHome(ctx.key, provider, ctx.fetchImpl)).then((r) => r.value.flatMap((s) => s.dramas), () => [] as Drama[]),
+    ctx.cache
+      .get(`catalog:${provider}`, DRAMA_TTL.catalog, async () => {
+        const dramas = await fetchCatalog(ctx.key, provider, ctx.fetchImpl)
+        if (!dramas.length) throw new UpstreamError(502, 'empty catalog')
+        return dramas
+      })
+      .then((r) => r.value, () => [] as Drama[]),
+  ])
+  const all = [...home, ...more]
+  return all.filter((d, i) => all.findIndex((o) => o.id === d.id) === i)
+}
+
 export function splitDramaUrl(url: string) {
   const parsed = new URL(url, 'http://localhost')
   const route = (parsed.searchParams.get('__path') ?? parsed.pathname.replace(/^\/api\/dramas/, '')).replace(/^\/+|\/+$/g, '')
@@ -227,8 +247,7 @@ export async function handleDramas(ctx: DramaContext, req: IncomingMessage & { b
   try {
     if (route === 'home') {
       // Loads the app's searchable list now, so a search moments later is quick.
-      const warm = ctx.cache.get(`catalog:${provider}`, DRAMA_TTL.catalog, () => fetchCatalog(ctx.key, provider, ctx.fetchImpl)).catch(() => {})
-      ctx.waitUntil?.(warm)
+      ctx.waitUntil?.(catalogFor(ctx, provider))
       const { value, stale } = await ctx.cache.get(`home:${provider}`, DRAMA_TTL.home, () => fetchHome(ctx.key, provider, ctx.fetchImpl))
       return sendJson(res, 200, { provider, shelves: value, stale }, stale ? 0 : 300)
     }
@@ -238,12 +257,13 @@ export async function handleDramas(ctx: DramaContext, req: IncomingMessage & { b
       if (q.length < 2) return sendJson(res, 400, { error: 'bad-request' })
       // The app's own search, then the dramas we can list for it: DramaBox's search
       // returns nothing, and DramaWave's often fails.
-      const upstream = await ctx.cache
-        .get(`search:${provider}:${q.toLowerCase()}`, DRAMA_TTL.search, () => fetchSearch(ctx.key, provider, q, ctx.fetchImpl))
-        .then((r) => r.value, () => [] as Drama[])
-      const catalog = await ctx.cache
-        .get(`catalog:${provider}`, DRAMA_TTL.catalog, () => fetchCatalog(ctx.key, provider, ctx.fetchImpl))
-        .then((r) => r.value, () => [] as Drama[])
+      // Both at once, so a slow search doesn't hold up the list.
+      const [upstream, catalog] = await Promise.all([
+        ctx.cache
+          .get(`search:${provider}:${q.toLowerCase()}`, DRAMA_TTL.search, () => fetchSearch(ctx.key, provider, q, ctx.fetchImpl))
+          .then((r) => r.value, () => [] as Drama[]),
+        catalogFor(ctx, provider),
+      ])
       const found = [...upstream, ...searchCatalog(catalog, q)]
       const dramas = found.filter((d, i) => found.findIndex((o) => o.id === d.id) === i)
       return sendJson(res, 200, { provider, dramas }, dramas.length ? 600 : 0)

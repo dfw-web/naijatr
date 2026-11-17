@@ -215,6 +215,22 @@ describe('/api/dramas', () => {
     expect((json(res).dramas as { id: string }[]).map((d) => d.id).sort()).toEqual(['abc', 'def'])
   })
 
+  it('does not keep an empty list: the next search asks again', async () => {
+    let down = true
+    let now = 0
+    const { ctx, call } = setup((url) => {
+      if (down || url.pathname === '/api/dramawave/search') return new Response(JSON.stringify({ ok: false, message: 'Upstream error' }), { status: 400 })
+      if (url.pathname === '/api/dramawave/home') return ok({ items: [{ key: 'abc', title: 'Love in the Rain' }] })
+      return ok({ items: [] })
+    })
+    ctx.cache = createDramaCache(() => now)
+    expect(json(await call('/api/dramas/search?provider=dramawave&q=love')).dramas).toEqual([])
+    down = false
+    // Past the 30-second wait after a failure.
+    now = DRAMA_TTL.failed + 1
+    expect((json(await call('/api/dramas/search?provider=dramawave&q=love')).dramas as { id: string }[]).map((d) => d.id)).toEqual(['abc'])
+  })
+
   it('serves the last good answer when Ezvid fails', async () => {
     let now = 0
     let failing = false
