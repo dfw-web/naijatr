@@ -5,6 +5,8 @@ import { Navbar } from '../components/Navbar'
 import { hashForView, NAV_LINKS, type NavLink } from '../navigation'
 import { errorMessage, fetchDrama, fetchShelves, searchDramas, type Drama, type DramaDetails, type Episode, type Shelf } from './api'
 import { DramaPlayer } from './DramaPlayer'
+import { EpisodePicker } from './EpisodePicker'
+import { dramaEntryId, recordDramaView } from './history'
 import {
   DRAMA_PROVIDERS,
   DRAMAS_PATH,
@@ -159,6 +161,19 @@ function DramaPage({ provider, id, ep, go }: { provider: DramaProvider; id: stri
     document.title = `${title} · Short Dramas · NAIJA TR`
   }, [title])
 
+  // "Your short dramas" on the home page: opened now, so it's first.
+  const loaded = details.data
+  useEffect(() => {
+    if (!loaded) return
+    recordDramaView({
+      provider,
+      dramaId: id,
+      title: loaded.drama?.title || loaded.title || '',
+      poster: loaded.drama?.cover || null,
+      episodeCount: loaded.episodes.length || loaded.drama?.episodes || null,
+    })
+  }, [loaded, provider, id])
+
   const open = useCallback((episode: Episode) => go(pathForDrama(provider, id, episode.id), Boolean(ep)), [go, provider, id, ep])
   const close = useCallback(() => go(pathForDrama(provider, id), true), [go, provider, id])
 
@@ -189,6 +204,7 @@ function DramaPage({ provider, id, ep, go }: { provider: DramaProvider; id: stri
             </ul>
           ) : null}
           {drama?.description ? <p className="dr-detail__desc">{drama.description}</p> : null}
+          <EpisodePicker entryId={dramaEntryId(provider, id)} />
           {playable[0] ? (
             <button type="button" className="dr-button" onClick={() => open(playable[0])}>
               ▶ Play episode {playable[0].number}

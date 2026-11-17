@@ -8,23 +8,29 @@ import {
   type ContinueEntry,
 } from '../utils/continueWatching'
 import { readWatchLater, replaceWatchLater, subscribeWatchLater, type WatchLaterEntry } from '../utils/watchLater'
+import { readDramaHistory, replaceDramaHistory, subscribeDramaHistory, type DramaHistoryEntry } from '../dramas/history'
 import {
   allPending,
   combineTaste,
   continueEntry,
   continueRow,
+  dramaEntry,
+  dramaRow,
   listEntry,
   listRow,
   mergeContinue,
+  mergeDramas,
   mergeList,
   type ContinueRow,
+  type DramaRow,
   type ListRow,
   type PendingMap,
 } from './merge'
 import { hasStoredSession } from './client'
 
 /**
- * Account sync for Continue Watching, My List and the taste profile, while
+ * Account sync for Continue Watching, My List, the taste profile and "Your
+ * short dramas" (src/dramas/history.ts), while
  * signed in. This device's stores (localStorage) stay the ones the app reads
  * and writes, instantly, exactly as when signed out; this keeps the account in
  * step behind them:
@@ -45,6 +51,12 @@ export interface RemoteData {
   continueRows: ContinueRow[]
   listRows: ListRow[]
   taste: TasteProfile | null
+  /**
+   * "Your short dramas"; null when the account can't give them (its table not
+   * set up yet: supabase/migrations/005_drama_history.sql). They then stay on
+   * this device and pending, and the rest syncs as usual.
+   */
+  dramaRows?: DramaRow[] | null
 }
 
 /** Where the account's data lives (Supabase: src/account/backend.ts; tests: in memory). */
@@ -55,6 +67,8 @@ export interface SyncBackend {
   upsertList(rows: ListRow[]): Promise<void>
   deleteList(ids: string[]): Promise<void>
   saveTaste(profile: TasteProfile): Promise<void>
+  upsertDramas(rows: DramaRow[]): Promise<void>
+  deleteDramas(ids: string[]): Promise<void>
 }
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
@@ -70,11 +84,12 @@ const DEBOUNCE_MS = 1000
 interface Pending {
   cw: PendingMap
   list: PendingMap
+  dramas: PendingMap
   /** "merge": this device's profile still has to be combined with the account's (first sign-in here). */
   taste: false | 'up' | 'merge'
 }
 
-const noPending = (): Pending => ({ cw: {}, list: {}, taste: false })
+const noPending = (): Pending => ({ cw: {}, list: {}, dramas: {}, taste: false })
 
 function readPending(): Pending {
   try {
@@ -107,7 +122,9 @@ interface Session {
   userId: string
   backend: SyncBackend
   /** The entries as last seen, to tell what changed. */
-  seen: { cw: Map<string, string>; list: Map<string, string>; taste: string }
+  seen: { cw: Map<string, string>; list: Map<string, string>; dramas: Map<string, string>; taste: string }
+  /** The account gave its short dramas on the last load (their table exists): they're sent. */
+  dramasReady: boolean
   /** Applying the account's data: not a local change. */
   applying: boolean
   pulled: boolean
@@ -119,7 +136,7 @@ interface Session {
   /** The account being loaded: a second request joins it. */
   pulling: Promise<void> | null
   /** Changed while a push was on its way: still pending afterwards. */
-  touched: { cw: Set<string>; list: Set<string>; taste: boolean }
+  touched: { cw: Set<string>; list: Set<string>; dramas: Set<string>; taste: boolean }
   cleanup: (() => void)[]
 }
 
@@ -134,8 +151,15 @@ const setState = (next: Partial<typeof state>) => {
 const snapshot = <T extends { id: string }>(list: T[]) => new Map(list.map((entry) => [entry.id, JSON.stringify(entry)]))
 const tasteHasData = (profile: TasteProfile) => Object.keys(profile.attrs).length > 0 || profile.titles.length > 0 || profile.asked
 
+const lookNow = () => ({
+  cw: snapshot(readContinueWatching()),
+  list: snapshot(readWatchLater()),
+  dramas: snapshot(readDramaHistory()),
+  taste: JSON.stringify(readTaste()),
+})
+
 function look(s: Session) {
-  s.seen = { cw: snapshot(readContinueWatching()), list: snapshot(readWatchLater()), taste: JSON.stringify(readTaste()) }
+  s.seen = lookNow()
 }
 
 /** What changed in one store since it was last seen: changed or new → "up", gone → "del". */
@@ -149,20 +173,23 @@ function diff(before: Map<string, string>, after: Map<string, string>): PendingM
 function onLocalChange() {
   const s = session
   if (!s || s.applying) return
-  const now = { cw: snapshot(readContinueWatching()), list: snapshot(readWatchLater()), taste: JSON.stringify(readTaste()) }
+  const now = lookNow()
   const cw = diff(s.seen.cw, now.cw)
   const list = diff(s.seen.list, now.list)
+  const dramas = diff(s.seen.dramas, now.dramas)
   const taste = now.taste !== s.seen.taste
   s.seen = now
-  if (!Object.keys(cw).length && !Object.keys(list).length && !taste) return
+  if (!Object.keys(cw).length && !Object.keys(list).length && !Object.keys(dramas).length && !taste) return
   const pending = readPending()
   Object.assign(pending.cw, cw)
   Object.assign(pending.list, list)
+  Object.assign(pending.dramas, dramas)
   if (taste && pending.taste !== 'merge') pending.taste = 'up'
   writePending(pending)
   if (s.inFlight) {
     Object.keys(cw).forEach((id) => s.touched.cw.add(id))
     Object.keys(list).forEach((id) => s.touched.list.add(id))
+    Object.keys(dramas).forEach((id) => s.touched.dramas.add(id))
     s.touched.taste ||= taste
   }
   schedulePush()
@@ -194,10 +221,13 @@ async function push(s: Session): Promise<void> {
   }
   if (!s.pulled) return pull(s)
   const pending = readPending()
-  if (!hasPending(pending)) return
-  s.touched = { cw: new Set(), list: new Set(), taste: false }
+  if (!hasPending(pending, s.dramasReady)) return
+  s.touched = { cw: new Set(), list: new Set(), dramas: new Set(), taste: false }
   const cw = readContinueWatching()
   const saved = readWatchLater()
+  // Short dramas wait while the account has no table for them.
+  const dramas = s.dramasReady ? readDramaHistory() : []
+  const dramaOps: PendingMap = s.dramasReady ? pending.dramas : {}
   const rows = <T extends { id: string }, R>(map: PendingMap, list: T[], toRow: (userId: string, entry: T) => R) =>
     Object.entries(map).flatMap(([id, op]) => {
       const entry = op === 'up' ? list.find((e) => e.id === id) : undefined
@@ -214,11 +244,15 @@ async function push(s: Session): Promise<void> {
     const listRows = rows(pending.list, saved, listRow)
     const cwGone = gone(pending.cw, cw)
     const listGone = gone(pending.list, saved)
+    const dramaRows = rows(dramaOps, dramas, dramaRow)
+    const dramasGone = gone(dramaOps, dramas)
     if (cwRows.length) await s.backend.upsertContinue(cwRows)
     if (cwGone.length) await s.backend.deleteContinue(cwGone)
     if (listRows.length) await s.backend.upsertList(listRows)
     if (listGone.length) await s.backend.deleteList(listGone)
     if (pending.taste) await s.backend.saveTaste(readTaste())
+    if (dramaRows.length) await s.backend.upsertDramas(dramaRows)
+    if (dramasGone.length) await s.backend.deleteDramas(dramasGone)
   })()
   s.inFlight = work.then(
     () => undefined,
@@ -230,6 +264,7 @@ async function push(s: Session): Promise<void> {
     const now = readPending()
     for (const id of Object.keys(pending.cw)) if (!s.touched.cw.has(id) && now.cw[id] === pending.cw[id]) delete now.cw[id]
     for (const id of Object.keys(pending.list)) if (!s.touched.list.has(id) && now.list[id] === pending.list[id]) delete now.list[id]
+    for (const id of Object.keys(dramaOps)) if (!s.touched.dramas.has(id) && now.dramas[id] === dramaOps[id]) delete now.dramas[id]
     if (pending.taste && !s.touched.taste) now.taste = false
     writePending(now)
     setState({ status: 'idle', lastSyncedAt: Date.now() })
@@ -241,8 +276,12 @@ async function push(s: Session): Promise<void> {
   if (session === s && hasPending() && s.timer === undefined && s.retry === undefined) schedulePush()
 }
 
-const hasPending = (pending = readPending()) =>
-  Object.keys(pending.cw).length > 0 || Object.keys(pending.list).length > 0 || pending.taste !== false
+/** Something to send (short dramas only while the account takes them). */
+const hasPending = (pending = readPending(), dramas = session?.dramasReady ?? true) =>
+  Object.keys(pending.cw).length > 0 ||
+  Object.keys(pending.list).length > 0 ||
+  pending.taste !== false ||
+  (dramas && Object.keys(pending.dramas).length > 0)
 
 /** Loads the account, merges this device's pending changes in, and sends them. */
 function pull(s: Session): Promise<void> {
@@ -315,6 +354,14 @@ async function load(s: Session): Promise<void> {
     remote.listRows.map(listEntry).filter((e): e is WatchLaterEntry => e !== null),
     pending.list,
   )
+  s.dramasReady = Array.isArray(remote.dramaRows)
+  const dramas = s.dramasReady
+    ? mergeDramas(
+        readDramaHistory(),
+        (remote.dramaRows ?? []).map(dramaEntry).filter((e): e is DramaHistoryEntry => e !== null),
+        pending.dramas,
+      )
+    : null
   const local = readTaste()
   const taste =
     pending.taste === 'merge'
@@ -328,6 +375,7 @@ async function load(s: Session): Promise<void> {
   try {
     replaceContinueWatching(cw.list)
     replaceWatchLater(list.list)
+    if (dramas) replaceDramaHistory(dramas.list)
     if (JSON.stringify(taste) !== JSON.stringify(local)) replaceTaste(taste)
   } finally {
     s.applying = false
@@ -337,6 +385,9 @@ async function load(s: Session): Promise<void> {
   writePending({
     cw: { ...allPending(cw.upload), ...Object.fromEntries(cw.remove.map((id) => [id, 'del' as const])) },
     list: { ...allPending(list.upload), ...Object.fromEntries(list.remove.map((id) => [id, 'del' as const])) },
+    dramas: dramas
+      ? { ...allPending(dramas.upload), ...Object.fromEntries(dramas.remove.map((id) => [id, 'del' as const])) }
+      : pending.dramas,
     taste: pending.taste ? 'up' : false,
   })
   s.pulled = true
@@ -356,6 +407,7 @@ export async function startSync(userId: string, backend: SyncBackend): Promise<v
     writePending({
       cw: allPending(readContinueWatching()),
       list: allPending(readWatchLater()),
+      dramas: allPending(readDramaHistory()),
       taste: tasteHasData(profile) ? 'merge' : false,
     })
     try {
@@ -367,7 +419,8 @@ export async function startSync(userId: string, backend: SyncBackend): Promise<v
   const s: Session = {
     userId,
     backend,
-    seen: { cw: new Map(), list: new Map(), taste: '' },
+    seen: { cw: new Map(), list: new Map(), dramas: new Map(), taste: '' },
+    dramasReady: false,
     applying: false,
     pulled: false,
     lastPullAt: 0,
@@ -376,12 +429,12 @@ export async function startSync(userId: string, backend: SyncBackend): Promise<v
     retry: undefined,
     inFlight: null,
     pulling: null,
-    touched: { cw: new Set(), list: new Set(), taste: false },
+    touched: { cw: new Set(), list: new Set(), dramas: new Set(), taste: false },
     cleanup: [],
   }
   look(s)
   session = s
-  s.cleanup.push(subscribeContinueWatching(onLocalChange), subscribeWatchLater(onLocalChange), subscribeTaste(onLocalChange))
+  s.cleanup.push(subscribeContinueWatching(onLocalChange), subscribeWatchLater(onLocalChange), subscribeTaste(onLocalChange), subscribeDramaHistory(onLocalChange))
   const onHidden = () => {
     if (document.visibilityState === 'hidden') return requestSyncNow()
     // Back to the tab: what was watched on another phone meanwhile.

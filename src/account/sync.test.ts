@@ -10,7 +10,20 @@ import {
   type ContinueEntry,
 } from '../utils/continueWatching'
 import { readWatchLater, removeFromLater, saveForLater } from '../utils/watchLater'
-import { combineTaste, continueEntry, continueRow, mergeContinue, mergeList, type ContinueRow, type ListRow } from './merge'
+import { readDramaHistory, recordDramaView, removeDramaEntry, resetDramaHistory, setDramaEpisode, type DramaHistoryEntry } from '../dramas/history'
+import {
+  combineTaste,
+  continueEntry,
+  continueRow,
+  dramaEntry,
+  dramaRow,
+  mergeContinue,
+  mergeDramas,
+  mergeList,
+  type ContinueRow,
+  type DramaRow,
+  type ListRow,
+} from './merge'
 import { requestSyncNow, resetSync, startSync, stopSync, syncSettled, type SyncBackend } from './sync'
 
 const movie = (id: number, title = `Movie ${id}`): MediaItem => ({
@@ -36,14 +49,20 @@ const show: MediaItem = {
   seasons: [{ number: 1, name: 'Season 1', episodeCount: 10 }],
 }
 
-/** One account in memory, shared by "phones"; `down` makes every call fail (offline). */
+/**
+ * One account in memory, shared by "phones"; `down` makes every call fail
+ * (offline); `noDramaTable` is an account whose short-drama table isn't set
+ * up yet (005_drama_history.sql not run).
+ */
 function fakeAccount() {
   const data = {
     cw: new Map<string, ContinueRow>(),
     list: new Map<string, ListRow>(),
+    dramas: new Map<string, DramaRow>(),
     taste: null as TasteProfile | null,
   }
   let down = false
+  let noDramaTable = false
   const check = () => {
     if (down) return Promise.reject(new Error('offline'))
     return Promise.resolve()
@@ -51,7 +70,22 @@ function fakeAccount() {
   const backend: SyncBackend = {
     pull: async () => {
       await check()
-      return { continueRows: [...data.cw.values()], listRows: [...data.list.values()], taste: data.taste }
+      return {
+        continueRows: [...data.cw.values()],
+        listRows: [...data.list.values()],
+        taste: data.taste,
+        dramaRows: noDramaTable ? null : [...data.dramas.values()].map((row) => structuredClone(row)),
+      }
+    },
+    upsertDramas: async (rows) => {
+      await check()
+      if (noDramaTable) throw new Error('no drama_history table')
+      rows.forEach((row) => data.dramas.set(row.entry_id, structuredClone(row)))
+    },
+    deleteDramas: async (ids) => {
+      await check()
+      if (noDramaTable) throw new Error('no drama_history table')
+      ids.forEach((id) => data.dramas.delete(id))
     },
     upsertContinue: async (rows) => {
       await check()
@@ -74,7 +108,7 @@ function fakeAccount() {
       data.taste = structuredClone(profile)
     },
   }
-  return { data, backend, setDown: (value: boolean) => (down = value) }
+  return { data, backend, setDown: (value: boolean) => (down = value), setNoDramaTable: (value: boolean) => (noDramaTable = value) }
 }
 
 /** Switches to another phone: its own (empty, or earlier) localStorage. */
@@ -87,7 +121,28 @@ function useDevice(name: string) {
   Object.entries(phones.get(name) ?? {}).forEach(([key, value]) => localStorage.setItem(key, value))
   phones.set('__current', name as unknown as Record<string, string>)
   resetContinueWatching()
+  resetDramaHistory()
 }
+
+const drama = (dramaId: string, title = `Drama ${dramaId}`, episodeCount: number | null = 80) => ({
+  provider: 'dramabox',
+  dramaId,
+  title,
+  poster: `https://img.example/${dramaId}.jpg`,
+  episodeCount,
+})
+
+const dramaItem = (over: Partial<DramaHistoryEntry>): DramaHistoryEntry => ({
+  id: 'dramabox:1',
+  provider: 'dramabox',
+  dramaId: '1',
+  title: 'One',
+  poster: null,
+  episode: null,
+  episodeCount: 80,
+  viewedAt: 1,
+  ...over,
+})
 
 const entry = (over: Partial<ContinueEntry>): ContinueEntry => ({
   id: 'a',
@@ -154,6 +209,46 @@ describe('merging', () => {
     expect(continueEntry({ ...continueRow('u', mine), data: { ...continueRow('u', mine).data, playerSource: undefined } })).toMatchObject({ playerSource: null })
     const merged = mergeContinue([mine], [entry({ id: 'a', lastWatchedAt: 60, playerSource: 'VidStore' })], { a: 'up' })
     expect(merged.list[0]).toMatchObject({ playerSource: 'VidStore' })
+  })
+
+  it('keeps the newest of each short drama, and the newest 20 in all', () => {
+    const local = [dramaItem({ episode: 12, viewedAt: 50 })]
+    const remote = [dramaItem({ episode: 3, viewedAt: 10 }), dramaItem({ id: 'netshort:9', provider: 'netshort', dramaId: '9', viewedAt: 40 })]
+    const merged = mergeDramas(local, remote, { 'dramabox:1': 'up' })
+    expect(merged.list.map((e) => [e.id, e.episode])).toEqual([
+      ['dramabox:1', 12],
+      ['netshort:9', null],
+    ])
+    expect(merged.upload.map((e) => e.id)).toEqual(['dramabox:1'])
+
+    // The newer episode wins, whichever phone set it.
+    expect(mergeDramas([dramaItem({ episode: 30, viewedAt: 90 })], [dramaItem({ episode: 5, viewedAt: 20 })], { 'dramabox:1': 'up' }).list[0].episode).toBe(30)
+    expect(mergeDramas([dramaItem({ episode: 30, viewedAt: 10 })], [dramaItem({ episode: 5, viewedAt: 20 })], { 'dramabox:1': 'up' }).list[0].episode).toBe(5)
+
+    const many = Array.from({ length: 24 }, (_, i) => dramaItem({ id: `dramabox:${i}`, dramaId: String(i), viewedAt: i }))
+    const capped = mergeDramas([], many, {})
+    expect(capped.list).toHaveLength(20)
+    expect(capped.list[0].id).toBe('dramabox:23')
+    expect(capped.remove.sort()).toEqual(['dramabox:0', 'dramabox:1', 'dramabox:2', 'dramabox:3'])
+  })
+
+  it('turns short dramas into account rows and back', () => {
+    const entry = dramaItem({ episode: 12, poster: 'https://img.example/p.jpg', viewedAt: Date.parse('2026-11-17T10:00:00Z') })
+    const row = dramaRow('user-1', entry)
+    expect(row).toEqual({
+      user_id: 'user-1',
+      entry_id: 'dramabox:1',
+      provider: 'dramabox',
+      drama_id: '1',
+      title: 'One',
+      poster: 'https://img.example/p.jpg',
+      episode: 12,
+      episode_count: 80,
+      viewed_at: '2026-11-17T10:00:00.000Z',
+    })
+    expect(dramaEntry(row)).toEqual(entry)
+    expect(dramaEntry({ ...row, entry_id: 'dramabox:2' })).toBeNull()
+    expect(dramaRow('user-1', { ...entry, poster: `https://x/${'a'.repeat(1200)}` }).poster).toBeNull()
   })
 
   it('joins both My Lists', () => {
@@ -296,6 +391,75 @@ describe('syncing', () => {
     await vi.waitFor(() => expect(done).toBe(true))
     // Loaded: at once.
     await syncSettled(10_000)
+  })
+
+  it('shows the same short dramas, episode and all, on another phone', async () => {
+    const account = fakeAccount()
+    useDevice('phone A')
+    // Signed out first: kept on this phone only.
+    recordDramaView(drama('42000023802', 'He Broke the Heart That Saved Him', 52), 1000)
+    setDramaEpisode('dramabox:42000023802', 12, 2000)
+    await startSync('user-1', account.backend)
+    expect(account.data.dramas.get('dramabox:42000023802')).toMatchObject({ user_id: 'user-1', episode: 12, episode_count: 52 })
+
+    useDevice('phone B')
+    expect(readDramaHistory()).toEqual([])
+    recordDramaView(drama('7'), 1500)
+    await startSync('user-1', account.backend)
+    expect(readDramaHistory().map((e) => [e.id, e.episode])).toEqual([
+      ['dramabox:42000023802', 12],
+      ['dramabox:7', null],
+    ])
+
+    // Phone B moves on to episode 20; phone A sees it next time it loads the account.
+    setDramaEpisode('dramabox:42000023802', 20)
+    await requestSyncNow()
+    useDevice('phone A')
+    await startSync('user-1', account.backend)
+    expect(readDramaHistory()[0]).toMatchObject({ id: 'dramabox:42000023802', episode: 20, episodeCount: 52 })
+    expect(readDramaHistory()).toHaveLength(2)
+  })
+
+  it('carries a removed short drama to the other phone', async () => {
+    const account = fakeAccount()
+    useDevice('phone A')
+    await startSync('user-1', account.backend)
+    recordDramaView(drama('1'))
+    recordDramaView(drama('2'))
+    await requestSyncNow()
+    useDevice('phone B')
+    await startSync('user-1', account.backend)
+    expect(readDramaHistory()).toHaveLength(2)
+    removeDramaEntry('dramabox:1')
+    await requestSyncNow()
+    expect([...account.data.dramas.keys()]).toEqual(['dramabox:2'])
+    useDevice('phone A')
+    await startSync('user-1', account.backend)
+    expect(readDramaHistory().map((e) => e.id)).toEqual(['dramabox:2'])
+  })
+
+  it('keeps short dramas on the phone while the account has no table for them, and the rest syncs', async () => {
+    const account = fakeAccount()
+    account.setNoDramaTable(true)
+    useDevice('phone')
+    await startSync('user-1', account.backend)
+    recordDramaView(drama('5'))
+    setDramaEpisode('dramabox:5', 4)
+    recordPlay(movie(550))
+    await requestSyncNow()
+    expect(account.data.cw.has('tmdb-movie-550')).toBe(true)
+    expect(account.data.dramas.size).toBe(0)
+    expect(readDramaHistory()[0]).toMatchObject({ id: 'dramabox:5', episode: 4 })
+    const pending = JSON.parse(localStorage.getItem('naijatr.sync.pending')!)
+    expect(pending.cw).toEqual({})
+    expect(pending.dramas).toEqual({ 'dramabox:5': 'up' })
+
+    // The table is set up: the next load sends them.
+    account.setNoDramaTable(false)
+    stopSync()
+    await startSync('user-1', account.backend)
+    expect(account.data.dramas.get('dramabox:5')).toMatchObject({ episode: 4 })
+    expect(readDramaHistory()[0]).toMatchObject({ id: 'dramabox:5', episode: 4 })
   })
 
   it('sends nothing while signed out', async () => {

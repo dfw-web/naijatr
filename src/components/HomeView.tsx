@@ -7,6 +7,7 @@ import { useHomeCatalog } from '../hooks/useCatalog'
 import type { MediaItem } from '../types/media'
 import { ContinueWatchingRow } from './ContinueWatchingRow'
 import { WatchLaterRow } from './WatchLater'
+import { DramaHistoryRow } from './DramaHistoryRow'
 import { Hero } from './Hero'
 import { MediaRow } from './MediaRow'
 import { StatusMessage } from './StatusMessage'
@@ -115,6 +116,8 @@ export function HomeView({ onSelect, onBrowseTrending }: HomeViewProps) {
         <ContinueWatchingRow onSelect={onSelect} />
         {/* Titles saved with "Watch later" (hidden while there are none). */}
         <WatchLaterRow onSelect={onSelect} />
+        {/* Short dramas opened on /dramas, with the episode the viewer is on (hidden while there are none). */}
+        <DramaHistoryRow />
         <TelegramBanner />
         {/* "Go ad-free: invite friends" (hidden for ad-free accounts and on TVs). */}
         <InviteCard />

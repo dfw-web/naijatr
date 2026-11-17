@@ -362,3 +362,75 @@
   color: var(--text-muted);
   text-align: center;
 }
+
+/* "I'm on episode __": saved to the home page's "Your short dramas" row. */
+.dr-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.dr-picker__label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.dr-picker__control {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.dr-picker__step {
+  width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dr-picker__step:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.dr-picker__step:disabled {
+  color: var(--text-muted);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dr-picker__input {
+  width: 4.5rem;
+  border: 0;
+  border-inline: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.dr-picker__input::-webkit-outer-spin-button,
+.dr-picker__input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.dr-picker__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.dr-picker__of {
+  color: var(--text-muted);
+}

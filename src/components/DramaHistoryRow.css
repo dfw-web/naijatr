@@ -1,0 +1,132 @@
+/* "Your short dramas": portrait posters, the episode the viewer is on, and "Continue on DramaBox". */
+.drama-history {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--card-width);
+  scroll-snap-align: start;
+}
+
+.drama-history__open {
+  display: block;
+  border-radius: var(--radius);
+}
+
+.drama-history__open:focus-visible {
+  outline: none;
+}
+
+.drama-history__poster {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 300ms ease;
+}
+
+.drama-history__poster img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.drama-history__initial {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  color: var(--text-muted);
+}
+
+.drama-history__app {
+  position: absolute;
+  left: 0.45rem;
+  top: 0.45rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(5, 5, 8, 0.75);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.drama-history__open:hover .drama-history__poster,
+.drama-history__open:focus-visible .drama-history__poster {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.6),
+    0 0 0 2px var(--accent);
+}
+
+.drama-history__info {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.15rem 0;
+}
+
+.drama-history__title {
+  padding-right: 2.25rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.drama-history__episode {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.drama-history__continue {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin-top: 0.35rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.drama-history__continue:hover,
+.drama-history__continue:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* The ✕ sits under the poster, right of the title: always reachable on touch screens. */
+.drama-history__remove {
+  position: absolute;
+  right: -0.4rem;
+  top: calc(var(--card-width) * 4 / 3 + 0.1rem);
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.drama-history__remove:hover,
+.drama-history__remove:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.drama-history__remove svg {
+  width: 18px;
+  height: 18px;
+}

@@ -1,5 +1,6 @@
 import type { ContinueEntry } from '../utils/continueWatching'
 import type { WatchLaterEntry } from '../utils/watchLater'
+import { DRAMA_HISTORY_LIMIT, isDramaEntry, type DramaHistoryEntry } from '../dramas/history'
 import { attributeScores, MAX_ATTRIBUTES, MAX_TITLES, type TasteProfile } from '../taste/profile'
 
 /**
@@ -39,6 +40,19 @@ export interface ListRow {
   poster_path: string | null
   saved_at: string
   data: Pick<WatchLaterEntry, 'item'>
+}
+
+/** "Your short dramas" (supabase/migrations/005_drama_history.sql): one row per drama. */
+export interface DramaRow {
+  user_id: string
+  entry_id: string
+  provider: string
+  drama_id: string
+  title: string
+  poster: string | null
+  episode: number | null
+  episode_count: number | null
+  viewed_at: string
 }
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -103,6 +117,33 @@ export function listEntry(row: ListRow): WatchLaterEntry | null {
   return { id: row.title_id, savedAt: ms(row.saved_at), item }
 }
 
+export const dramaRow = (userId: string, e: DramaHistoryEntry): DramaRow => ({
+  user_id: userId,
+  entry_id: e.id,
+  provider: e.provider,
+  drama_id: e.dramaId,
+  // Inside the table's limits, so one odd drama can't hold up the rest.
+  title: e.title.slice(0, 300),
+  poster: e.poster && e.poster.length <= 1000 ? e.poster : null,
+  episode: e.episode,
+  episode_count: e.episodeCount,
+  viewed_at: iso(e.viewedAt),
+})
+
+export function dramaEntry(row: DramaRow): DramaHistoryEntry | null {
+  const entry = {
+    id: row.entry_id,
+    provider: row.provider,
+    dramaId: row.drama_id,
+    title: row.title ?? '',
+    poster: row.poster ?? null,
+    episode: row.episode ?? null,
+    episodeCount: row.episode_count ?? null,
+    viewedAt: ms(row.viewed_at),
+  }
+  return isDramaEntry(entry) ? entry : null
+}
+
 export interface Merged<T> {
   /** What this device keeps. */
   list: T[]
@@ -158,6 +199,23 @@ export const mergeContinue = (local: ContinueEntry[], remote: ContinueEntry[], p
 
 export const mergeList = (local: WatchLaterEntry[], remote: WatchLaterEntry[], pending: PendingMap) =>
   mergeEntries(local, remote, pending, (entry) => entry.savedAt)
+
+/**
+ * Short dramas merge like Continue Watching (the newest of each drama wins),
+ * then keep the newest 20: older ones also go from the account, or they'd
+ * come back into the row when a newer one is removed.
+ */
+export function mergeDramas(local: DramaHistoryEntry[], remote: DramaHistoryEntry[], pending: PendingMap): Merged<DramaHistoryEntry> {
+  const merged = mergeEntries(local, remote, pending, (entry) => entry.viewedAt)
+  const list = merged.list.slice(0, DRAMA_HISTORY_LIMIT)
+  const kept = new Set(list.map((entry) => entry.id))
+  const dropped = merged.list.filter((entry) => !kept.has(entry.id)).map((entry) => entry.id)
+  return {
+    list,
+    upload: merged.upload.filter((entry) => kept.has(entry.id)),
+    remove: [...new Set([...merged.remove, ...dropped])],
+  }
+}
 
 /** Everything on this device counts as pending (the first sign-in here). */
 export const allPending = (entries: { id: string }[]): PendingMap =>
