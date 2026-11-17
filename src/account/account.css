@@ -803,3 +803,57 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* "📩 Email sent to …": under every "we've sent you an email" message (EmailSentNote.tsx). */
+.email-sent {
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+}
+
+.email-sent__note {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.email-sent__note strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.email-sent__status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.email-sent__resend {
+  min-height: 48px;
+}
+
+.email-sent__limit {
+  margin: 0.25rem 0 0;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.email-sent__change {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.email-sent__change .account-sheet__link {
+  min-height: 44px;
+  padding: 0 0.25rem;
+  font-size: inherit;
+}

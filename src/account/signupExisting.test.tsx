@@ -120,7 +120,7 @@ describe('Create account with an email that already has an account', () => {
     expect(otp).toHaveBeenCalledWith({ email: 'tolu@example.com', options: { emailRedirectTo: 'http://localhost:3000/auth/confirm', shouldCreateUser: false } })
     // Rate-limited: a second resend right away sends nothing.
     expect(await resendConfirmation('tolu@example.com')).toEqual({ ok: false, message: expect.stringMatching(/^Please wait \d+ seconds/) })
-    expect(within(sheet()).getByRole('button', { name: /^Send it again \(\d+s\)$/ })).toBeDisabled()
+    expect(within(sheet()).getByRole('button', { name: /^Resend in \d+s$/ })).toBeDisabled()
     expect(otp).toHaveBeenCalledTimes(1)
   })
 

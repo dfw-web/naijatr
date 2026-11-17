@@ -14,7 +14,9 @@ import {
 } from './account'
 import { Benefits, PasswordInput } from './authParts'
 import { useCooldownSeconds } from './authRules'
+import { EmailSentNote } from './EmailSentNote'
 import { goBackFromAuth, pageLoad } from './pages'
+import { RESEND_LIMIT, recordResend, resendLimitWait, useResendWait } from './resendLimit'
 import { snooze } from './reminders'
 import './account.css'
 
@@ -46,7 +48,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /** What the page shows besides the two tabs' forms. */
 type Notice =
   | { kind: 'confirm-sent'; email: string }
-  | { kind: 'reset-sent' }
+  | { kind: 'reset-sent'; email: string }
   | { kind: 'forgot' }
 
 /** Signed in here: a moment to read it, then back where they came from. */
@@ -90,8 +92,19 @@ function SignInPanel({ tab }: { tab: SheetTab }) {
       </>
     )
   } else if (notice?.kind === 'confirm-sent') {
-    body = <ConfirmSent email={notice.email} onBack={() => setNotice(null)} />
+    const sentTo = notice.email
+    body = (
+      <ConfirmSent
+        email={sentTo}
+        onChangeEmail={() => {
+          // Back to the form it came from, with the address filled in.
+          setEmail(sentTo)
+          setNotice(null)
+        }}
+      />
+    )
   } else if (notice?.kind === 'reset-sent') {
+    const sentTo = notice.email
     body = (
       <>
         <MailCheck className="account-sheet__icon" aria-hidden="true" />
@@ -101,13 +114,28 @@ function SignInPanel({ tab }: { tab: SheetTab }) {
         <p className="account-sheet__text" role="status">
           If that email has an account, we’ve sent a reset link. Open it to choose a new password.
         </p>
+        <EmailSentNote
+          email={sentTo}
+          onResend={() => sendPasswordReset(sentTo)}
+          onChangeEmail={() => {
+            setEmail(sentTo)
+            setNotice({ kind: 'forgot' })
+          }}
+        />
         <button type="button" className="account-sheet__link" onClick={() => switchTab('login')}>
           Back to Log in
         </button>
       </>
     )
   } else if (notice?.kind === 'forgot') {
-    body = <ForgotForm email={email} onEmail={setEmail} onSent={() => setNotice({ kind: 'reset-sent' })} onBack={() => setNotice(null)} />
+    body = (
+      <ForgotForm
+        email={email}
+        onEmail={setEmail}
+        onSent={(to) => setNotice({ kind: 'reset-sent', email: to })}
+        onBack={() => setNotice(null)}
+      />
+    )
   } else {
     body = (
       <>
@@ -241,6 +269,7 @@ function LogInForm({ email, onEmail, onForgot, onLinkSent }: EmailProps & { onFo
   const [error, setError] = useState<'wrong' | 'unconfirmed' | 'rate' | 'offline' | 'other' | 'email' | null>(null)
   const [linkError, setLinkError] = useState<string | null>(null)
   const wait = useCooldownSeconds()
+  const resendWait = useResendWait()
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -253,12 +282,15 @@ function LogInForm({ email, onEmail, onForgot, onLinkSent }: EmailProps & { onFo
     if (!result.ok) setError(result.reason)
   }
 
-  /** "Resend confirmation" and "Email me a link to finish setup": both land on /auth/confirm. */
-  const sendLink = async () => {
+  /** "Resend confirmation" (a resend: 3 an hour) and "Email me a link to finish setup": both land on /auth/confirm. */
+  const sendLink = async (isResend: boolean) => {
     setLinkError(null)
+    if (isResend && resendLimitWait() > 0) return
     const result = await sendConfirmLink(email)
-    if (result.ok) onLinkSent(email.trim())
-    else setLinkError(result.message)
+    if (result.ok) {
+      if (isResend) recordResend()
+      onLinkSent(email.trim())
+    } else setLinkError(result.message)
   }
 
   const messages = {
@@ -284,12 +316,10 @@ function LogInForm({ email, onEmail, onForgot, onLinkSent }: EmailProps & { onFo
         <div className="account-sheet__error" role="alert">
           <p>{messages[error]}</p>
           {error === 'unconfirmed' && (
-            <button type="button" className="account-sheet__inline" onClick={() => void sendLink()} disabled={wait > 0}>
-              {wait > 0 ? `Resend confirmation (${wait}s)` : 'Resend confirmation'}
-            </button>
+            <ResendButton label="Resend confirmation" onClick={() => void sendLink(true)} wait={resendWait} />
           )}
           {error === 'wrong' && EMAIL.test(email.trim()) && (
-            <button type="button" className="account-sheet__inline" onClick={() => void sendLink()} disabled={wait > 0}>
+            <button type="button" className="account-sheet__inline" onClick={() => void sendLink(false)} disabled={wait > 0}>
               {wait > 0 ? `Never set a password? Email me a link (${wait}s)` : 'Never set a password? Email me a link to finish setup'}
             </button>
           )}
@@ -317,7 +347,7 @@ function CreateForm({
   const [error, setError] = useState<string | null>(null)
   const [existing, setExisting] = useState<Existing | null>(null)
   const [resending, setResending] = useState(false)
-  const wait = useCooldownSeconds()
+  const resendWait = useResendWait()
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -333,13 +363,15 @@ function CreateForm({
   }
 
   const resend = async () => {
-    if (!existing) return
+    if (!existing || resendLimitWait() > 0) return
     setResending(true)
     setError(null)
     const result = await resendConfirmation(existing.email)
     setResending(false)
-    if (result.ok) onSent(existing.email)
-    else setError(result.message)
+    if (result.ok) {
+      recordResend()
+      onSent(existing.email)
+    } else setError(result.message)
   }
 
   const changeEmail = (next: string) => {
@@ -369,9 +401,7 @@ function CreateForm({
           <div id="create-email-taken" className="account-sheet__field-error" role="alert">
             <p>This email is registered but not confirmed yet. Check your inbox or tap Resend email.</p>
             <div className="account-sheet__field-actions">
-              <button type="button" className="account-sheet__inline" onClick={() => void resend()} disabled={resending || wait > 0}>
-                {resending ? 'Sending…' : wait > 0 ? `Resend email (${wait}s)` : 'Resend email'}
-              </button>
+              <ResendButton label="Resend email" onClick={() => void resend()} wait={resendWait} sending={resending} />
             </div>
           </div>
         )}
@@ -387,16 +417,33 @@ function CreateForm({
   )
 }
 
-function ConfirmSent({ email, onBack }: { email: string; onBack: () => void }) {
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const wait = useCooldownSeconds()
-  const resend = async () => {
-    setSending(true)
-    const result = await sendConfirmLink(email)
-    setSending(false)
-    setError(result.ok ? null : result.message)
-  }
+/** The inline "Resend" buttons in the forms: 60 seconds apart, 3 an hour (resendLimit.ts). */
+function ResendButton({
+  label,
+  onClick,
+  wait,
+  sending = false,
+}: {
+  label: string
+  onClick: () => void
+  wait: { seconds: number; limitMinutes: number }
+  sending?: boolean
+}) {
+  return (
+    <>
+      <button type="button" className="account-sheet__inline" onClick={onClick} disabled={sending || wait.seconds > 0 || wait.limitMinutes > 0}>
+        {sending ? 'Sending…' : wait.limitMinutes === 0 && wait.seconds > 0 ? `Resend in ${wait.seconds}s` : label}
+      </button>
+      {wait.limitMinutes > 0 && (
+        <p className="email-sent__limit">
+          You can resend {RESEND_LIMIT} times an hour. Try again in {wait.limitMinutes} min.
+        </p>
+      )}
+    </>
+  )
+}
+
+function ConfirmSent({ email, onChangeEmail }: { email: string; onChangeEmail: () => void }) {
   return (
     <>
       <MailCheck className="account-sheet__icon" aria-hidden="true" />
@@ -404,24 +451,14 @@ function ConfirmSent({ email, onBack }: { email: string; onBack: () => void }) {
         Check your email to confirm your address
       </h1>
       <p className="account-sheet__text" role="status">
-        We sent a link to <strong>{email}</strong>. Open it on this device to finish. It can take a minute; check Spam too.
+        Open the link we sent on this device to finish. It can take a minute to arrive.
       </p>
-      {error && (
-        <p className="account-sheet__error" role="alert">
-          {error}
-        </p>
-      )}
-      <button type="button" className="account-sheet__secondary" onClick={() => void resend()} disabled={sending || wait > 0}>
-        {wait > 0 ? `Send it again (${wait}s)` : 'Send it again'}
-      </button>
-      <button type="button" className="account-sheet__link" onClick={onBack}>
-        Use a different email
-      </button>
+      <EmailSentNote email={email} onResend={() => sendConfirmLink(email)} onChangeEmail={onChangeEmail} />
     </>
   )
 }
 
-function ForgotForm({ email, onEmail, onSent, onBack }: EmailProps & { onSent: () => void; onBack: () => void }) {
+function ForgotForm({ email, onEmail, onSent, onBack }: EmailProps & { onSent: (email: string) => void; onBack: () => void }) {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submit = async (event: FormEvent) => {
@@ -431,7 +468,7 @@ function ForgotForm({ email, onEmail, onSent, onBack }: EmailProps & { onSent: (
     setError(null)
     const result = await sendPasswordReset(email)
     setSending(false)
-    if (result.ok) onSent()
+    if (result.ok) onSent(email.trim())
     else setError(result.message)
   }
   return (

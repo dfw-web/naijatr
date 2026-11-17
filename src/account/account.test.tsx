@@ -185,7 +185,7 @@ describe('accounts', () => {
       options: { emailRedirectTo: 'http://localhost:3000/auth/confirm', shouldCreateUser: true },
     })
     // No second email for 60 seconds.
-    expect(within(sheet).getByRole('button', { name: /Send it again \(\d+s\)/ })).toBeDisabled()
+    expect(within(sheet).getByRole('button', { name: /^Resend in \d+s$/ })).toBeDisabled()
     signup.unmount()
 
     // 2. The link opens /auth/confirm: signed in, tokens out of the address, "Create your password".

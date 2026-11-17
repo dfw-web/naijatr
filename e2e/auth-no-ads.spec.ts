@@ -155,8 +155,15 @@ test('no ads on any auth page, nor on the taps that open them', async ({ page, c
   await email.pressSequentially(EMAIL)
   await press(page.getByRole('button', { name: 'Create free account' }), mobile)
   await expect(page.getByRole('heading', { name: 'Check your email to confirm your address' })).toBeVisible()
+  // The "check your spam" note, the 60-second Resend and "Wrong email? Change it" (EmailSentNote.tsx).
+  await expect(page.getByText(`Email sent to ${EMAIL}. Can’t find it? Check your Spam or Promotions folder`, { exact: false })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Resend in \d+s$/ })).toBeDisabled()
+  if (process.env.E2E_SCREENSHOTS) await page.screenshot({ path: `${process.env.E2E_SCREENSHOTS}/email-sent-${testInfo.project.name}.png`, fullPage: true })
   await expectNoAds(page, requests, '/signup after Create account')
-  await press(page.getByRole('button', { name: 'Use a different email' }), mobile)
+  const changing = Date.now()
+  await press(page.getByRole('button', { name: 'Change it' }), mobile)
+  await expect(page.getByLabel('Email')).toHaveValue(EMAIL)
+  expect(tabs.since(changing), 'tabs opened by Change it').toEqual([])
 
   // ---- Log in: wrong password, show password, Forgot password, then the right one. ----
   await press(page.getByRole('tab', { name: 'Log in' }), mobile)
