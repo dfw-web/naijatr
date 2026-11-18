@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { CalendarDays, Clock, Star, X } from 'lucide-react'
 import { AdBreak } from '../ads/AdBreak'
 import { titleAdKey } from '../ads/adManager'
@@ -48,17 +48,11 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
     recordTaste(tasteItem, 'open')
   }, [settled, tasteItem])
 
-  // "More like this": always on TV; elsewhere once "Watch something similar" is pressed
-  // (a title that's on no server yet).
+  // "More like this" at the bottom of every film and series (TMDB's recommendations);
+  // "Watch something similar" (a title on no server yet) scrolls to it.
   const similar = onSelect && item.similar && item.similar.length > 0 ? item.similar : null
-  const [similarAsked, setSimilarAsked] = useState(false)
-  const showSimilar = Boolean(similar) && (isTvMode() || similarAsked)
   const moreRef = useRef<HTMLDivElement>(null)
-  const watchSimilar = () => {
-    setSimilarAsked(true)
-    // After the row is in the page.
-    window.requestAnimationFrame(() => moreRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  }
+  const watchSimilar = () => moreRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -239,7 +233,7 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
             </div>
           )}
         </div>
-        {showSimilar && similar && onSelect && (
+        {similar && onSelect && (
           <div className="modal__more" ref={moreRef}>
             <MediaRow id="more-like-this" title="More like this" items={similar} onSelect={onSelect} />
           </div>

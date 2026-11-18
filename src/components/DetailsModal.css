@@ -249,7 +249,7 @@
   color: var(--text-faint);
 }
 
-/* "More like this" outside TV mode: opened by "Watch something similar" (a title on no server yet). */
+/* "More like this" at the bottom of every film and series ("Watch something similar" scrolls here). */
 .modal__more {
   padding: 0 0 1.5rem;
   border-top: 1px solid var(--border);
