@@ -3,8 +3,7 @@ import { expect, test, type BrowserContext, type Frame, type Locator, type Page 
 /**
  * "No server found" (src/components/NotAvailable.tsx): a title on none of
  * the servers. In a real browser on desktop, a phone and TV mode, with the
- * real ad scripts: 15 s with no sign of life from the player (or the player
- * saying it has no source) brings "😔 Not available on NAIJA TR yet" under
+ * real ad scripts: 15 s with no sign of life from the player brings "😔 Not available on NAIJA TR yet" under
  * the player, never over it, and nothing above it moves; the switch-server
  * tips go; "Request this title" saves the request; "Watch something similar"
  * scrolls to "More like this"; none of it opens an ad.
@@ -138,17 +137,20 @@ test('15 s with no sign of life: "Not available" under the player, Request, Watc
   await expect(box).toHaveCount(0)
 })
 
-test('the player saying it has no source: the box at once, also in TV mode', async ({ page, context }, testInfo) => {
+test('TV mode: out of fullscreen, the box under the player, the remote on Request', async ({ page, context }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'TV mode is a big screen')
-  test.setTimeout(90_000)
+  test.setTimeout(120_000)
   await page.setViewportSize({ width: 1280, height: 720 })
   await fakeApis(context)
   const player = await openPlayer(page, false, '/?tv=1&title=movie-550')
   await expect(page.locator('html')).toHaveClass(/tv-mode/)
-  await player.evaluate(() => (window as unknown as { send: (e: string, i: unknown) => void }).send('error', 'No server found'))
+  // One server failing isn't "no server found"; 15 s of nothing is.
+  await player.evaluate(() => (window as unknown as { send: (e: string, i: unknown) => void }).send('error', 'VidStore failed'))
   const box = page.getByRole('region', { name: BOX })
+  await page.waitForTimeout(2000)
+  await expect(box).toHaveCount(0)
   // Play opened fullscreen on the TV: it leaves it, so the box (under the player, never over it) can be seen.
-  await expect(box).toBeVisible({ timeout: 3000 })
+  await expect(box).toBeVisible({ timeout: 20_000 })
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
   expect(await placement(page)).toEqual({ underButtons: true, clearOfVideo: true, inWidth: true, noSideScroll: true })
   // The remote is on Request.

@@ -14,8 +14,8 @@ import type { ProblemKind } from '../live/playerProblems'
  *   moving for 10 seconds while playing. It goes once the video plays again,
  *   has a ✕, and shows even when the ⚡ note was dismissed.
  *
- * - "Not available": no ready/play/time event 15 seconds after opening, or
- *   the player saying it found no source: the title is on none of the
+ * - "Not available": no ready/play/time event 15 seconds after opening (or
+ *   a message saying there's no source at all): the title is on none of the
  *   servers ("No server found"), so the switch-server hint and ⚡ note give
  *   way to <NotAvailable> (./NotAvailable.tsx) under the player.
  *
@@ -33,13 +33,16 @@ export const NOT_AVAILABLE_MS = 15_000
 const PLAYER_EVENTS = 'embedmaster_player'
 /** Events that mean the player has loaded the video (or is playing it). */
 const READY_EVENTS = new Set(['ready', 'play', 'playing', 'time', 'duration', 'loadedmetadata', 'loadeddata', 'canplay', 'pause'])
-/** Events (or messages) by which a player may say it has no source for the title. */
-const NO_SOURCE_EVENTS = new Set(['error', 'notfound', 'not_found', 'nosources', 'no_sources', 'nosource', 'noserver', 'no_server', 'unavailable', 'sourcesempty'])
-const NO_SOURCE_TEXT = /no (?:server|source)s? (?:found|available)|not found|no sources|unavailable/i
+/**
+ * A message saying the title has no source at all. EmbedMaster's player
+ * (embdmstrplayer.com) shows "No sources found" without telling the page, and
+ * its `error` event means one server failed while it moves to the next: so
+ * only an explicit "no sources" text counts, else the 15-second rule.
+ */
+const NO_SOURCE_TEXT = /\bno (?:server|source|streaming source)s? (?:found|available)\b/i
 
-/** True when a player event says it found nothing to play. */
-export const saysNoSource = (event: string, info: unknown) =>
-  NO_SOURCE_EVENTS.has(event.toLowerCase()) || (typeof info === 'string' && NO_SOURCE_TEXT.test(info))
+/** True when a player event says it found nothing to play at all. */
+export const saysNoSource = (_event: string, info: unknown) => typeof info === 'string' && NO_SOURCE_TEXT.test(info)
 
 /** True when `win` is `frame`'s window or one nested inside it. */
 const isInside = (win: MessageEventSource | null, frame: Window | null | undefined) => {

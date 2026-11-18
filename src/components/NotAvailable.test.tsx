@@ -104,13 +104,23 @@ describe('"No server found": not available on NAIJA TR yet', () => {
 
   it('shows at once when the player says it has no source, and goes if it plays after all', async () => {
     const { send } = await openPlayer()
-    send('error', 'No server found')
+    send('error', 'No sources found')
     expect(box()).toBeInTheDocument()
     send('ready')
     expect(box()).toBeNull()
     await wait(NOT_AVAILABLE_MS * 2)
     expect(box()).toBeNull()
     expect(screen.getByText(SERVER_NOTE)).toBeInTheDocument()
+  })
+
+  it('isn’t fooled by one server failing while the player moves to the next', async () => {
+    const { send } = await openPlayer()
+    send('duration', 6000)
+    send('error', 'VidStore failed')
+    send('error', 'server failed')
+    expect(box()).toBeNull()
+    await wait(NOT_AVAILABLE_MS * 2)
+    expect(box()).toBeNull()
   })
 
   it('stays away when the player answers in time', async () => {
@@ -123,7 +133,7 @@ describe('"No server found": not available on NAIJA TR yet', () => {
 
   it('“Request this title” saves the request, with the episode; remembered next time', async () => {
     const { send } = await openPlayer(show)
-    send('error')
+    send('error', 'No server found')
     await user.click(screen.getByRole('button', { name: 'Request this title' }))
     expect(requests).toHaveLength(1)
     expect(requests[0].body).toMatchObject({ item: 'tv:1399', title: 'Game of Thrones', ep: 's1e1' })
@@ -138,7 +148,7 @@ describe('"No server found": not available on NAIJA TR yet', () => {
   it('says “Requested” on a title this device already asked for', async () => {
     localStorage.setItem('naijatr.requestedTitles', JSON.stringify(['movie:550']))
     const { send } = await openPlayer()
-    send('error')
+    send('error', 'No server found')
     expect(screen.getByRole('button', { name: 'Requested' })).toBeDisabled()
     expect(requests).toHaveLength(0)
   })
@@ -147,7 +157,7 @@ describe('"No server found": not available on NAIJA TR yet', () => {
     token.value = 'access-token'
     answer = () => Response.json({ ok: true, count: 3, already: false, email: true })
     const { send } = await openPlayer()
-    send('nosources')
+    send('error', 'No sources found.')
     await user.click(screen.getByRole('button', { name: 'Request this title' }))
     expect(requests[0].auth).toBe('Bearer access-token')
     expect(await screen.findByText('Thanks! Your request is saved. We’ll email you when it’s available.')).toBeInTheDocument()
@@ -173,7 +183,7 @@ describe('"No server found": not available on NAIJA TR yet', () => {
     document.addEventListener('click', adScript)
     const similar = vi.fn()
     const { send } = await openPlayer(film, similar, host)
-    send('error')
+    send('error', 'No server found')
     adScript.mockClear()
     await user.click(screen.getByRole('button', { name: 'Watch something similar' }))
     expect(similar).toHaveBeenCalledOnce()
@@ -187,7 +197,7 @@ describe('"No server found": not available on NAIJA TR yet', () => {
 
   it('has no “Watch something similar” without similar titles', async () => {
     const { send } = await openPlayer()
-    send('error')
+    send('error', 'No server found')
     expect(screen.queryByRole('button', { name: 'Watch something similar' })).toBeNull()
   })
 })
