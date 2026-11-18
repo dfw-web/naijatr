@@ -1,11 +1,13 @@
 /**
  * "🔔 Request this title" (server/live/requests.ts): a title that's on no
  * server ("No server found"). Sent with the live counter's random device id,
- * and the account's access token when signed in (so we can email them when
- * it's added). The titles this device asked for are remembered, so the
+ * and the account's access token when signed in (so an account counts once
+ * across its devices). Nobody is emailed. The titles this device asked for are remembered, so the
  * button says "Requested" next time.
  */
 import { accessToken } from '../account/client'
+import { isDevHost } from '../ads/directLink'
+import type { PlayerServerId } from '../config/players'
 import { sessionId } from './heartbeat'
 
 const REQUESTED_KEY = 'naijatr.requestedTitles'
@@ -19,7 +21,7 @@ export interface TitleRequestInput {
   ep: string | null
 }
 
-export type RequestOutcome = { ok: true; email: boolean } | { ok: false; reason: 'limit' | 'failed' }
+export type RequestOutcome = { ok: true } | { ok: false; reason: 'limit' | 'failed' }
 
 function readRequested(): string[] {
   try {
@@ -52,10 +54,32 @@ export async function requestTitle(input: TitleRequestInput, fetchImpl: typeof f
     })
     if (response.status === 429) return { ok: false, reason: 'limit' }
     if (!response.ok) return { ok: false, reason: 'failed' }
-    const body = (await response.json().catch(() => null)) as { email?: unknown } | null
     remember(input.item)
-    return { ok: true, email: body?.email === true }
+    return { ok: true }
   } catch {
     return { ok: false, reason: 'failed' }
   }
 }
+
+/** Reported this visit already (once per title and episode is plenty). */
+const reportedPlaying = new Set<string>()
+
+/**
+ * The player really started playing this title (either server, EmbedMaster
+ * included): the daily check of requested titles counts it once viewers on
+ * two networks have seen it play (server/live/requests.ts). The server keeps
+ * it only for requested titles. Never from a developer's machine.
+ */
+export function reportPlaying(report: { item: string; ep: string | null; server: PlayerServerId }): void {
+  const key = `${report.item}|${report.ep ?? ''}`
+  if (reportedPlaying.has(key) || isDevHost()) return
+  reportedPlaying.add(key)
+  try {
+    navigator.sendBeacon?.('/api/live/playing', new Blob([JSON.stringify(report)], { type: 'application/json' }))
+  } catch {
+    // Not counted.
+  }
+}
+
+/** Test helper. */
+export const resetReportedPlaying = () => reportedPlaying.clear()

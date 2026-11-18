@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installQuietZones } from '../ads/adManager'
+import { resetReportedPlaying } from '../live/titleRequests'
 import type { MediaItem } from '../types/media'
 import { NOT_AVAILABLE_MS, SLOW_LOAD_MS } from './PlayerHelp'
 import { PlayerPanel } from './PlayerPanel'
@@ -36,6 +37,8 @@ const SERVER_NOTE = /Movie slow to load or not playing\?/
 let user: ReturnType<typeof userEvent.setup>
 let requests: { body: Record<string, unknown>; auth: string | null }[]
 let answer: () => Response
+let beacons: { url: string; body: Promise<unknown> }[]
+const playingReports = () => Promise.all(beacons.filter((b) => b.url === '/api/live/playing').map((b) => b.body))
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -43,7 +46,9 @@ beforeEach(() => {
   requests = []
   token.value = null
   localStorage.clear()
-  answer = () => Response.json({ ok: true, count: 1, already: false, email: false })
+  answer = () => Response.json({ ok: true, count: 1, already: false })
+  resetReportedPlaying()
+  beacons = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -54,7 +59,13 @@ beforeEach(() => {
       return new Response('{}')
     }),
   )
-  Object.defineProperty(navigator, 'sendBeacon', { configurable: true, value: vi.fn(() => true) })
+  Object.defineProperty(navigator, 'sendBeacon', {
+    configurable: true,
+    value: vi.fn((url: string, body: Blob) => {
+      beacons.push({ url, body: body.text().then((text) => JSON.parse(text) as unknown) })
+      return true
+    }),
+  })
 })
 
 afterEach(() => {
@@ -153,14 +164,26 @@ describe('"No server found": not available on NAIJA TR yet', () => {
     expect(requests).toHaveLength(0)
   })
 
-  it('signed in: sends the account and says we’ll email them', async () => {
+  it('signed in: sends the account (counted once across its devices), and promises no email', async () => {
     token.value = 'access-token'
-    answer = () => Response.json({ ok: true, count: 3, already: false, email: true })
+    answer = () => Response.json({ ok: true, count: 3, already: false })
     const { send } = await openPlayer()
     send('error', 'No sources found.')
     await user.click(screen.getByRole('button', { name: 'Request this title' }))
     expect(requests[0].auth).toBe('Bearer access-token')
-    expect(await screen.findByText('Thanks! Your request is saved. We’ll email you when it’s available.')).toBeInTheDocument()
+    expect(await screen.findByText('Thanks! Your request is saved.')).toBeInTheDocument()
+    expect(screen.queryByText(/email/i)).toBeNull()
+  })
+
+  it('tells us once when the video really plays (for the daily check of requested titles)', async () => {
+    const { send } = await openPlayer(show)
+    send('duration', 3000)
+    send('play')
+    send('time', 0)
+    expect(await playingReports()).toEqual([])
+    send('time', 1)
+    send('time', 2)
+    expect(await playingReports()).toEqual([{ item: 'tv:1399', ep: 's1e1', server: 'nextstream' }])
   })
 
   it('the note’s “Request” sends it too; a failure can be tried again', async () => {

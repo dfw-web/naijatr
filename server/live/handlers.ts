@@ -44,7 +44,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { redis, readRedisEnv, type Command, type RedisEnv } from '../redis.js'
-import { checkRequestedTitles, listTitleRequests, parseTitleRequest, readRequestsEnv, saveTitleRequest, userOfToken, type RequestsEnv } from './requests.js'
+import { checkRequestedTitles, listTitleRequests, parsePlaying, parseTitleRequest, readRequestsEnv, recordPlaying, saveTitleRequest, userOfToken, type RequestsEnv } from './requests.js'
 
 /** Anyone without a heartbeat for this long has left. */
 export const WINDOW_MS = 2 * 60 * 1000
@@ -124,7 +124,7 @@ export interface LiveEnv extends RedisEnv {
   adminPassword: string
   /** NEXTSTREAM_KEY_ISSUED (YYYY-MM-DD): the day our CodeSpecter key was issued, for its expiry warning. */
   keyIssued?: string
-  /** Title requests (./requests.ts): Supabase, Telegram, Resend, NextStream and the cron secret. */
+  /** Title requests (./requests.ts): Supabase (whose account), Telegram, NextStream, TMDB and the cron secret. */
   requests?: RequestsEnv
 }
 
@@ -428,7 +428,7 @@ function isCronOrAdmin(env: LiveEnv, requests: RequestsEnv, authorization: strin
 }
 
 /**
- * Serves POST /api/live/heartbeat, /ad, /player, /problem and /request, GET
+ * Serves POST /api/live/heartbeat, /ad, /player, /problem, /request and /playing, GET
  * /api/live/count and /requests (admin only), and GET /requests-check (the
  * daily cron, or the admin).
  */
@@ -491,7 +491,7 @@ export async function handleLive(
     await recordProblem(env, report, now, fetchImpl)
     return sendJson(res, 200, {})
   }
-  if (action === 'request' || action === 'requests' || action === 'requests-check') {
+  if (action === 'request' || action === 'requests' || action === 'requests-check' || action === 'playing') {
     const requests = env.requests ?? readRequestsEnv({})
     const store = { ...requests, redisUrl: env.redisUrl, redisToken: env.redisToken }
     if (action === 'request') {
@@ -508,6 +508,19 @@ export async function handleLive(
       const userId = await userOfToken(store, token, fetchImpl)
       const result = await saveTitleRequest(store, request, userId, clientIp(req), now, fetchImpl)
       return sendJson(res, result.status, result.body)
+    }
+    if (action === 'playing') {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+      let body: unknown
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendJson(res, 400, { error: 'bad-request' })
+      }
+      const report = parsePlaying(body)
+      if (!report) return sendJson(res, 400, { error: 'bad-request' })
+      await recordPlaying(store, report, clientIp(req), now, fetchImpl)
+      return sendJson(res, 200, {})
     }
     if (action === 'requests') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })

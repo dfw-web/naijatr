@@ -49,6 +49,7 @@ import { reportPlayer } from '../live/playerStats'
 import { deviceKind, reportPlayerProblem } from '../live/playerProblems'
 import { PlayerNotes, SlowHint, usePlaybackHealth, type HealthProblem } from './PlayerHelp'
 import { NotAvailable, useTitleRequest } from './NotAvailable'
+import { reportPlaying } from '../live/titleRequests'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import { SubtitleMenu, SubtitleOverlay, usePlayerSubtitles } from '../subtitles/PlayerSubtitles'
 import type { SubtitleTarget } from '../subtitles/subtitles'
@@ -438,18 +439,32 @@ export function PlayerPanel({
   // Slow to start, or stuck mid-show: the hint above the player, and a line on /admin/live.
   const healthRun = watchingSrc && active ? `${active.server ?? ''}-${active.attempt}-${watchingSrc}` : null
   const healthServer = active?.server
-  const health = usePlaybackHealth(healthRun, frameRef, ({ kind, source }: HealthProblem) => {
-    if (!watchingSrc || !healthServer || item.tmdbId === undefined) return
-    const ep = episodeOfSrc(watchingSrc)
-    reportPlayerProblem({
-      kind,
-      item: `${isSeries ? 'tv' : 'movie'}:${item.tmdbId}`,
-      ep: isSeries && ep.season !== undefined ? `s${ep.season}e${ep.episode}` : null,
-      server: healthServer,
-      source,
-      device: deviceKind(),
-    })
-  })
+  const health = usePlaybackHealth(
+    healthRun,
+    frameRef,
+    ({ kind, source }: HealthProblem) => {
+      if (!watchingSrc || !healthServer || item.tmdbId === undefined) return
+      const ep = episodeOfSrc(watchingSrc)
+      reportPlayerProblem({
+        kind,
+        item: `${isSeries ? 'tv' : 'movie'}:${item.tmdbId}`,
+        ep: isSeries && ep.season !== undefined ? `s${ep.season}e${ep.episode}` : null,
+        server: healthServer,
+        source,
+        device: deviceKind(),
+      })
+    },
+    // Really playing: a requested title found on a server (EmbedMaster included), for the daily check.
+    () => {
+      if (!watchingSrc || !healthServer || item.tmdbId === undefined) return
+      const ep = episodeOfSrc(watchingSrc)
+      reportPlaying({
+        item: `${isSeries ? 'tv' : 'movie'}:${item.tmdbId}`,
+        ep: isSeries && ep.season !== undefined ? `s${ep.season}e${ep.episode}` : null,
+        server: healthServer,
+      })
+    },
+  )
 
   // On no server at all ("No server found"): the "Not available" box and its Request.
   const missingEp = watchingSrc && isSeries ? episodeOfSrc(watchingSrc) : null

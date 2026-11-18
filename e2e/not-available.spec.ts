@@ -33,9 +33,18 @@ async function fakeApis(context: BrowserContext) {
   const requests: Record<string, unknown>[] = []
   await context.route('**/api/live/request', (route) => {
     requests.push(route.request().postDataJSON() as Record<string, unknown>)
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, count: requests.length, already: false, email: false }) })
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, count: requests.length, already: false }) })
   })
   return requests
+}
+
+/** "It's playing" reports (beacons, which routes don't see): read off the requests. */
+function watchPlaying(context: BrowserContext) {
+  const reports: unknown[] = []
+  context.on('request', (request) => {
+    if (request.url().endsWith('/api/live/playing')) reports.push(request.postDataJSON())
+  })
+  return reports
 }
 
 function watchTabs(context: BrowserContext) {
@@ -95,6 +104,7 @@ test('15 s with no sign of life: "Not available" under the player, Request, Watc
   test.setTimeout(150_000)
   const mobile = testInfo.project.name === 'mobile'
   const requests = await fakeApis(context)
+  const playing = watchPlaying(context)
   const tabs = watchTabs(context)
   const player = await openPlayer(page, mobile)
   const send = (event: string, info?: unknown) => player.evaluate(([e, i]) => (window as unknown as { send: (e: string, i: unknown) => void }).send(e, i), [event, info] as const)
@@ -120,6 +130,7 @@ test('15 s with no sign of life: "Not available" under the player, Request, Watc
   await press(box.getByRole('button', { name: 'Request this title' }), mobile)
   await expect(box.getByRole('button', { name: 'Requested' })).toBeDisabled()
   await expect(box.getByText('Thanks! Your request is saved.')).toBeVisible()
+  await expect(box.getByText(/email/i)).toHaveCount(0)
   await expect(notes.filter({ hasText: 'Requested ✓ We’ll add it soon.' })).toHaveCount(1)
   expect(requests).toHaveLength(1)
   expect(requests[0]).toMatchObject({ item: 'movie:550', title: 'Fight Club', ep: null })
@@ -132,9 +143,14 @@ test('15 s with no sign of life: "Not available" under the player, Request, Watc
   await page.waitForTimeout(2500)
   expect(tabs.since(tapped), 'tabs opened by Request or Watch something similar').toBe(0)
 
-  // ---- Back in the page: the player plays after all: the box goes. ----
+  // ---- Back in the page: the player plays after all: the box goes, and the play is reported once. ----
   await send('ready')
   await expect(box).toHaveCount(0)
+  expect(playing).toEqual([])
+  await send('play')
+  for (let t = 1; t <= 3; t++) await send('time', t)
+  await expect.poll(() => playing.length).toBe(1)
+  expect(playing[0]).toEqual({ item: 'movie:550', ep: null, server: 'nextstream' })
 })
 
 test('TV mode: out of fullscreen, the box under the player, the remote on Request', async ({ page, context }, testInfo) => {

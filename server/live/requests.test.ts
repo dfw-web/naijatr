@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import { fakeRedis } from '../testing/fakeRedis'
 import { handleLive, type LiveEnv } from './handlers'
-import { ALERT_AT, DAILY_PER_DEVICE, parseTitleRequest, playPath, readRequestsEnv, type RequestsEnv } from './requests'
+import { ALERT_AT, DAILY_PER_DEVICE, parsePlaying, parseTitleRequest, playPath, readRequestsEnv, type RequestsEnv } from './requests'
 
 const NOW = Date.parse('2026-11-18T12:00:00Z')
 const DEVICE = (n: number) => `device-${String(n).padStart(12, '0')}`
@@ -103,16 +103,17 @@ describe('title requests', () => {
 
   it('counts one request per person per title: per device, and per account when signed in', async () => {
     const w = world()
-    expect((await ask(w.fetchImpl, 1)).json).toEqual({ ok: true, count: 1, already: false, email: false })
+    expect((await ask(w.fetchImpl, 1)).json).toEqual({ ok: true, count: 1, already: false })
     // The same phone again: not counted twice.
     expect((await ask(w.fetchImpl, 1)).json).toMatchObject({ count: 1, already: true })
-    // Signed in on a second phone: counted, and they'll be emailed.
-    expect((await ask(w.fetchImpl, 2, { auth: 'Bearer good-token' })).json).toEqual({ ok: true, count: 2, already: false, email: true })
+    // Signed in on a second phone: counted.
+    expect((await ask(w.fetchImpl, 2, { auth: 'Bearer good-token' })).json).toEqual({ ok: true, count: 2, already: false })
     // The same account on a third phone: still one.
-    expect((await ask(w.fetchImpl, 3, { auth: 'Bearer good-token' })).json).toMatchObject({ count: 2, already: true, email: true })
+    expect((await ask(w.fetchImpl, 3, { auth: 'Bearer good-token' })).json).toMatchObject({ count: 2, already: true })
     // A token Supabase refuses: just a device.
-    expect((await ask(w.fetchImpl, 4, { auth: 'Bearer forged' })).json).toMatchObject({ count: 3, email: false })
-    expect([...w.redis.sets.get('requests:users:movie:550')!]).toEqual([USER])
+    expect((await ask(w.fetchImpl, 4, { auth: 'Bearer forged' })).json).toMatchObject({ count: 3 })
+    // Nobody is emailed: no list of requesters is kept.
+    expect(w.redis.sets.has('requests:users:movie:550')).toBe(false)
     expect(w.redis.hashes.get('requests:meta:movie:550')?.get('title')).toBe('Fight Club')
   })
 
@@ -144,12 +145,12 @@ describe('title requests', () => {
     const list = await call('requests', 'GET', w.fetchImpl, { auth: 'Bearer open sesame' })
     expect(list.json.total).toBe(2)
     expect(list.json.titles).toMatchObject([
-      { item: 'movie:550', count: 2, title: 'Fight Club', waiting: 1, availableAt: null },
-      { item: 'tv:1399', count: 1, title: 'GoT', waiting: 0 },
+      { item: 'movie:550', count: 2, title: 'Fight Club', availableAt: null, seenPlaying: 0 },
+      { item: 'tv:1399', count: 1, title: 'GoT' },
     ])
   })
 
-  it('checks waiting titles each day and emails the signed-in requesters once it plays', async () => {
+  it('checks waiting titles each day with NextStream, emails nobody, and tells the admin', async () => {
     const playable = new Set<string>()
     const w = world({ playable })
     await ask(w.fetchImpl, 1, { auth: 'Bearer good-token' })
@@ -158,30 +159,59 @@ describe('title requests', () => {
     // Only the cron (CRON_SECRET) or the admin may run it.
     expect((await call('requests-check', 'GET', w.fetchImpl)).status).toBe(401)
     expect((await call('requests-check', 'GET', w.fetchImpl, { auth: 'Bearer cron-secret' })).json).toMatchObject({ checked: 2, nowPlaying: [], stillMissing: 2 })
-    expect(w.emails).toEqual([])
 
     // Fight Club starts playing.
     playable.add('/movie/550')
     const check = await call('requests-check', 'GET', w.fetchImpl, { auth: 'Bearer cron-secret' })
-    expect(check.json).toMatchObject({ checked: 2, nowPlaying: [{ item: 'movie:550', title: 'Fight Club', emailed: 1 }], stillMissing: 1 })
-    expect(w.emails).toHaveLength(1)
-    expect(w.emails[0]).toMatchObject({ to: [USER_EMAIL], subject: '🎬 Fight Club is now on NAIJA TR' })
-    expect(w.emails[0].text).toContain('https://www.naijatr.com/?title=movie-550')
-    expect(w.telegram.at(-1)).toContain('✅ Fight Club: playing now (emailed 1)')
-    expect(w.redis.sets.get('requests:users:movie:550')).toBeUndefined()
+    expect(check.json).toMatchObject({ checked: 2, nowPlaying: [{ item: 'movie:550', title: 'Fight Club', via: 'nextstream' }], stillMissing: 1 })
+    expect(w.emails).toEqual([])
+    expect(w.telegram.at(-1)).toContain('✅ Fight Club: playing now')
 
-    // The next day: not checked or emailed again; the series is checked on the episode that failed.
+    // The next day: not checked again; the series is checked on the episode that failed.
     const again = await call('requests-check', 'POST', w.fetchImpl, { auth: 'Bearer open sesame' })
     expect(again.json).toMatchObject({ checked: 1, nowPlaying: [], stillMissing: 1 })
-    expect(w.emails).toHaveLength(1)
     playable.add('/tv/1399/2/5')
-    expect((await call('requests-check', 'GET', w.fetchImpl, { auth: 'Bearer cron-secret' })).json).toMatchObject({ nowPlaying: [{ item: 'tv:1399', title: 'Game of Thrones', emailed: 0 }] })
+    expect((await call('requests-check', 'GET', w.fetchImpl, { auth: 'Bearer cron-secret' })).json).toMatchObject({ nowPlaying: [{ item: 'tv:1399', title: 'Game of Thrones' }] })
 
     // Asked for again after it played: missing again, so it's checked again.
     await ask(w.fetchImpl, 5)
     expect(w.redis.hashes.get('requests:meta:movie:550')?.has('availableAt')).toBe(false)
     const list = await call('requests', 'GET', w.fetchImpl, { auth: 'Bearer open sesame' })
-    expect(list.json.titles).toContainEqual(expect.objectContaining({ item: 'tv:1399', availableAt: NOW }))
+    expect(list.json.titles).toContainEqual(expect.objectContaining({ item: 'tv:1399', availableAt: NOW, foundBy: 'nextstream' }))
+    expect(w.emails).toEqual([])
+  })
+
+  it('counts a title as playing once viewers on 2 networks saw it play (EmbedMaster included), with no key call', async () => {
+    const w = world()
+    const play = (body: unknown, ip: string) => call('playing', 'POST', w.fetchImpl, { body, ip })
+    expect(parsePlaying({ item: 'movie:550', server: 'other' })).toBeNull()
+    // Nobody asked for it yet: not kept.
+    expect((await play({ item: 'movie:550', server: 'embedmaster' }, '1.1.1.1')).status).toBe(200)
+    expect(w.redis.zsets.has('requests:played:movie:550')).toBe(false)
+
+    await ask(w.fetchImpl, 1)
+    await ask(w.fetchImpl, 2, { item: 'tv:1399', title: 'GoT', ep: 's2e5' })
+    await play({ item: 'movie:550', server: 'embedmaster' }, '1.1.1.1')
+    // The same network twice is one.
+    await play({ item: 'movie:550', server: 'embedmaster' }, '1.1.1.1')
+    // Another episode of the series proves nothing about S2 E5.
+    await play({ item: 'tv:1399', ep: 's1e1', server: 'embedmaster' }, '2.2.2.2')
+    await play({ item: 'tv:1399', ep: 's1e1', server: 'embedmaster' }, '3.3.3.3')
+    let list = await call('requests', 'GET', w.fetchImpl, { auth: 'Bearer open sesame' })
+    expect(list.json.titles).toContainEqual(expect.objectContaining({ item: 'movie:550', seenPlaying: 1 }))
+    expect(list.json.titles).toContainEqual(expect.objectContaining({ item: 'tv:1399', seenPlaying: 0 }))
+
+    await play({ item: 'movie:550', server: 'nextstream' }, '4.4.4.4')
+    const env: LiveEnv = { ...ENV, requests: { ...REQUESTS, nextstream: { ...REQUESTS.nextstream, movieTemplate: '', tvTemplate: '' } } }
+    const res = fakeResponse()
+    const req = { method: 'GET', headers: { authorization: 'Bearer cron-secret' } } as unknown as IncomingMessage
+    // Even with NextStream off: what viewers saw is enough.
+    await handleLive(env, 'requests-check', req, res as unknown as ServerResponse, w.fetchImpl, NOW)
+    expect(JSON.parse(res.body)).toMatchObject({ nowPlaying: [{ item: 'movie:550', title: 'Fight Club', via: 'viewers' }] })
+    expect(w.telegram.at(-1)).toContain('✅ Fight Club: playing now (seen playing by viewers)')
+    expect(w.emails).toEqual([])
+    list = await call('requests', 'GET', w.fetchImpl, { auth: 'Bearer open sesame' })
+    expect(list.json.titles).toContainEqual(expect.objectContaining({ item: 'movie:550', foundBy: 'viewers', availableAt: NOW }))
   })
 
   it('says so when NextStream isn’t set up, and checks nothing', async () => {

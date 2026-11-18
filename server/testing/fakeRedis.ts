@@ -124,6 +124,10 @@ export function fakeRedis(now: () => number = Date.now) {
         const score = zsets.get(key)?.get(args[1])
         return score === undefined ? null : String(score)
       }
+      case 'ZCOUNT': {
+        const bound = (v: string) => (v === '-inf' ? -Infinity : v === '+inf' ? Infinity : Number(v))
+        return [...(zsets.get(key)?.values() ?? [])].filter((score) => score >= bound(args[1]) && score <= bound(args[2])).length
+      }
       case 'ZCARD':
         return zsets.get(key)?.size ?? 0
       case 'HGETALL':

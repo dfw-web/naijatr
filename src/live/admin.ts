@@ -433,9 +433,9 @@ interface RequestedTitle {
   title: string
   ep: string | null
   last: number | null
-  waiting: number
   availableAt: number | null
-  emailed: number
+  seenPlaying: number
+  foundBy: 'viewers' | 'nextstream' | null
 }
 
 /** "Most requested" (/api/live/requests): titles viewers found on no server. */
@@ -459,9 +459,9 @@ export async function loadRequests() {
         detail.textContent = [
           `${t.count} request${t.count === 1 ? '' : 's'}`,
           t.availableAt
-            ? `✅ playing since ${new Date(t.availableAt).toLocaleDateString()}${t.emailed ? ` · ${t.emailed} emailed` : ''}`
+            ? `✅ playing since ${new Date(t.availableAt).toLocaleDateString()}${t.foundBy === 'viewers' ? ' (seen by viewers)' : ''}`
             : '⏳ not on a server yet',
-          t.waiting ? `${t.waiting} to email` : null,
+          !t.availableAt && t.seenPlaying ? `seen playing on ${t.seenPlaying} network${t.seenPlaying === 1 ? '' : 's'}` : null,
         ]
           .filter(Boolean)
           .join(' · ')
@@ -486,7 +486,7 @@ async function checkRequestsNow() {
     const response = await fetch('/api/live/requests-check', { method: 'POST', headers: { Authorization: `Bearer ${password}` } })
     const body = (await response.json().catch(() => null)) as {
       checked?: number
-      nowPlaying?: { title: string; emailed: number }[]
+      nowPlaying?: { title: string; via: string }[]
       stillMissing?: number
       unknown?: number
       error?: string
@@ -497,7 +497,7 @@ async function checkRequestsNow() {
       const playing = body.nowPlaying ?? []
       result.textContent = [
         `Checked ${body.checked ?? 0}.`,
-        playing.length ? `Now playing: ${playing.map((p) => `${p.title}${p.emailed ? ` (${p.emailed} emailed)` : ''}`).join(', ')}.` : 'None playing yet.',
+        playing.length ? `Now playing: ${playing.map((p) => p.title).join(', ')}.` : 'None playing yet.',
         body.unknown ? `${body.unknown} couldn’t be checked.` : null,
       ]
         .filter(Boolean)

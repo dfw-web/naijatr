@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAccount } from '../account/account'
 import { hasRequested, requestTitle, type TitleRequestInput } from '../live/titleRequests'
 import { isTvMode } from '../tv/tvMode'
 
@@ -7,8 +6,6 @@ type Status = 'idle' | 'sending' | 'done' | 'limit' | 'failed'
 
 export interface TitleRequestState {
   status: Status
-  /** Signed in: they'll be emailed when it's added. */
-  email: boolean
   done: boolean
   sending: boolean
   send: () => void
@@ -16,27 +13,22 @@ export interface TitleRequestState {
 
 /** The request for one title: "Requested" straight away if this device asked before. */
 export function useTitleRequest(input: TitleRequestInput | null): TitleRequestState {
-  const account = useAccount()
   const item = input?.item ?? null
-  const [state, setState] = useState<{ item: string | null; status: Status; email: boolean | null }>(() => ({
+  const [state, setState] = useState<{ item: string | null; status: Status }>(() => ({
     item,
     status: item && hasRequested(item) ? 'done' : 'idle',
-    email: null,
   }))
   // Another title (or episode's series): its own state.
-  if (state.item !== item) setState({ item, status: item && hasRequested(item) ? 'done' : 'idle', email: null })
+  if (state.item !== item) setState({ item, status: item && hasRequested(item) ? 'done' : 'idle' })
   const status = state.item === item ? state.status : 'idle'
   const send = () => {
     if (!input || status === 'sending' || status === 'done') return
-    setState({ item: input.item, status: 'sending', email: null })
+    setState({ item: input.item, status: 'sending' })
     void requestTitle(input).then((outcome) =>
-      setState((now) =>
-        now.item !== input.item ? now : outcome.ok ? { item: input.item, status: 'done', email: outcome.email } : { item: input.item, status: outcome.reason, email: null },
-      ),
+      setState((now) => (now.item !== input.item ? now : { item: input.item, status: outcome.ok ? 'done' : outcome.reason })),
     )
   }
-  const email = state.email ?? account.status === 'signedIn'
-  return { status, email, done: status === 'done', sending: status === 'sending', send }
+  return { status, done: status === 'done', sending: status === 'sending', send }
 }
 
 /**
@@ -83,7 +75,7 @@ export function NotAvailable({ request, onSimilar }: { request: TitleRequestStat
       </div>
       <p className="player__missing-status" role="status">
         {request.done
-          ? `Thanks! Your request is saved.${request.email ? ' We’ll email you when it’s available.' : ''}`
+          ? 'Thanks! Your request is saved.'
           : request.status === 'limit'
             ? 'You’ve sent a lot of requests today. Please try again tomorrow.'
             : request.status === 'failed'

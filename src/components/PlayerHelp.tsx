@@ -70,6 +70,8 @@ export function usePlaybackHealth(
   runKey: string | null,
   frameRef: RefObject<HTMLIFrameElement | null>,
   onProblem: (problem: HealthProblem) => void,
+  /** Once per player, when the video is really moving (a requested title found playing). */
+  onPlaying?: () => void,
 ): { problem: ProblemKind | null; dismiss: () => void; unavailable: boolean } {
   // Each problem raised gets a new id, so a later stall shows again after a ✕.
   const [shown, setShown] = useState<{ runKey: string; kind: ProblemKind; id: number } | null>(null)
@@ -77,8 +79,10 @@ export function usePlaybackHealth(
   // The run whose title the player couldn't find on any server.
   const [missing, setMissing] = useState<string | null>(null)
   const onProblemRef = useRef(onProblem)
+  const onPlayingRef = useRef(onPlaying)
   useEffect(() => {
     onProblemRef.current = onProblem
+    onPlayingRef.current = onPlaying
   })
 
   useEffect(() => {
@@ -89,6 +93,7 @@ export function usePlaybackHealth(
     let lastTime: number | null = null
     let lastMoveAt = Date.now()
     let source: string | null = null
+    let movedOnce = false
     const reported = new Set<ProblemKind>()
     const raise = (kind: ProblemKind) => {
       setShown({ runKey, kind, id: Date.now() + Math.random() })
@@ -142,6 +147,10 @@ export function usePlaybackHealth(
         if (lastTime === null || Math.abs(time - lastTime) > 0.05) {
           // Moving: playing (smoothly again, if it was stuck).
           if (lastTime !== null) playing = true
+          if (lastTime !== null && time > lastTime && !movedOnce) {
+            movedOnce = true
+            onPlayingRef.current?.()
+          }
           lastMoveAt = Date.now()
           if (stalled) {
             stalled = false

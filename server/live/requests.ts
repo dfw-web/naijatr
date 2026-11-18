@@ -5,24 +5,31 @@
  *
  * - POST /api/live/request { item, title, ep, device } saves one request,
  *   once per person per title: per device, and per account when signed in
- *   (Authorization: the Supabase access token, checked by Supabase). A
- *   signed-in requester is emailed when the title starts playing. At
+ *   (Authorization: the Supabase access token, checked by Supabase). At
  *   ALERT_AT requests the admin gets a Telegram message (once per title).
+ *   Nobody is emailed.
  * - GET /api/live/requests (ADMIN_PASSWORD): "Most requested" on /admin/live.
+ * - POST /api/live/playing { item, ep, server }: a viewer's player (either
+ *   server, EmbedMaster included) started playing a title. Kept only for
+ *   requested titles, per network (hashed IP).
  * - GET /api/live/requests-check (CRON_SECRET, from the daily Vercel cron in
- *   vercel.json, or ADMIN_PASSWORD): checks each waiting title with
- *   NextStream's own source lookup (the one the player makes). Playable now:
- *   "🎬 <Title> is now on NAIJA TR" to everyone signed in who asked
- *   (Resend), and a line to the admin on Telegram.
+ *   vercel.json, or ADMIN_PASSWORD): each waiting title counts as playing when
+ *   viewers on PLAYS_NEEDED different networks saw it play since the last
+ *   request (no call on any key; EmbedMaster can't be asked from a server:
+ *   its player's source list is encrypted), else NextStream's own source
+ *   lookup (one call on our key) is asked. Playable now: marked so on
+ *   /admin/live, and a line to the admin on Telegram.
  *
  * Redis (server/redis.ts):
  * - requests:count          sorted set of titles ("movie:550", "tv:1399") by requests.
  * - requests:who:<item>     set of who asked: "d:<device>", "u:<user id>".
- * - requests:users:<item>   set of the signed-in user ids to email; emptied once emailed.
+ * - requests:users:<item>   (no longer kept: deleted when seen; nobody is emailed.)
  * - requests:meta:<item>    hash: title, type, ep (series: "s1e3"), first, last (ms),
- *                           alerted (ms, Telegram sent), availableAt (ms), emailed (count).
+ *                           alerted (ms, Telegram sent), availableAt (ms), foundBy
+ *                           (viewers / nextstream), playedAt, playedOn.
+ * - requests:played:<item>  sorted set of the (hashed) networks a viewer's player played it on, by time.
  * - requests:limit:<who>:<day>  today's requests from a device or (hashed) IP.
- * Nothing personal is kept: user ids only (emails are looked up when sending), IPs hashed.
+ * Nothing personal is kept: user ids only (to count each account once), IPs hashed.
  *
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
  */
@@ -44,9 +51,59 @@ const TIMEOUT_MS = 5000
 
 const COUNT_KEY = 'requests:count'
 const whoKey = (item: string) => `requests:who:${item}`
+/** Signed-in requesters, kept by the first version to email them: cleared, never read. */
 const usersKey = (item: string) => `requests:users:${item}`
 const metaKey = (item: string) => `requests:meta:${item}`
 const limitKey = (who: string, day: string) => `requests:limit:${who}:${day}`
+const playedKey = (item: string) => `requests:played:${item}`
+
+/** Plays from this many different networks (after the last request) count as "it plays now". */
+export const PLAYS_NEEDED = 2
+const PLAYED_TTL_S = 30 * 24 * 60 * 60
+const SERVERS = ['nextstream', 'embedmaster'] as const
+
+export interface PlayingReport {
+  item: string
+  ep: string | null
+  server: (typeof SERVERS)[number]
+}
+
+/** A valid "it's playing" report from a viewer's player, or null. */
+export function parsePlaying(body: unknown): PlayingReport | null {
+  const b = body as Record<string, unknown> | null
+  if (!b || typeof b !== 'object') return null
+  if (typeof b.item !== 'string' || !ITEM.test(b.item)) return null
+  if (!SERVERS.includes(b.server as PlayingReport['server'])) return null
+  const ep = b.item.startsWith('tv:') && typeof b.ep === 'string' && EP.test(b.ep) ? b.ep : null
+  return { item: b.item, ep, server: b.server as PlayingReport['server'] }
+}
+
+const hashIp = (ip: string) => createHash('sha256').update(`requests|${ip}`).digest('hex').slice(0, 24)
+
+/**
+ * A requested title playing in a viewer's player (EmbedMaster or NextStream):
+ * noted per network (hashed IP), for the daily check. Ignored for titles
+ * nobody asked for, ones already found playing, and (series) another
+ * episode than the one asked for. True when noted.
+ */
+export async function recordPlaying(env: RequestsEnv, report: PlayingReport, ip: string, now: number, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (!hasRedis(env)) return false
+  const { item } = report
+  const state = await redis(env, [['ZSCORE', COUNT_KEY, item], ['HGET', metaKey(item), 'availableAt'], ['HGET', metaKey(item), 'ep']], fetchImpl)
+  if (!state || state[0] === null || state[0] === undefined || state[1]) return false
+  const wanted = typeof state[2] === 'string' ? state[2] : null
+  if (wanted && report.ep !== wanted) return false
+  await redis(
+    env,
+    [
+      ['ZADD', playedKey(item), now, hashIp(ip)],
+      ['EXPIRE', playedKey(item), PLAYED_TTL_S],
+      ['HSET', metaKey(item), 'playedAt', now, 'playedOn', report.server],
+    ],
+    fetchImpl,
+  )
+  return true
+}
 
 const ITEM = /^(movie|tv):[1-9]\d{0,8}$/
 const EP = /^s([1-9]\d{0,2})e([1-9]\d{0,3})$/
@@ -61,9 +118,6 @@ export interface RequestsEnv extends RedisEnv {
   supabaseKey: string
   telegramToken: string
   telegramChatId: string
-  resendKey: string
-  resendFrom: string
-  siteUrl: string
   nextstream: NextStreamConfig
   tmdb: TmdbCredentials
 }
@@ -77,9 +131,6 @@ export function readRequestsEnv(env: Record<string, string | undefined>): Reques
     supabaseKey: (env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim(),
     telegramToken: env.TELEGRAM_BOT_TOKEN?.trim() ?? '',
     telegramChatId: env.ADMIN_TELEGRAM_CHAT_ID?.trim() ?? '',
-    resendKey: (env.RESEND_API_KEY ?? '').trim(),
-    resendFrom: (env.RESEND_FROM ?? '').trim(),
-    siteUrl: (env.SITE_URL || 'https://www.naijatr.com').replace(/\/+$/, ''),
     nextstream: readNextStreamConfig(env),
     tmdb: readTmdbCredentials(env),
   }
@@ -145,7 +196,7 @@ function fields(flat: unknown): Record<string, string> {
   return out
 }
 
-/** The title's name from TMDB (so nobody can name a title for the emails), else the requester's. */
+/** The title's name from TMDB (so nobody can name a title in your Telegram), else the requester's. */
 async function nameOf(env: RequestsEnv, item: string, fallback: string, fetchImpl: typeof fetch): Promise<string> {
   const [kind, id] = item.split(':')
   const url = env.tmdb.readToken || env.tmdb.apiKey ? tmdbUpstreamUrl(env.tmdb, `/${kind}/${id}`, new URLSearchParams({ language: 'en-US' })) : null
@@ -189,7 +240,7 @@ export const alertText = (title: string, item: string, ep: string | null, count:
   `🔔 ${count} requests: "${title}" (${label(item, ep)})\nIt's on no server yet ("No server found").\nSee /admin/live → Most requested.`
 
 export type RequestResult =
-  | { status: 200; body: { ok: true; count: number; already: boolean; email: boolean } }
+  | { status: 200; body: { ok: true; count: number; already: boolean } }
   | { status: 400 | 429 | 503; body: { error: string } }
 
 /**
@@ -206,7 +257,7 @@ export async function saveTitleRequest(
 ): Promise<RequestResult> {
   if (!hasRedis(env)) return { status: 503, body: { error: 'not-configured' } }
   const day = lagosDay(now)
-  const ipHash = createHash('sha256').update(`requests|${ip}`).digest('hex').slice(0, 24)
+  const ipHash = hashIp(ip)
   const limits = await redis(
     env,
     [
@@ -222,8 +273,9 @@ export async function saveTitleRequest(
 
   const { item } = request
   const commands: Command[] = [['SADD', whoKey(item), `d:${request.device}`]]
-  if (userId) commands.push(['SADD', whoKey(item), `u:${userId}`], ['SADD', usersKey(item), userId])
+  if (userId) commands.push(['SADD', whoKey(item), `u:${userId}`])
   commands.push(
+    ['DEL', usersKey(item)],
     ['HSETNX', metaKey(item), 'first', now],
     ['HSETNX', metaKey(item), 'title', request.title || ''],
     ['HSET', metaKey(item), 'last', now, 'type', item.split(':')[0]],
@@ -244,7 +296,7 @@ export async function saveTitleRequest(
       await telegram(env, alertText(title, item, (first[2] as string | null) ?? null, count), fetchImpl)
     }
   }
-  return { status: 200, body: { ok: true, count, already: !isNew, email: Boolean(userId) } }
+  return { status: 200, body: { ok: true, count, already: !isNew } }
 }
 
 export interface RequestedTitle {
@@ -254,11 +306,12 @@ export interface RequestedTitle {
   ep: string | null
   first: number | null
   last: number | null
-  /** Signed-in requesters still to be emailed. */
-  waiting: number
-  /** When the daily check found it playing, and how many were emailed then. */
+  /** When the daily check found it playing. */
   availableAt: number | null
-  emailed: number
+  /** Networks that saw it playing since the last request (PLAYS_NEEDED counts as playing). */
+  seenPlaying: number
+  /** How the daily check found it playing. */
+  foundBy: 'viewers' | 'nextstream' | null
 }
 
 /** The most requested titles, for /admin/live. */
@@ -269,9 +322,13 @@ export async function listTitleRequests(env: RequestsEnv, fetchImpl: typeof fetc
   const ranked: { item: string; count: number }[] = []
   for (let i = 0; i + 1 < flat.length; i += 2) ranked.push({ item: String(flat[i]), count: Number(flat[i + 1]) || 0 })
   if (ranked.length === 0) return { titles: [], total: Number(top[1]) || 0 }
-  const details = await redis(env, ranked.flatMap(({ item }): Command[] => [['HGETALL', metaKey(item)], ['SCARD', usersKey(item)]]), fetchImpl)
-  const titles = ranked.map(({ item, count }, index) => {
+  const details = await redis(env, ranked.flatMap(({ item }): Command[] => [['HGETALL', metaKey(item)], ['ZRANGE', playedKey(item), 0, -1, 'WITHSCORES']]), fetchImpl)
+  const titles = ranked.map(({ item, count }, index): RequestedTitle => {
     const meta = fields(details?.[index * 2])
+    const played = details?.[index * 2 + 1]
+    const since = Number(meta.last) || 0
+    let seenPlaying = 0
+    if (Array.isArray(played)) for (let i = 1; i < played.length; i += 2) if (Number(played[i]) >= since) seenPlaying++
     return {
       item,
       count,
@@ -279,9 +336,9 @@ export async function listTitleRequests(env: RequestsEnv, fetchImpl: typeof fetc
       ep: meta.ep ?? null,
       first: Number(meta.first) || null,
       last: Number(meta.last) || null,
-      waiting: Number(details?.[index * 2 + 1]) || 0,
       availableAt: Number(meta.availableAt) || null,
-      emailed: Number(meta.emailed) || 0,
+      seenPlaying,
+      foundBy: meta.foundBy === 'viewers' || meta.foundBy === 'nextstream' ? (meta.foundBy as RequestedTitle['foundBy']) : null,
     }
   })
   return { titles, total: Number(top[1]) || 0 }
@@ -295,62 +352,10 @@ export function playPath(item: string, ep: string | null): string {
   return `/tv/${id}/${match?.[1] ?? 1}/${match?.[2] ?? 1}`
 }
 
-const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-
-/** The email to a requester. */
-export function availableEmail(env: RequestsEnv, title: string, item: string) {
-  const [kind, id] = item.split(':')
-  const link = `${env.siteUrl}/?title=${kind === 'tv' ? 'series' : 'movie'}-${id}`
-  return {
-    subject: `🎬 ${title} is now on NAIJA TR`,
-    text: `Good news! ${title}, which you asked for, is now on NAIJA TR.\n\nWatch it here: ${link}\n\nThanks for requesting it.\nNAIJA TR`,
-    html: `<p>Good news! <strong>${escapeHtml(title)}</strong>, which you asked for, is now on NAIJA TR.</p><p><a href="${link}">▶ Watch it here</a></p><p>Thanks for requesting it.<br>NAIJA TR</p>`,
-  }
-}
-
-/** The emails of these accounts (looked up now: none are kept). */
-async function emailsOf(env: RequestsEnv, userIds: string[], fetchImpl: typeof fetch): Promise<string[]> {
-  const emails: string[] = []
-  for (const id of userIds) {
-    try {
-      const response = await fetchImpl(`${env.supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
-        headers: { apikey: env.supabaseKey, Authorization: `Bearer ${env.supabaseKey}` },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      })
-      if (!response.ok) continue
-      const user = (await response.json().catch(() => null)) as { email?: unknown } | null
-      if (typeof user?.email === 'string' && user.email.includes('@')) emails.push(user.email)
-    } catch {
-      // Skipped.
-    }
-  }
-  return [...new Set(emails)]
-}
-
-/** One email each, 100 a call (Resend's batch limit). Returns how many Resend took. */
-async function sendEmails(env: RequestsEnv, to: string[], mail: ReturnType<typeof availableEmail>, fetchImpl: typeof fetch): Promise<number> {
-  let sent = 0
-  for (let i = 0; i < to.length; i += 100) {
-    const batch = to.slice(i, i + 100).map((email) => ({ from: env.resendFrom, to: [email], ...mail }))
-    try {
-      const response = await fetchImpl('https://api.resend.com/emails/batch', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${env.resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(batch),
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (response.ok) sent += batch.length
-    } catch {
-      // Tried again on the next daily check (they stay in the list).
-    }
-  }
-  return sent
-}
-
 export interface CheckSummary {
   checked: number
-  /** Playable now: the requesters were emailed. */
-  nowPlaying: { item: string; title: string; emailed: number }[]
+  /** Playable now (marked so on /admin/live). */
+  nowPlaying: { item: string; title: string; via: 'viewers' | 'nextstream' }[]
   stillMissing: number
   /** Couldn't tell (NextStream unreachable or not set up). */
   unknown: number
@@ -358,9 +363,10 @@ export interface CheckSummary {
 }
 
 /**
- * The daily re-check: each waiting title (most requested first, at most
- * CHECK_MAX) through NextStream's own source lookup. Playable now: everyone
- * signed in who asked gets "🎬 <Title> is now on NAIJA TR", once.
+ * The daily re-check of each waiting title (most requested first, at most
+ * CHECK_MAX): seen playing by viewers on PLAYS_NEEDED networks (EmbedMaster
+ * included), else NextStream's own source lookup. Playable now: marked so,
+ * and a Telegram line to the admin. Nobody is emailed.
  */
 export async function checkRequestedTitles(env: RequestsEnv, now: number, fetchImpl: typeof fetch = fetch): Promise<CheckSummary | null> {
   const summary: CheckSummary = { checked: 0, nowPlaying: [], stillMissing: 0, unknown: 0 }
@@ -374,47 +380,50 @@ export async function checkRequestedTitles(env: RequestsEnv, now: number, fetchI
     .filter(({ meta }) => !meta.availableAt)
     .slice(0, CHECK_MAX)
 
-  const queue = [...waiting]
+  // Seen playing by viewers (either server, EmbedMaster included) since the last request.
+  const plays = waiting.length
+    ? await redis(env, waiting.map(({ item, meta }): Command => ['ZCOUNT', playedKey(item), Number(meta.last) || 0, '+inf']), fetchImpl)
+    : []
+  const queue = waiting.map((entry, index) => ({ ...entry, seen: Number(plays?.[index]) || 0 }))
+  let nextstreamOff = false
   const worker = async () => {
     for (let next = queue.shift(); next; next = queue.shift()) {
-      const { item, meta } = next
+      const { item, meta, seen } = next
       const ep = meta.ep && EP.test(meta.ep) ? meta.ep : null
-      const { available, reason } = await checkPlayable(env.nextstream, playPath(item, ep), fetchImpl)
-      if (reason === 'not-configured') {
-        summary.error = 'NextStream isn’t set up (NEXTSTREAM_*): titles can’t be checked'
-        queue.length = 0
-        return
-      }
-      summary.checked++
-      if (available === null) {
-        summary.unknown++
-        continue
-      }
-      if (!available) {
-        summary.stillMissing++
-        continue
-      }
-      const title = await nameOf(env, item, meta.title ?? '', fetchImpl)
-      const users = await redis(env, [['SMEMBERS', usersKey(item)]], fetchImpl)
-      const ids = (Array.isArray(users?.[0]) ? (users[0] as unknown[]) : []).map(String)
-      let emailed = 0
-      if (ids.length > 0 && env.resendKey && env.resendFrom && env.supabaseUrl && env.supabaseKey) {
-        const emails = await emailsOf(env, ids, fetchImpl)
-        emailed = await sendEmails(env, emails, availableEmail(env, title, item), fetchImpl)
-        // Nobody could be emailed (Resend down): they stay for the next check.
-        if (emails.length > 0 && emailed === 0) {
+      let via: 'viewers' | 'nextstream' = 'viewers'
+      if (seen < PLAYS_NEEDED) {
+        // Not seen enough: NextStream's own source lookup (one call on our key).
+        if (nextstreamOff) continue
+        const { available, reason } = await checkPlayable(env.nextstream, playPath(item, ep), fetchImpl)
+        if (reason === 'not-configured') {
+          nextstreamOff = true
+          summary.error = 'NextStream isn’t set up (NEXTSTREAM_*): only titles viewers saw playing were checked'
+          continue
+        }
+        summary.checked++
+        if (available === null) {
           summary.unknown++
           continue
         }
+        if (!available) {
+          summary.stillMissing++
+          continue
+        }
+        via = 'nextstream'
+      } else {
+        summary.checked++
       }
-      await redis(env, [['HSET', metaKey(item), 'availableAt', now, 'emailed', (Number(meta.emailed) || 0) + emailed], ['DEL', usersKey(item)]], fetchImpl)
-      summary.nowPlaying.push({ item, title, emailed })
+      const title = await nameOf(env, item, meta.title ?? '', fetchImpl)
+      await redis(env, [['HSET', metaKey(item), 'availableAt', now, 'foundBy', via], ['DEL', usersKey(item)]], fetchImpl)
+      summary.nowPlaying.push({ item, title, via })
     }
   }
   await Promise.all(Array.from({ length: CHECK_PARALLEL }, worker))
 
   if (summary.nowPlaying.length > 0) {
-    const lines = summary.nowPlaying.map(({ title, emailed }) => `✅ ${title}: playing now${emailed ? ` (emailed ${emailed})` : ''}`)
+    const lines = summary.nowPlaying.map(
+      ({ title, via }) => `✅ ${title}: playing now${via === 'viewers' ? ' (seen playing by viewers)' : ''}`,
+    )
     await telegram(env, ['🎬 Requested titles now on NAIJA TR', ...lines].join('\n'), fetchImpl)
   }
   return summary
