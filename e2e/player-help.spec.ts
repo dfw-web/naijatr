@@ -86,9 +86,10 @@ test('slow start and stall: the hint above the player, nothing moves, no ads', a
 
   // The notes under the buttons: ⚡ first, then the audio note, one list.
   const notes = page.locator('.player__notes li')
-  await expect(notes).toHaveCount(2)
+  await expect(notes).toHaveCount(3)
   await expect(notes.nth(0)).toContainText('⚡ Movie slow to load or not playing?')
-  await expect(notes.nth(1)).toContainText('🔊 Different sources')
+  await expect(notes.nth(1)).toContainText('❓ ‘No server found’ = this title isn’t on NAIJA TR yet.')
+  await expect(notes.nth(2)).toContainText('🔊 Different sources')
 
   // ---- No answer from the player for 12 s: the hint, and nothing moved. ----
   const before = await layout(page)
@@ -135,7 +136,7 @@ test('slow start and stall: the hint above the player, nothing moves, no ads', a
   await press(page.getByRole('button', { name: 'Dismiss switch-server hint' }), mobile)
   await expect(page.getByText(HINT)).toHaveCount(0)
   await press(page.getByRole('button', { name: 'Dismiss slow-loading tip' }), mobile)
-  await expect(notes).toHaveCount(1)
+  await expect(notes).toHaveCount(2)
   await page.waitForTimeout(2500)
   expect(tabs.since(tapped), 'tabs opened by the hint, its ✕ or the note’s ✕').toBe(0)
   expect(await layout(page)).toMatchObject({ frame: before.frame, barTop: before.barTop })

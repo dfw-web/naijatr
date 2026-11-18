@@ -210,6 +210,60 @@
   }
 }
 
+/*
+ * "Not available on NAIJA TR yet": under the player's buttons, in the page's
+ * flow, so it never covers the video or moves it or its buttons.
+ */
+.player__missing {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.player__missing-title {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.player__missing-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.player__missing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.player__missing-actions .btn {
+  min-height: 44px;
+}
+
+.player__missing-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.player__missing-status:empty {
+  display: none;
+}
+
+/* Phones: the buttons full width, one under the other. */
+@media (max-width: 479px) {
+  .player__missing-actions .btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
 .player__bar {
   display: flex;
   flex-wrap: wrap;
@@ -251,7 +305,10 @@
 .player:-webkit-full-screen .player__status,
 .player:fullscreen .player__hint,
 .player--fill .player__howto,
-.player:fullscreen .player__howto {
+.player:fullscreen .player__howto,
+.player--fill .player__missing,
+.player:fullscreen .player__missing,
+.player:-webkit-full-screen .player__missing {
   display: none;
 }
 

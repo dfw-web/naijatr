@@ -93,9 +93,39 @@ export function fakeRedis(now: () => number = Date.now) {
       }
       case 'HSET': {
         const hash = get(hashes, key, () => new Map<string, string>())
+        let added = 0
+        for (let i = 1; i + 1 < args.length; i += 2) {
+          if (!hash.has(args[i])) added += 1
+          hash.set(args[i], args[i + 1])
+        }
+        return added
+      }
+      case 'HSETNX': {
+        const hash = get(hashes, key, () => new Map<string, string>())
+        if (hash.has(args[1])) return 0
         hash.set(args[1], args[2])
         return 1
       }
+      case 'HGET':
+        return hashes.get(key)?.get(args[1]) ?? null
+      case 'HDEL': {
+        const hash = hashes.get(key)
+        return args.slice(1).filter((f) => hash?.delete(f)).length
+      }
+      case 'SCARD':
+        return sets.get(key)?.size ?? 0
+      case 'ZINCRBY': {
+        const zset = get(zsets, key, () => new Map<string, number>())
+        const value = (zset.get(args[2]) ?? 0) + Number(args[1])
+        zset.set(args[2], value)
+        return String(value)
+      }
+      case 'ZSCORE': {
+        const score = zsets.get(key)?.get(args[1])
+        return score === undefined ? null : String(score)
+      }
+      case 'ZCARD':
+        return zsets.get(key)?.size ?? 0
       case 'HGETALL':
         return [...(hashes.get(key) ?? [])].flat()
       case 'ZADD': {
@@ -107,9 +137,18 @@ export function fakeRedis(now: () => number = Date.now) {
         return old === undefined ? 1 : 0
       }
       case 'ZRANGE': {
-        const entries = [...(zsets.get(key) ?? [])].sort((a, b) => a[1] - b[1])
-        if (args.map((a) => a.toUpperCase()).includes('REV')) entries.reverse()
-        return entries.flatMap(([member, score]) => [member, String(score)])
+        const flags = args.slice(3).map((a) => a.toUpperCase())
+        let entries = [...(zsets.get(key) ?? [])].sort((a, b) => a[1] - b[1])
+        if (flags.includes('REV')) entries.reverse()
+        if (flags.includes('BYSCORE')) {
+          const bound = (v: string) => (v === '-inf' ? -Infinity : v === '+inf' ? Infinity : Number(v.replace('(', '')))
+          entries = entries.filter(([, score]) => score >= bound(args[1]) && score <= bound(args[2]))
+        } else {
+          const stop = Number(args[2])
+          entries = entries.slice(Number(args[1]), stop === -1 ? undefined : stop + 1)
+        }
+        // Scores only WITHSCORES, as Redis does (older tests asked BYSCORE … WITHSCORES).
+        return flags.includes('WITHSCORES') ? entries.flatMap(([member, score]) => [member, String(score)]) : entries.map(([member]) => member)
       }
       default:
         throw new Error(`fakeRedis: ${name} not supported`)

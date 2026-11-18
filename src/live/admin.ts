@@ -427,6 +427,89 @@ async function loadStreams() {
   }
 }
 
+interface RequestedTitle {
+  item: string
+  count: number
+  title: string
+  ep: string | null
+  last: number | null
+  waiting: number
+  availableAt: number | null
+  emailed: number
+}
+
+/** "Most requested" (/api/live/requests): titles viewers found on no server. */
+export async function loadRequests() {
+  const summary = $('rq-summary')
+  try {
+    const response = await fetch('/api/live/requests', { headers: { Authorization: `Bearer ${password}` }, cache: 'no-store' })
+    if (!response.ok) {
+      summary.textContent = 'Couldn’t load the requests.'
+      return
+    }
+    const body = (await response.json()) as { titles: RequestedTitle[]; total: number }
+    summary.textContent = body.total ? `${body.total} title${body.total === 1 ? '' : 's'} requested in all.` : ''
+    const rows = await Promise.all(
+      body.titles.map(async (t) => {
+        const li = document.createElement('li')
+        const name = document.createElement('span')
+        const looked = await nameOf(t.item)
+        name.textContent = `${looked === t.item && t.title ? t.title : looked}${t.ep ? ` ${t.ep.toUpperCase()}` : ''}`
+        const detail = document.createElement('span')
+        detail.textContent = [
+          `${t.count} request${t.count === 1 ? '' : 's'}`,
+          t.availableAt
+            ? `✅ playing since ${new Date(t.availableAt).toLocaleDateString()}${t.emailed ? ` · ${t.emailed} emailed` : ''}`
+            : '⏳ not on a server yet',
+          t.waiting ? `${t.waiting} to email` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+        li.append(name, detail)
+        return li
+      }),
+    )
+    $('rq-titles').replaceChildren(...rows)
+    $('rq-empty').hidden = rows.length > 0
+  } catch {
+    summary.textContent = 'Couldn’t load the requests.'
+  }
+}
+
+/** "Check requested titles now": the daily check, run by hand. */
+async function checkRequestsNow() {
+  const button = $<HTMLButtonElement>('rq-check')
+  const result = $('rq-check-result')
+  button.disabled = true
+  result.textContent = 'Checking…'
+  try {
+    const response = await fetch('/api/live/requests-check', { method: 'POST', headers: { Authorization: `Bearer ${password}` } })
+    const body = (await response.json().catch(() => null)) as {
+      checked?: number
+      nowPlaying?: { title: string; emailed: number }[]
+      stillMissing?: number
+      unknown?: number
+      error?: string
+    } | null
+    if (!response.ok || !body) result.textContent = 'Couldn’t run the check.'
+    else if (body.error) result.textContent = body.error
+    else {
+      const playing = body.nowPlaying ?? []
+      result.textContent = [
+        `Checked ${body.checked ?? 0}.`,
+        playing.length ? `Now playing: ${playing.map((p) => `${p.title}${p.emailed ? ` (${p.emailed} emailed)` : ''}`).join(', ')}.` : 'None playing yet.',
+        body.unknown ? `${body.unknown} couldn’t be checked.` : null,
+      ]
+        .filter(Boolean)
+        .join(' ')
+      await loadRequests()
+    }
+  } catch {
+    result.textContent = 'Couldn’t run the check.'
+  }
+  button.disabled = false
+}
+
 /** Loads the numbers; false when the password was refused. */
 export async function refresh(): Promise<boolean> {
   const error = $('stats-error')
@@ -449,7 +532,7 @@ export async function refresh(): Promise<boolean> {
       return true
     }
     error.hidden = true
-    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts(), loadPremium(), loadSubtitles()])
+    await Promise.all([render((await response.json()) as LiveCount), loadStreams(), loadAccounts(), loadPremium(), loadSubtitles(), loadRequests()])
   } catch {
     error.textContent = "Couldn't load the numbers. Trying again shortly."
     error.hidden = false
@@ -634,6 +717,7 @@ export function initAdmin() {
   initPromoEmail(() => password)
   initDramasSwitch(() => password)
   // Clears one title's cached subtitles on the server (a stale "No subtitles found", a bad file).
+  $('rq-check').addEventListener('click', () => void checkRequestsNow())
   $('sb-flush').addEventListener('submit', (event) => {
     event.preventDefault()
     const id = ($('sb-flush-id') as HTMLInputElement).value.trim()

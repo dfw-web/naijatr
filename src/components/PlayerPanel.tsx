@@ -48,6 +48,7 @@ import { hasStoredSession } from '../account/client'
 import { reportPlayer } from '../live/playerStats'
 import { deviceKind, reportPlayerProblem } from '../live/playerProblems'
 import { PlayerNotes, SlowHint, usePlaybackHealth, type HealthProblem } from './PlayerHelp'
+import { NotAvailable, useTitleRequest } from './NotAvailable'
 import { episodeAd, QUIET_ADS_ATTR, serverAd } from '../ads/adManager'
 import { SubtitleMenu, SubtitleOverlay, usePlayerSubtitles } from '../subtitles/PlayerSubtitles'
 import type { SubtitleTarget } from '../subtitles/subtitles'
@@ -67,6 +68,8 @@ interface PlayerPanelProps {
   /** Download flags; defaults to the build-time values from vite.config.ts. */
   downloads?: PlaybackAvailability
   fetchImpl?: typeof fetch
+  /** "Watch something similar" when the title is on no server: shows and scrolls to "More like this". */
+  onWatchSimilar?: () => void
 }
 
 type Choice = 'stream' | 'free' | 'trailer'
@@ -188,6 +191,7 @@ export function PlayerPanel({
   availability = __PLAYBACK_ENABLED__,
   downloads = __DOWNLOAD_ENABLED__,
   fetchImpl = fetch.bind(globalThis),
+  onWatchSimilar,
 }: PlayerPanelProps) {
   const isSeries = item.type === 'series'
   const free = findFreeMovie(item)
@@ -447,6 +451,19 @@ export function PlayerPanel({
     })
   })
 
+  // On no server at all ("No server found"): the "Not available" box and its Request.
+  const missingEp = watchingSrc && isSeries ? episodeOfSrc(watchingSrc) : null
+  const titleRequest = useTitleRequest(
+    item.tmdbId === undefined
+      ? null
+      : {
+          item: `${isSeries ? 'tv' : 'movie'}:${item.tmdbId}`,
+          title: item.title,
+          ep: missingEp && missingEp.season !== undefined ? `s${missingEp.season}e${missingEp.episode}` : null,
+        },
+  )
+  const unavailable = active?.choice === 'stream' && health.unavailable
+
   // A film or episode left in a hidden tab (or app) for 2 minutes is closed,
   // its progress saved first (the watching effect's cleanup); Play carries on
   // from there. Back sooner: the same player, untouched.
@@ -550,7 +567,12 @@ export function PlayerPanel({
     if (fullscreenSupported()) enterFullscreen(sectionRef.current)
     else setFilling(true)
   }
-  const sectionClass = filling ? 'player player--fill' : 'player'
+  const sectionClass = filling && !unavailable ? 'player player--fill' : 'player'
+  // On no server at all: out of fullscreen (TV opens it on Play), so the
+  // "Not available" box under the player can be seen and used.
+  useEffect(() => {
+    if (unavailable && sectionRef.current && fullscreenElement() === sectionRef.current) exitFullscreen()
+  }, [unavailable])
 
   // Our subtitles over the stream (src/subtitles): both servers report their time, which the text follows.
   const subtitleEpisode = isSeries && active?.streamSrc ? episodeOfSrc(active.streamSrc) : null
@@ -971,7 +993,7 @@ export function PlayerPanel({
     void start('stream', nextEpisode, true)
   }
 
-  const fullscreenOn = isFullscreen || filling
+  const fullscreenOn = isFullscreen || (filling && !unavailable)
 
   // While the player is up, taps on its controls (Skip, Fullscreen, Close, servers, episodes) reach no ad script.
   return (
@@ -1082,7 +1104,8 @@ export function PlayerPanel({
           <X aria-hidden="true" /> Close player
         </button>
       </div>
-      {active.choice === 'stream' && <PlayerNotes />}
+      {unavailable && <NotAvailable request={titleRequest} onSimilar={onWatchSimilar} />}
+      {active.choice === 'stream' && <PlayerNotes unavailable={unavailable} request={item.tmdbId === undefined ? undefined : titleRequest} />}
       {active.choice === 'stream' && (
         <p className="player__hint">
           <Captions aria-hidden="true" />

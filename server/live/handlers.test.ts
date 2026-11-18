@@ -316,7 +316,7 @@ describe('the count', () => {
   })
 
   it('reads the Vercel Marketplace or Upstash variable names', () => {
-    expect(readLiveEnv({ KV_REST_API_URL: 'https://a.upstash.io/', KV_REST_API_TOKEN: 't', ADMIN_PASSWORD: 'p' })).toEqual({
+    expect(readLiveEnv({ KV_REST_API_URL: 'https://a.upstash.io/', KV_REST_API_TOKEN: 't', ADMIN_PASSWORD: 'p' })).toMatchObject({
       redisUrl: 'https://a.upstash.io',
       redisToken: 't',
       adminPassword: 'p',

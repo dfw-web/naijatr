@@ -248,3 +248,10 @@
 .modal__note {
   color: var(--text-faint);
 }
+
+/* "More like this" outside TV mode: opened by "Watch something similar" (a title on no server yet). */
+.modal__more {
+  padding: 0 0 1.5rem;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 1rem;
+}

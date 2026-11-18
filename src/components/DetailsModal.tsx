@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CalendarDays, Clock, Star, X } from 'lucide-react'
 import { AdBreak } from '../ads/AdBreak'
 import { titleAdKey } from '../ads/adManager'
@@ -20,7 +20,7 @@ import './DetailsModal.css'
 interface DetailsModalProps {
   item: MediaItem
   onClose: () => void
-  /** Opens another title (the TV "More like this" row). */
+  /** Opens another title ("More like this"). */
   onSelect?: (item: MediaItem) => void
 }
 
@@ -47,6 +47,18 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
     openedRef.current = tasteItem.id
     recordTaste(tasteItem, 'open')
   }, [settled, tasteItem])
+
+  // "More like this": always on TV; elsewhere once "Watch something similar" is pressed
+  // (a title that's on no server yet).
+  const similar = onSelect && item.similar && item.similar.length > 0 ? item.similar : null
+  const [similarAsked, setSimilarAsked] = useState(false)
+  const showSimilar = Boolean(similar) && (isTvMode() || similarAsked)
+  const moreRef = useRef<HTMLDivElement>(null)
+  const watchSimilar = () => {
+    setSimilarAsked(true)
+    // After the row is in the page.
+    window.requestAnimationFrame(() => moreRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
 
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -213,7 +225,7 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
             )}
           </dl>
 
-          <PlayerPanel item={item} isLoading={isLoadingMore} />
+          <PlayerPanel item={item} isLoading={isLoadingMore} onWatchSimilar={similar ? watchSimilar : undefined} />
           {item.watchProviders && <WatchProviders providers={item.watchProviders} />}
           <TelegramCard from="details" />
           {item.title && <RateThis titleKey={`${item.type}:${item.tmdbId ?? item.id}`} title={item.title} />}
@@ -227,9 +239,9 @@ export function DetailsModal({ item: baseItem, onClose, onSelect }: DetailsModal
             </div>
           )}
         </div>
-        {isTvMode() && onSelect && item.similar && item.similar.length > 0 && (
-          <div className="modal__more">
-            <MediaRow id="more-like-this" title="More like this" items={item.similar} onSelect={onSelect} />
+        {showSimilar && similar && onSelect && (
+          <div className="modal__more" ref={moreRef}>
+            <MediaRow id="more-like-this" title="More like this" items={similar} onSelect={onSelect} />
           </div>
         )}
       </div>

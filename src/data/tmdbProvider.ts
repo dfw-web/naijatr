@@ -1,6 +1,5 @@
 import { MAX_PAGE } from '../config/discoverFilters'
 import { entryFromRow, isIndexRow, type IndexEntry } from '../search/titleIndex'
-import { isTvMode } from '../tv/tvMode'
 import type {
   CatalogProvider,
   DiscoverPage,
@@ -623,8 +622,8 @@ export function createTmdbProvider(fetchImpl: FetchLike = fetch.bind(globalThis)
     async getDetails(item, signal) {
       if (item.tmdbId === undefined) return item
       const path = item.type === 'movie' ? `/movie/${item.tmdbId}` : `/tv/${item.tmdbId}`
-      // TV only: recommendations for the "More like this" row.
-      const extra = isTvMode() ? ',recommendations' : ''
+      // Recommendations for the "More like this" row (TV, and "Watch something similar").
+      const extra = ',recommendations'
       const append =
         item.type === 'movie'
           ? `credits,release_dates,videos,watch/providers,keywords${extra}`

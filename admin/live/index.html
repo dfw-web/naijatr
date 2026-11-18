@@ -254,6 +254,18 @@
           browsers (src/live/playerProblems.ts). Since midnight, Lagos time.
         </p>
 
+        <h2 id="most-requested">🔔 Most requested</h2>
+        <p class="muted" id="rq-summary"></p>
+        <ol id="rq-titles"></ol>
+        <p class="muted" id="rq-empty" hidden>No requests yet.</p>
+        <p><button type="button" class="ghost" id="rq-check">Check requested titles now</button> <span class="muted" id="rq-check-result"></span></p>
+        <p class="muted">
+          From "😔 Not available on NAIJA TR yet" under the player (the player's "No server found"): one request per person
+          per title. At 5 requests you get a Telegram message. Every day at 10:00 (Lagos) each waiting title is checked with
+          NextStream's own source lookup; once it plays, everyone signed in who asked gets "🎬 [Title] is now on NAIJA TR" by
+          email (server/live/requests.ts).
+        </p>
+
         <h2>Ads today</h2>
         <p class="muted" id="ad-level"></p>
         <div class="stats">

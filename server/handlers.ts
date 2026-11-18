@@ -233,6 +233,28 @@ async function loadSources(upstreamUrl: string, cache: PlayCache, fetchImpl: typ
   return { text: null, reason: 'unreachable' }
 }
 
+/**
+ * Whether a title can be played right now, from NextStream's own source
+ * lookup (the same one the player makes): true, false (no sources: the
+ * player's "No server found"), or null when it couldn't tell (not set up,
+ * key refused, NextStream unreachable). Used by the daily re-check of
+ * requested titles (server/live/requests.ts).
+ */
+export async function checkPlayable(
+  config: NextStreamConfig,
+  path: string,
+  fetchImpl: typeof fetch = fetch,
+  cache: PlayCache = createPlayCache(),
+): Promise<{ available: boolean | null; reason: string | null }> {
+  const request = parsePlaybackPath(path)
+  if (!request) return { available: false, reason: 'bad-request' }
+  const url = resolvePlaybackUrl(config, request)
+  if (!url) return { available: null, reason: 'not-configured' }
+  if (!sourcesUrl(url)) return { available: null, reason: 'no-lookup' }
+  const { text, reason } = await loadSources(url, cache, fetchImpl)
+  return { available: text !== null ? true : reason === 'not-found' ? false : null, reason }
+}
+
 const SOURCES_FETCH = 'fetch(apiUrl)'
 
 /** The player's own lookup, retried: NextStream sometimes never answers, leaving "Resolving sources…". */

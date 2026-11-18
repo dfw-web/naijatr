@@ -194,7 +194,7 @@ describe('the notes under the player', () => {
     // One list, the ⚡ note first, both under the buttons and never over the video.
     const list = note.closest('.player__notes')!
     expect(list).toContainElement(audio)
-    expect(list.querySelectorAll('li')).toHaveLength(2)
+    expect(list.querySelectorAll('li')).toHaveLength(3)
     expect(frame.closest('.player__frame')).not.toContainElement(note)
     const bar = frame.closest('.player')!.querySelector('.player__bar')!
     expect(bar.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

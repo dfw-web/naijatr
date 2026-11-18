@@ -14,6 +14,11 @@ import type { ProblemKind } from '../live/playerProblems'
  *   moving for 10 seconds while playing. It goes once the video plays again,
  *   has a ✕, and shows even when the ⚡ note was dismissed.
  *
+ * - "Not available": no ready/play/time event 15 seconds after opening, or
+ *   the player saying it found no source: the title is on none of the
+ *   servers ("No server found"), so the switch-server hint and ⚡ note give
+ *   way to <NotAvailable> (./NotAvailable.tsx) under the player.
+ *
  * Everything here is inside the player section, a quiet zone: no taps reach
  * an ad script.
  */
@@ -22,10 +27,19 @@ import type { ProblemKind } from '../live/playerProblems'
 export const SLOW_LOAD_MS = 12_000
 /** Playing, but the time hasn't moved for this long: stalled. */
 export const STALL_MS = 10_000
+/** Still no sign of life this long after opening: the title is on no server ("No server found"). */
+export const NOT_AVAILABLE_MS = 15_000
 
 const PLAYER_EVENTS = 'embedmaster_player'
 /** Events that mean the player has loaded the video (or is playing it). */
 const READY_EVENTS = new Set(['ready', 'play', 'playing', 'time', 'duration', 'loadedmetadata', 'loadeddata', 'canplay', 'pause'])
+/** Events (or messages) by which a player may say it has no source for the title. */
+const NO_SOURCE_EVENTS = new Set(['error', 'notfound', 'not_found', 'nosources', 'no_sources', 'nosource', 'noserver', 'no_server', 'unavailable', 'sourcesempty'])
+const NO_SOURCE_TEXT = /no (?:server|source)s? (?:found|available)|not found|no sources|unavailable/i
+
+/** True when a player event says it found nothing to play. */
+export const saysNoSource = (event: string, info: unknown) =>
+  NO_SOURCE_EVENTS.has(event.toLowerCase()) || (typeof info === 'string' && NO_SOURCE_TEXT.test(info))
 
 /** True when `win` is `frame`'s window or one nested inside it. */
 const isInside = (win: MessageEventSource | null, frame: Window | null | undefined) => {
@@ -53,10 +67,12 @@ export function usePlaybackHealth(
   runKey: string | null,
   frameRef: RefObject<HTMLIFrameElement | null>,
   onProblem: (problem: HealthProblem) => void,
-): { problem: ProblemKind | null; dismiss: () => void } {
+): { problem: ProblemKind | null; dismiss: () => void; unavailable: boolean } {
   // Each problem raised gets a new id, so a later stall shows again after a ✕.
   const [shown, setShown] = useState<{ runKey: string; kind: ProblemKind; id: number } | null>(null)
   const [dismissedId, setDismissedId] = useState(0)
+  // The run whose title the player couldn't find on any server.
+  const [missing, setMissing] = useState<string | null>(null)
   const onProblemRef = useRef(onProblem)
   useEffect(() => {
     onProblemRef.current = onProblem
@@ -82,6 +98,9 @@ export function usePlaybackHealth(
     const slow = window.setTimeout(() => {
       if (!ready) raise('slow')
     }, SLOW_LOAD_MS)
+    const notAvailable = window.setTimeout(() => {
+      if (!ready) setMissing(runKey)
+    }, NOT_AVAILABLE_MS)
     const tick = window.setInterval(() => {
       // Paused, or the tab hidden (the player's messages slow down then): no stall.
       if (!playing || document.visibilityState === 'hidden') {
@@ -99,10 +118,16 @@ export function usePlaybackHealth(
       if (data?.source !== PLAYER_EVENTS || !isInside(ev.source, frameRef.current?.contentWindow)) return
       const event = typeof data.event === 'string' ? data.event : ''
       if (event === 'serverchange' && typeof data.info === 'string') source = data.info.slice(0, 24)
-      if (READY_EVENTS.has(event) && !ready) {
-        ready = true
-        window.clearTimeout(slow)
-        clear()
+      if (event !== 'serverchange' && saysNoSource(event, data.info)) setMissing(runKey)
+      if (READY_EVENTS.has(event)) {
+        // It plays after all: not missing.
+        setMissing((now) => (now === runKey ? null : now))
+        if (!ready) {
+          ready = true
+          window.clearTimeout(slow)
+          window.clearTimeout(notAvailable)
+          clear()
+        }
       }
       if (event === 'play' || event === 'playing') {
         playing = true
@@ -126,13 +151,16 @@ export function usePlaybackHealth(
     window.addEventListener('message', onMessage)
     return () => {
       window.clearTimeout(slow)
+      window.clearTimeout(notAvailable)
       window.clearInterval(tick)
       window.removeEventListener('message', onMessage)
     }
   }, [runKey, frameRef])
 
   const current = shown && shown.runKey === runKey && shown.id !== dismissedId ? shown : null
-  return { problem: current?.kind ?? null, dismiss: () => current && setDismissedId(current.id) }
+  const unavailable = runKey !== null && missing === runKey
+  // On no server at all: switching servers won't help, so no switch-server hint.
+  return { problem: unavailable ? null : (current?.kind ?? null), dismiss: () => current && setDismissedId(current.id), unavailable }
 }
 
 /**
@@ -162,6 +190,9 @@ export function SlowHint({ problem, onDismiss }: { problem: ProblemKind | null; 
 /** Dismissing the audio note hides it this long (on this device). */
 export const AUDIO_NOTE_KEY = 'naijatr.audioNoteDismissedAt'
 export const AUDIO_NOTE_HIDE_MS = 7 * 24 * 60 * 60 * 1000
+/** Dismissing the "No server found" note hides it this long. */
+export const MISSING_NOTE_KEY = 'naijatr.noServerNoteDismissedAt'
+export const MISSING_NOTE_HIDE_MS = 7 * 24 * 60 * 60 * 1000
 /** Dismissing the "slow to load?" note hides it this long. */
 export const SLOW_NOTE_KEY = 'naijatr.slowNoteDismissedAt'
 export const SLOW_NOTE_HIDE_MS = 3 * 24 * 60 * 60 * 1000
@@ -200,13 +231,37 @@ function Note({ storageKey, hideMs, icon, label, children }: { storageKey: strin
   )
 }
 
-/** Under the player's buttons, never over the video. */
-export function PlayerNotes() {
+/**
+ * Under the player's buttons, never over the video. `unavailable`: the title
+ * is on no server, so the ⚡ switch-server note isn't shown. `request` is the
+ * "Request" in the "No server found" note.
+ */
+export function PlayerNotes({ unavailable = false, request }: { unavailable?: boolean; request?: { done: boolean; sending: boolean; send: () => void } }) {
   return (
     <ul className="player__notes">
-      <Note storageKey={SLOW_NOTE_KEY} hideMs={SLOW_NOTE_HIDE_MS} icon="⚡" label="Dismiss slow-loading tip">
-        Movie slow to load or not playing? Tap the server menu at the top-left of the player and switch to another server (e.g.
-        MovieJoy, VidStore). Pick one that loads fast and doesn’t freeze mid-show.
+      {!unavailable && (
+        <Note storageKey={SLOW_NOTE_KEY} hideMs={SLOW_NOTE_HIDE_MS} icon="⚡" label="Dismiss slow-loading tip">
+          Movie slow to load or not playing? Tap the server menu at the top-left of the player and switch to another server
+          (e.g. MovieJoy, VidStore). Pick one that loads fast and doesn’t freeze mid-show.
+        </Note>
+      )}
+      <Note storageKey={MISSING_NOTE_KEY} hideMs={MISSING_NOTE_HIDE_MS} icon="❓" label="Dismiss No server found note">
+        ‘No server found’ = this title isn’t on NAIJA TR yet.{' '}
+        {request?.done ? (
+          <strong>Requested ✓ We’ll add it soon.</strong>
+        ) : (
+          <>
+            Tap{' '}
+            {request ? (
+              <button type="button" className="player__hint-link" onClick={request.send} disabled={request.sending}>
+                Request
+              </button>
+            ) : (
+              'Request'
+            )}{' '}
+            and we’ll add it soon.
+          </>
+        )}
       </Note>
       <Note storageKey={AUDIO_NOTE_KEY} hideMs={AUDIO_NOTE_HIDE_MS} icon="🔊" label="Dismiss audio note">
         Different sources in the player menu may have different audio languages. Tap the source menu at the top-left of the

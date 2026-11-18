@@ -36,6 +36,7 @@
  *                 episode, server, source, device), newest first.
  * - codespecter:key  hash of when NextStream last took ("ok") and refused
  *                 ("rejected") our API key, in ms.
+ * - requests:*    titles requested from "Not available on NAIJA TR yet" (./requests.ts).
  * A heartbeat is one Redis command (three or four on a football match page).
  *
  * Imports use `.js` specifiers so the compiled Vercel functions resolve them.
@@ -43,6 +44,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { redis, readRedisEnv, type Command, type RedisEnv } from '../redis.js'
+import { checkRequestedTitles, listTitleRequests, parseTitleRequest, readRequestsEnv, saveTitleRequest, userOfToken, type RequestsEnv } from './requests.js'
 
 /** Anyone without a heartbeat for this long has left. */
 export const WINDOW_MS = 2 * 60 * 1000
@@ -122,10 +124,12 @@ export interface LiveEnv extends RedisEnv {
   adminPassword: string
   /** NEXTSTREAM_KEY_ISSUED (YYYY-MM-DD): the day our CodeSpecter key was issued, for its expiry warning. */
   keyIssued?: string
+  /** Title requests (./requests.ts): Supabase, Telegram, Resend, NextStream and the cron secret. */
+  requests?: RequestsEnv
 }
 
 export function readLiveEnv(env: Record<string, string | undefined>): LiveEnv {
-  return { ...readRedisEnv(env), adminPassword: env.ADMIN_PASSWORD ?? '', keyIssued: env.NEXTSTREAM_KEY_ISSUED?.trim() ?? '' }
+  return { ...readRedisEnv(env), adminPassword: env.ADMIN_PASSWORD ?? '', keyIssued: env.NEXTSTREAM_KEY_ISSUED?.trim() ?? '', requests: readRequestsEnv(env) }
 }
 
 export interface Heartbeat {
@@ -412,7 +416,22 @@ async function readJsonBody(req: IncomingMessage & { body?: unknown }): Promise<
   return JSON.parse(raw || 'null')
 }
 
-/** Serves POST /api/live/heartbeat, /ad, /player and /problem, and GET /api/live/count (admin only). */
+const clientIp = (req: IncomingMessage) =>
+  String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || String(req.headers['x-real-ip'] ?? '') || req.socket?.remoteAddress || 'unknown'
+
+/** The daily Vercel cron (Authorization: Bearer <CRON_SECRET>), or the admin. */
+function isCronOrAdmin(env: LiveEnv, requests: RequestsEnv, authorization: string | undefined): boolean {
+  if (isAdmin(env, authorization)) return true
+  if (!requests.cronSecret) return false
+  const given = /^Bearer (.+)$/.exec(authorization ?? '')?.[1] ?? ''
+  return timingSafeEqual(digest(given), digest(requests.cronSecret))
+}
+
+/**
+ * Serves POST /api/live/heartbeat, /ad, /player, /problem and /request, GET
+ * /api/live/count and /requests (admin only), and GET /requests-check (the
+ * daily cron, or the admin).
+ */
 export async function handleLive(
   env: LiveEnv,
   action: string,
@@ -471,6 +490,35 @@ export async function handleLive(
     if (!report) return sendJson(res, 400, { error: 'bad-request' })
     await recordProblem(env, report, now, fetchImpl)
     return sendJson(res, 200, {})
+  }
+  if (action === 'request' || action === 'requests' || action === 'requests-check') {
+    const requests = env.requests ?? readRequestsEnv({})
+    const store = { ...requests, redisUrl: env.redisUrl, redisToken: env.redisToken }
+    if (action === 'request') {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+      let body: unknown
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendJson(res, 400, { error: 'bad-request' })
+      }
+      const request = parseTitleRequest(body)
+      if (!request) return sendJson(res, 400, { error: 'bad-request' })
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+      const userId = await userOfToken(store, token, fetchImpl)
+      const result = await saveTitleRequest(store, request, userId, clientIp(req), now, fetchImpl)
+      return sendJson(res, result.status, result.body)
+    }
+    if (action === 'requests') {
+      if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
+      if (!isAdmin(env, req.headers.authorization)) return sendJson(res, 401, { error: 'unauthorized' })
+      const list = await listTitleRequests(store, fetchImpl)
+      return list ? sendJson(res, 200, list) : sendJson(res, 502, { error: 'store-unavailable' })
+    }
+    if (req.method !== 'GET' && req.method !== 'POST') return sendJson(res, 405, { error: 'method' })
+    if (!isCronOrAdmin(env, requests, req.headers.authorization)) return sendJson(res, 401, { error: 'unauthorized' })
+    const summary = await checkRequestedTitles(store, now, fetchImpl)
+    return summary ? sendJson(res, 200, summary) : sendJson(res, 502, { error: 'store-unavailable' })
   }
   if (action === 'count') {
     if (req.method !== 'GET') return sendJson(res, 405, { error: 'method' })
