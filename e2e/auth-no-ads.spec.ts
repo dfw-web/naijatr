@@ -98,7 +98,8 @@ async function expectNoAds(page: Page, requests: ReturnType<typeof watchRequests
       .filter((src) => src && !src.startsWith(own) && !/\.supabase\.co|fonts\.g|vercel/.test(src))
     const zones = document.querySelectorAll('script[data-zone]').length
     // Anything drawn on top of the page that isn't the app (in-page push banners, overlays).
-    const overlays = [...document.body.children].filter((node) => node.id !== 'root' && node.tagName !== 'SCRIPT' && (node as HTMLElement).offsetHeight > 0).map((node) => node.outerHTML.slice(0, 120))
+    // The loading splash (index.html) is ours, not an overlay.
+    const overlays = [...document.body.children].filter((node) => node.id !== 'root' && node.id !== 'nt-splash' && node.tagName !== 'SCRIPT' && (node as HTMLElement).offsetHeight > 0).map((node) => node.outerHTML.slice(0, 120))
     return { foreign, zones, overlays, text: document.body.innerText }
   })
   expect(found.zones, `${where}: Multitag on the page`).toBe(0)

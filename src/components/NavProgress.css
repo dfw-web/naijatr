@@ -1,0 +1,109 @@
+/* The slim red loading bar at the top, and the bouncing NT logo (NavProgress.tsx). */
+
+/* Over the navbar (50), under the details panel (100) and the players: never over a playing video. */
+.nav-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 99;
+  height: 3px;
+  pointer-events: none;
+}
+
+.nav-progress__bar {
+  position: relative;
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, #b20710, var(--accent, #e50914) 60%, var(--accent-soft, #ff4d57));
+  box-shadow: 0 0 8px rgba(229, 9, 20, 0.7);
+  /* Quick at first, then slower and slower: it never looks finished until it is. */
+  animation: nav-progress-trickle 9s cubic-bezier(0.08, 0.7, 0.2, 1) forwards;
+}
+
+/* The glowing tip. */
+.nav-progress__bar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff8a91;
+  box-shadow: 0 0 6px 2px rgba(255, 77, 87, 0.9), 0 0 16px 4px rgba(229, 9, 20, 0.6);
+}
+
+.nav-progress--done .nav-progress__bar {
+  animation: nav-progress-done 450ms ease-out forwards;
+}
+
+@keyframes nav-progress-trickle {
+  0% { width: 0; }
+  10% { width: 35%; }
+  100% { width: 92%; }
+}
+
+@keyframes nav-progress-done {
+  0% { width: var(--nav-progress-from, 60%); opacity: 1; }
+  55% { width: 100%; opacity: 1; }
+  100% { width: 100%; opacity: 0; }
+}
+
+/* Slow (over 300 ms): a small NT logo bouncing in the corner, under the install bar (90). */
+.nav-progress__logo {
+  position: fixed;
+  left: max(1rem, env(safe-area-inset-left));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 85;
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+  animation: nav-progress-in 200ms ease-out both;
+}
+
+.nav-progress__logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 9px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55), 0 0 14px rgba(229, 9, 20, 0.45);
+  animation: nav-progress-bounce 700ms cubic-bezier(0.34, 1.56, 0.64, 1) infinite alternate;
+}
+
+/* Above the install bar when it's showing. */
+.has-install-bar .nav-progress__logo {
+  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 5.5rem);
+}
+
+.tv-mode .nav-progress {
+  height: 4px;
+}
+
+.tv-mode .nav-progress__logo {
+  width: 48px;
+  height: 48px;
+  left: 2rem;
+  bottom: 2rem;
+}
+
+@keyframes nav-progress-in {
+  from { opacity: 0; transform: scale(0.6); }
+}
+
+@keyframes nav-progress-bounce {
+  from { transform: translateY(0) scale(1, 1); }
+  to { transform: translateY(-9px) scale(0.96, 1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress__bar {
+    animation: none;
+    width: 70%;
+  }
+
+  .nav-progress__logo,
+  .nav-progress__logo img {
+    animation: none;
+  }
+}

@@ -28,7 +28,7 @@
     </script>
     <!-- Monetag site verification: keep it, even while ads are off (src/config/ads.ts). -->
     <meta name="monetag" content="eb7847d40cb2036e91b6ddc8b7181e6e">
-    <meta name="theme-color" content="#050508" />
+    <meta name="theme-color" content="#0B0B0F" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -38,15 +38,159 @@
     <meta name="description" content="NAIJA TR — discover movies and TV series." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Not render-blocking, so the splash below paints at once (display=swap: the text shows meanwhile). -->
     <link
       href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    </noscript>
+    <style>
+      /*
+       * The NAIJA TR splash: HTML and CSS only, so it paints before the app's
+       * code arrives. src/ui/splash.ts hides it once the app is ready (at least
+       * 600 ms in); without the app it's still gone by 4 s (nt-out below: 3.65 s + the 350 ms fade).
+       */
+      html { background: #050508; }
+      .nt-splash {
+        position: fixed; inset: 0; z-index: 2147483000;
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden; background: #0b0b0f; color: #f5f5f7;
+        font-family: 'Bebas Neue', Impact, 'Arial Narrow', sans-serif;
+        animation: nt-out 350ms ease 3.65s forwards;
+      }
+      .nt-splash.is-leaving { animation: nt-out 350ms ease forwards; pointer-events: none; }
+      .nt-splash.is-leaving .nt-splash__stage { animation: nt-zoom 350ms ease-in forwards; }
+      /* The red spotlight, breathing gently. */
+      .nt-splash__glow {
+        position: absolute; left: 50%; top: 50%; width: 130vmax; height: 130vmax;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle, rgba(229, 9, 20, 0.3) 0, rgba(229, 9, 20, 0.08) 22%, transparent 42%);
+        animation: nt-glow 2.4s ease-in-out 1.2s infinite alternate;
+      }
+      /* Film grain: a tiny SVG noise tile, jittering. */
+      .nt-splash::before {
+        content: ''; position: absolute; inset: -50%; opacity: 0.07; pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        animation: nt-grain 0.8s steps(4) infinite;
+      }
+      .nt-splash__stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+      .nt-splash__logo { position: relative; width: 84px; height: 126px; }
+      .nt-splash__tile {
+        position: absolute; left: 0; top: 0; z-index: 1; width: 84px; height: 84px;
+        display: flex; overflow: hidden; border-radius: 18px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+        animation: nt-breathe 1.6s ease-in-out 1.3s infinite alternate;
+      }
+      /* 1. The green-white-green curtain drops in. */
+      .nt-splash__tile i { flex: 1; background: #008751; transform: translateY(-105%); animation: nt-drop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+      .nt-splash__tile i:nth-child(2) { flex: 1.1; background: #fff; animation-delay: 80ms; }
+      .nt-splash__tile i:nth-child(3) { animation-delay: 160ms; }
+      /* 2. "NT" pops, and a flash of light crosses it. */
+      .nt-splash__nt { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(0); animation: nt-pop 380ms cubic-bezier(0.34, 1.56, 0.64, 1) 420ms forwards; }
+      .nt-splash__flash {
+        position: absolute; top: -20%; bottom: -20%; left: 0; width: 40%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+        transform: translateX(-160%) skewX(-18deg); animation: nt-flash 420ms ease-out 680ms forwards;
+      }
+      /* 3. The play button shoots out from behind the tile, spins, and settles under it. */
+      .nt-splash__play {
+        position: absolute; left: 50%; top: 92px; width: 34px; height: 34px; margin-left: -17px;
+        display: flex; align-items: center; justify-content: center; border-radius: 50%;
+        background: #e50914; box-shadow: 0 0 18px rgba(229, 9, 20, 0.7);
+        transform: translateY(-62px) scale(0.3); opacity: 0;
+        animation: nt-shoot 560ms cubic-bezier(0.34, 1.56, 0.64, 1) 600ms forwards;
+      }
+      .nt-splash__play svg { width: 16px; height: 16px; margin-left: 3px; fill: #fff; }
+      /* 4. "NAIJA TR", letter by letter, like a scoreboard flipping. */
+      .nt-splash__word { display: flex; font-size: 34px; letter-spacing: 0.08em; line-height: 1; perspective: 400px; }
+      .nt-splash__word span {
+        display: inline-block; min-width: 0.3em; transform-origin: 50% 0; transform: rotateX(-95deg); opacity: 0;
+        animation: nt-flip 420ms cubic-bezier(0.34, 1.4, 0.64, 1) forwards; animation-delay: calc(760ms + var(--i) * 45ms);
+      }
+      /* 5. The red line fills, a popcorn riding its end; then again, gently, while still loading. */
+      .nt-splash__bar { position: relative; width: 168px; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); }
+      .nt-splash__fill {
+        position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 3px;
+        background: linear-gradient(90deg, #b20710, #ff2b36); box-shadow: 0 0 10px rgba(229, 9, 20, 0.8);
+        animation: nt-fill 1.8s cubic-bezier(0.45, 0, 0.25, 1) 900ms infinite;
+      }
+      .nt-splash__fill em { position: absolute; right: -9px; top: -10px; font-size: 15px; font-style: normal; line-height: 1; font-family: sans-serif; }
+      /* The fun line: one at a time, changing every 1.2 s (the first one picked at random below). */
+      .nt-splash__tips { position: relative; width: min(88vw, 320px); height: 1.4em; margin: 2px 0 0; font: 500 15px/1.4 Inter, system-ui, 'Segoe UI', Roboto, sans-serif; color: #b3b3bd; text-align: center; }
+      .nt-splash__tips span {
+        position: absolute; inset: 0; opacity: 0; white-space: nowrap;
+        animation: nt-tip 7.2s linear infinite backwards; animation-delay: calc(var(--i) * 1.2s + var(--nt-tip-start, 0s));
+      }
+      @keyframes nt-drop { to { transform: none; } }
+      @keyframes nt-pop { 0% { transform: scale(0); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+      @keyframes nt-flash { to { transform: translateX(360%) skewX(-18deg); } }
+      @keyframes nt-shoot {
+        0% { transform: translateY(-62px) scale(0.3) rotate(-200deg); opacity: 0; }
+        25% { opacity: 1; }
+        100% { transform: none; opacity: 1; }
+      }
+      @keyframes nt-flip { 0% { transform: rotateX(-95deg); opacity: 0; } 30% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+      @keyframes nt-fill { 0% { width: 0; opacity: 1; } 70% { width: 100%; opacity: 1; } 100% { width: 100%; opacity: 0; } }
+      @keyframes nt-tip { 0% { opacity: 0; transform: translateY(4px); } 2%, 15% { opacity: 1; transform: none; } 16.6%, 100% { opacity: 0; transform: translateY(-4px); } }
+      @keyframes nt-breathe { to { transform: scale(1.04); } }
+      @keyframes nt-glow { to { opacity: 0.6; } }
+      @keyframes nt-grain { 0% { transform: translate(0, 0); } 25% { transform: translate(-3%, 2%); } 50% { transform: translate(2%, -3%); } 75% { transform: translate(-2%, -1%); } }
+      @keyframes nt-zoom { to { transform: scale(1.18); } }
+      @keyframes nt-out { to { opacity: 0; visibility: hidden; } }
+      /* Short, wide screens (a phone in landscape): a little smaller. */
+      @media (max-height: 420px) { .nt-splash__stage { transform: scale(0.8); } }
+      /* Big TVs: a little bigger. */
+      .tv-mode .nt-splash__stage { transform: scale(1.4); }
+      .tv-mode .nt-splash::before { animation: none; }
+      /* Reduced motion: everything in place, the first line only; a plain fade out. */
+      @media (prefers-reduced-motion: reduce) {
+        .nt-splash *, .nt-splash::before { animation: none !important; transform: none !important; opacity: 1 !important; }
+        .nt-splash__fill { width: 60%; }
+        .nt-splash__flash { display: none; }
+        .nt-splash__tips span { opacity: 0 !important; }
+        .nt-splash__tips span:first-child { opacity: 1 !important; }
+        .nt-splash__glow { transform: translate(-50%, -50%) !important; }
+        .nt-splash.is-leaving .nt-splash__stage { animation: none; }
+      }
+    </style>
     <link rel="preconnect" href="https://picsum.photos" />
     <link rel="preconnect" href="https://image.tmdb.org" />
     <title>NAIJA TR</title>
   </head>
   <body>
+    <div id="nt-splash" class="nt-splash" aria-hidden="true">
+      <div class="nt-splash__glow"></div>
+      <div class="nt-splash__stage">
+        <div class="nt-splash__logo">
+          <span class="nt-splash__play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z" /></svg></span>
+          <div class="nt-splash__tile">
+            <i></i><i></i><i></i>
+            <svg class="nt-splash__nt" viewBox="0 0 64 64"><path d="M8 18h7l8 16V18h6v28h-6l-8-16v16H8z" fill="#fff" stroke="#008751" stroke-width="1.5" /><path d="M33 18h23v6h-8.5v22h-6V24H33z" fill="#fff" stroke="#008751" stroke-width="1.5" /></svg>
+            <b class="nt-splash__flash"></b>
+          </div>
+        </div>
+        <div class="nt-splash__word"><span style="--i:0">N</span><span style="--i:1">A</span><span style="--i:2">I</span><span style="--i:3">J</span><span style="--i:4">A</span><span style="--i:5">&nbsp;</span><span style="--i:6">T</span><span style="--i:7">R</span></div>
+        <div class="nt-splash__bar"><span class="nt-splash__fill"><em>🍿</em></span></div>
+        <p class="nt-splash__tips">
+          <span style="--i:0">Abeg wait small… 🍿</span>
+          <span style="--i:1">Popcorn don ready 🍿</span>
+          <span style="--i:2">Loading the vibes… 🎬</span>
+          <span style="--i:3">Oya, settle down 🛋️</span>
+          <span style="--i:4">Charging the screen… ⚡</span>
+          <span style="--i:5">No dulling, e don near 😎</span>
+        </p>
+      </div>
+    </div>
+    <script>
+      // The splash's first fun line, at random: the others follow every 1.2 s.
+      try {
+        document.getElementById('nt-splash').style.setProperty('--nt-tip-start', -1.2 * Math.floor(Math.random() * 6) + 's')
+      } catch (e) {}
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

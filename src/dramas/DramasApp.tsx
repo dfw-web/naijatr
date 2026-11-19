@@ -18,6 +18,7 @@ import {
   routeFromLocation,
   type DramaProvider,
 } from './format'
+import { beginLoading } from '../ui/loadingTracker'
 import './dramas.css'
 
 type Go = (path: string, replace?: boolean) => void
@@ -29,13 +30,18 @@ function useLoad<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[]) 
   useEffect(() => {
     const controller = new AbortController()
     setState({ loading: true })
-    load(controller.signal).then(
+    // The red bar at the top while it loads (src/components/NavProgress.tsx).
+    const done = beginLoading()
+    load(controller.signal).finally(done).then(
       (data) => setState({ data, loading: false }),
       (error: Error) => {
         if (error.name !== 'AbortError') setState({ error: errorMessage(error), loading: false })
       },
     )
-    return () => controller.abort()
+    return () => {
+      done()
+      controller.abort()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, attempt])
   return { ...state, reload: () => setAttempt((n) => n + 1) }

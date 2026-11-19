@@ -58,7 +58,8 @@ async function adsOnPage(page: Page) {
     const zones = document.querySelectorAll('script[data-zone]').length
     const frames = [...document.querySelectorAll<HTMLIFrameElement>('iframe')].map((f) => f.src || 'about:blank').filter((src) => !src.startsWith(own))
     const scripts = [...document.querySelectorAll<HTMLScriptElement>('script[src]')].map((s) => s.src).filter((src) => !src.startsWith(own) && !/vercel/.test(src))
-    const overlays = [...document.body.children].filter((node) => node.id !== 'root' && node.tagName !== 'SCRIPT' && (node as HTMLElement).offsetHeight > 0).map((node) => node.outerHTML.slice(0, 120))
+    // The loading splash (index.html) is ours, not an overlay.
+    const overlays = [...document.body.children].filter((node) => node.id !== 'root' && node.id !== 'nt-splash' && node.tagName !== 'SCRIPT' && (node as HTMLElement).offsetHeight > 0).map((node) => node.outerHTML.slice(0, 120))
     return { zones, frames, scripts, overlays }
   })
 }
@@ -74,9 +75,9 @@ test.describe('the welcome popup', () => {
   test('shows on load and on reload, ~1.5 s in, with the promo wording; nothing for signed-in accounts', async ({ page, context }, testInfo) => {
     await fakeApis(context, 'promo')
     await page.goto('/')
-    const start = Date.now()
     await expect(dialog(page)).toBeVisible()
-    expect(Date.now() - start, 'not before ~1.5 s').toBeGreaterThan(1000)
+    // By the page's own clock (from the start of the page load).
+    expect(await page.evaluate(() => performance.now()), 'not before ~1.5 s').toBeGreaterThan(1500)
     await expect(page.getByRole('heading', { name: '🎉 NAIJA TR is ad-free this week!' })).toBeVisible()
     await expect(page.getByText('Sign up free now and stay 👑 Premium (ad-free) for 2 extra days after the promo ends. Plus Continue Watching and My List on all your devices.')).toBeVisible()
     if (SCREENSHOTS) await page.screenshot({ path: `${SCREENSHOTS}/welcome-${testInfo.project.name}-promo.png` })

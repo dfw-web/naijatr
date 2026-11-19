@@ -77,6 +77,30 @@ function telegramPage(): Plugin {
  * is a changed service worker: the installed app picks it up, drops the old
  * caches and offers "New update available, tap to refresh" (src/pwa.ts).
  */
+/**
+ * The splash (index.html) paints at once on slow networks: the app's built
+ * stylesheet loads without blocking the first paint (preloaded, then switched
+ * on), and src/ui/splash.ts waits for it (data-app-css) before showing the app.
+ */
+function nonBlockingAppCss(): Plugin {
+  return {
+    name: 'non-blocking-app-css',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler: (html, ctx) =>
+        ctx.path !== '/index.html'
+          ? html
+          : html.replace(
+              /<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+\.css)">/g,
+              `<link rel="preload" as="style" crossorigin href="$1">
+    <link rel="stylesheet" crossorigin href="$1" media="print" onload="this.media='all'" data-app-css>
+    <noscript><link rel="stylesheet" crossorigin href="$1"></noscript>`,
+            ),
+    },
+  }
+}
+
 function swBuildId(): Plugin {
   // The commit (on Vercel) plus the time, so a redeploy of the same commit is still new.
   const buildId = `${process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local'}-${Date.now().toString(36)}`
@@ -193,7 +217,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), authPageHeaders(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? ''), dramasApi(env)],
+    plugins: [react(), authPageHeaders(), nonBlockingAppCss(), swBuildId(), telegramPage(), nextStreamPlayback(nextStream, moviebox, workerDownloads), searchIndexApi(env), subtitlesApi(env), footballApi(env.API_FOOTBALL_KEY?.trim() ?? '', env.RAPIDAPI_KEY?.trim() ?? ''), dramasApi(env)],
     define: {
       __TMDB_ENABLED__: JSON.stringify(tmdbEnabled),
       __PLAYBACK_ENABLED__: JSON.stringify(playback),

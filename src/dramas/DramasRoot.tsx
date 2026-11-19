@@ -11,9 +11,11 @@ import { InstallAppHost } from '../components/InstallApp'
 import { UpdateBar } from '../components/UpdateBar'
 import { FeedbackHost } from '../feedback/Feedback'
 import { WelcomePopupHost } from '../promo/WelcomePopup'
+import { trackLoading } from '../ui/loadingTracker'
+import { NavProgress } from '../components/NavProgress'
 
 // Loaded on demand, so the movie pages never download the Short Dramas section.
-const DramasApp = lazy(() => import('./DramasApp'))
+const DramasApp = lazy(() => trackLoading(import('./DramasApp')))
 
 export function DramasRoot() {
   // Before DramasApp rewrites the URL to its route.
@@ -25,6 +27,7 @@ export function DramasRoot() {
       <Suspense fallback={null}>
         <DramasApp />
       </Suspense>
+      <NavProgress />
       {/* Vercel Web Analytics for the Short Dramas section (a separate root from App). */}
       <TvAdBreakHost />
       <TelegramGateHost />

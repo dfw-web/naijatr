@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { beginLoading } from '../ui/loadingTracker'
 import { parseFilters, serializeFilters, type TypeFilter } from '../config/discoverFilters'
 import { useCatalogProvider } from '../data/provider'
 import type { DiscoverRequest, MediaItem } from '../types/media'
@@ -59,7 +60,9 @@ export function useDiscover(request: Request | null) {
     // The key round-trips the request, so the effect only re-runs when it really changes.
     const [search, type, query] = JSON.parse(key) as [string, TypeFilter, string]
     const controller = new AbortController()
-    provider.discover({ filters: parseFilters(search), type, query, page: wantedPage }, controller.signal).then(
+    // The red bar at the top while it loads (src/components/NavProgress.tsx).
+    const done = beginLoading()
+    provider.discover({ filters: parseFilters(search), type, query, page: wantedPage }, controller.signal).finally(done).then(
       (result) => {
         if (controller.signal.aborted) return
         setLoaded((prev) => {
@@ -80,7 +83,10 @@ export function useDiscover(request: Request | null) {
         }
       },
     )
-    return () => controller.abort()
+    return () => {
+      done()
+      controller.abort()
+    }
   }, [provider, key, wantedPage, attempt])
 
   const failed =

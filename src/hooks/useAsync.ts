@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { beginLoading } from '../ui/loadingTracker'
 
 export type AsyncState<T> =
   | { status: 'idle' }
@@ -30,14 +31,20 @@ export function useAsync<T>(load: Loader<T> | null) {
   useEffect(() => {
     if (!load) return
     const controller = new AbortController()
+    // The red bar at the top while it loads (src/components/NavProgress.tsx).
+    const done = beginLoading()
     const settle = (state: Settled<T>['state']) => {
+      done()
       if (!controller.signal.aborted) setSettled({ load, attempt, state })
     }
     load(controller.signal).then(
       (data) => settle({ status: 'success', data }),
       (error: unknown) => settle({ status: 'error', error: toError(error) }),
     )
-    return () => controller.abort()
+    return () => {
+      done()
+      controller.abort()
+    }
   }, [load, attempt])
 
   const retry = useCallback(() => setAttempt((n) => n + 1), [])

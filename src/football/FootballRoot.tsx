@@ -11,9 +11,10 @@ import { InstallAppHost } from '../components/InstallApp'
 import { UpdateBar } from '../components/UpdateBar'
 import { FeedbackHost } from '../feedback/Feedback'
 import { WelcomePopupHost } from '../promo/WelcomePopup'
+import { trackLoading } from '../ui/loadingTracker'
 
 // Loaded on demand, so the movie pages never download the Football section.
-const FootballApp = lazy(() => import('./FootballApp'))
+const FootballApp = lazy(() => trackLoading(import('./FootballApp')))
 
 export function FootballRoot() {
   // Before FootballApp rewrites the URL to its route.

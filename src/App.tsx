@@ -31,6 +31,7 @@ import { TrialEndedHost, TrialPromptHost, TrialWelcomeHost } from './promo/Welco
 import { WelcomePopupHost } from './promo/WelcomePopup'
 import { loadPromo } from './referral/status'
 import { PasswordReminderHost, SyncPromptHost } from './account/SyncPrompt'
+import { NavProgress } from './components/NavProgress'
 import './App.css'
 
 const TRENDING_LINK: NavLink = { ...NAV_LINKS[0], section: 'trending' }
@@ -154,6 +155,8 @@ function App() {
 
   return (
     <>
+      {/* The slim red bar at the top while a page's titles load (and the corner logo after 300 ms). */}
+      <NavProgress />
       <PromoWeekBanner />
       <Navbar
         links={NAV_LINKS}
