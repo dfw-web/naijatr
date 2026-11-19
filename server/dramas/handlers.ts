@@ -54,7 +54,7 @@ export const DRAMA_TTL = {
   /** Every drama we can list for an app (searched when its own search finds nothing). */
   catalog: 60 * 60_000,
   detail: 6 * 60 * 60_000,
-  /** Episode lists carry signed video links (DramaBox, DramaWave): kept well inside their expiry. */
+  /** DramaWave's episode lists carry signed video links: kept well inside their expiry. */
   episodes: 30 * 60_000,
   source: 30 * 60_000,
   /** The admin switch, re-read from Redis this often per server instance. */
@@ -178,7 +178,7 @@ async function readBody(req: IncomingMessage & { body?: unknown }): Promise<unkn
   return JSON.parse(raw || 'null')
 }
 
-/** The episode list, cached (it holds DramaBox's and DramaWave's video links). */
+/** The episode list, cached (DramaWave's holds its video links). */
 const episodes = (ctx: DramaContext, provider: DramaProvider, id: string) =>
   ctx.cache.get<EpisodeList>(`episodes:${provider}:${id}`, DRAMA_TTL.episodes, () => fetchEpisodes(ctx.key, provider, id, ctx.fetchImpl))
 
@@ -255,8 +255,8 @@ export async function handleDramas(ctx: DramaContext, req: IncomingMessage & { b
     if (route === 'search') {
       const q = (params.get('q') ?? '').trim().slice(0, 80)
       if (q.length < 2) return sendJson(res, 400, { error: 'bad-request' })
-      // The app's own search, then the dramas we can list for it: DramaBox's search
-      // returns nothing, and DramaWave's often fails.
+      // The app's own search, then the dramas we can list for it (DramaWave's
+      // search often fails).
       // Both at once, so a slow search doesn't hold up the list.
       const [upstream, catalog] = await Promise.all([
         ctx.cache

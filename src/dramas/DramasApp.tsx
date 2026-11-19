@@ -6,7 +6,7 @@ import { hashForView, NAV_LINKS, type NavLink } from '../navigation'
 import { errorMessage, fetchDrama, fetchShelves, searchDramas, type Drama, type DramaDetails, type Episode, type Shelf } from './api'
 import { DramaPlayer } from './DramaPlayer'
 import { EpisodePicker } from './EpisodePicker'
-import { continueLabel, dramaEntryId, recordDramaProgress, recordDramaView, resumeSeconds, useDramaHistory } from './history'
+import { continueLabel, dramaEntryId, moveDramaEntry, readDramaHistory, recordDramaProgress, recordDramaView, resumeSeconds, useDramaHistory } from './history'
 import {
   DRAMA_PROVIDERS,
   DRAMAS_PATH,
@@ -14,6 +14,7 @@ import {
   pathForDrama,
   pathForProvider,
   PROVIDER_NAMES,
+  resumePath,
   routeFromLocation,
   type DramaProvider,
 } from './format'
@@ -149,8 +150,40 @@ function DramasHome({ provider, query, go }: { provider: DramaProvider; query: s
   )
 }
 
+const sameTitle = (a: string, b: string) => {
+  const plain = (text: string) => text.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '')
+  return plain(a) !== '' && plain(a) === plain(b)
+}
+
+/**
+ * DramaBox's ids were numbers until Ezvid's November 2026 update; they're name
+ * slugs now, so a drama saved before ("Your short dramas", an old link) is
+ * found again by its saved title. Null when it isn't one, or isn't found.
+ */
+async function findMovedDrama(provider: DramaProvider, id: string, signal: AbortSignal): Promise<string | null> {
+  if (provider !== 'dramabox' || !/^\d+$/.test(id)) return null
+  const title = readDramaHistory().find((e) => e.id === dramaEntryId(provider, id))?.title.trim() ?? ''
+  if (title.length < 2) return null
+  const found = await searchDramas(provider, title.slice(0, 80), signal).catch(() => [] as Drama[])
+  return found.find((d) => d.id !== id && sameTitle(d.title, title))?.id ?? null
+}
+
 function DramaPage({ provider, id, ep, resume, go }: { provider: DramaProvider; id: string; ep: string | null; resume: boolean; go: Go }) {
-  const details = useLoad<DramaDetails>((signal) => fetchDrama(provider, id, signal), [provider, id])
+  const details = useLoad<DramaDetails>(
+    async (signal) => {
+      try {
+        return await fetchDrama(provider, id, signal)
+      } catch (error) {
+        const moved = await findMovedDrama(provider, id, signal)
+        if (!moved) throw error
+        moveDramaEntry(dramaEntryId(provider, id), moved)
+        go(resume ? resumePath(provider, moved) : pathForDrama(provider, moved), true)
+        // The page under the new id takes over.
+        throw new DOMException('moved', 'AbortError')
+      }
+    },
+    [provider, id],
+  )
   const episodes = useMemo(() => details.data?.episodes ?? [], [details.data])
   const playable = useMemo(() => episodes.filter((e) => e.playable), [episodes])
   const current = ep ? (episodes.find((e) => e.id === ep && e.playable) ?? null) : null

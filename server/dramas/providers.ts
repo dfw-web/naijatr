@@ -25,8 +25,12 @@ export const PROVIDER_NAMES: Record<DramaProvider, string> = {
 export const isProvider = (value: string | null): value is DramaProvider =>
   DRAMA_PROVIDERS.includes(value as DramaProvider)
 
-/** Provider ids are digits or short base62-ish keys. */
-export const ID = /^[A-Za-z0-9_-]{1,40}$/
+/**
+ * Provider ids: digits, short base62-ish keys, or (DramaBox since Ezvid's
+ * November 2026 update) name slugs such as "love-in-lockup". At most 100, so
+ * "dramabox:<id>" fits drama_history's 120-character entry_id.
+ */
+export const ID = /^[A-Za-z0-9_-]{1,100}$/
 
 export interface Drama {
   provider: DramaProvider
@@ -99,7 +103,8 @@ const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '')
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 const https = (v: unknown) => (/^https:\/\//.test(str(v)) ? str(v) : '')
-const strings = (v: unknown) => arr(v).map(str).filter(Boolean).slice(0, 6)
+/** Tag names: plain strings, or `{ slug, name }` (DramaBox). */
+const strings = (v: unknown) => arr(v).map((t) => str(t) || str(obj(t).name)).filter(Boolean).slice(0, 6)
 
 const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : String(n))
 
@@ -119,59 +124,38 @@ function drama(provider: DramaProvider, fields: Partial<Drama> & { id: string; t
 
 const present = <T>(items: (T | null)[]) => items.filter((item): item is T => item !== null)
 
-/** Ezvid's normalized item ({ id, title, image, extra }), used by NetShort and DramaWave. */
+/** Ezvid's normalized item ({ id, title, image, extra }), used by all three apps. */
 function normalizedDrama(provider: DramaProvider, raw: unknown): Drama | null {
   const item = obj(raw)
   const extra = obj(item.extra)
-  const views = num(extra.popularity) ?? num(extra.viewCount)
+  // DramaBox gives 0 views when it doesn't know.
+  const views = num(extra.popularity) ?? num(extra.viewCount) ?? (num(extra.views) || null)
+  const tags = strings(extra.tags ?? extra.contentTags)
   return drama(provider, {
     id: str(item.id),
     title: str(item.title),
     cover: https(item.image),
     description: str(extra.description),
-    tags: strings(extra.tags ?? extra.contentTags),
-    episodes: num(extra.episodeCount),
+    tags: tags.length ? tags : strings([extra.genre]),
+    episodes: num(extra.episodeCount) ?? num(extra.totalEpisodes),
     popularity: views === null ? null : compact(views),
   })
 }
 
-// ---- DramaBox ----
-function dramaboxDrama(raw: unknown): Drama | null {
-  const book = obj(raw)
-  return drama('dramabox', {
-    id: str(book.bookId),
-    title: str(book.bookName),
-    cover: https(book.coverWap),
-    description: str(book.introduction),
-    tags: strings(book.tags),
-    episodes: num(book.chapterCount),
-    popularity: str(obj(book.rankVo).hotCode) || null,
-  })
-}
-
-function dramaboxEpisodes(data: unknown): EpisodeList['episodes'] {
+/** Ezvid's normalized video links ({ type, url, quality }). */
+function normalizedSources(raw: unknown): VideoSource[] {
   return present(
-    arr(data).map((raw) => {
-      const chapter = obj(raw)
-      const id = str(chapter.chapterId)
-      const index = num(chapter.chapterIndex)
-      if (!ID.test(id) || index === null) return null
-      const sources: VideoSource[] = []
-      for (const [field, quality] of [['videoUrl1080', '1080p'], ['videoUrl720', '720p'], ['videoUrl540', '540p']] as const) {
-        const url = https(chapter[field])
-        if (url) sources.push({ url, type: 'mp4', quality })
-      }
-      if (!sources.length && https(chapter.videoUrl)) sources.push({ url: https(chapter.videoUrl), type: 'mp4', quality: 'auto' })
-      return {
-        id,
-        number: index + 1,
-        title: str(chapter.chapterName) || `Episode ${index + 1}`,
-        locked: chapter.isLocked === true || chapter.isCharge === 1,
-        sources,
-      }
+    arr(raw).map((s) => {
+      const source = obj(s)
+      const url = https(source.url)
+      if (!url) return null
+      return { url, type: source.type === 'm3u8' || /\.m3u8(\?|$)/.test(url) ? 'hls' : 'mp4', quality: str(source.quality) || 'auto' } as VideoSource
     }),
   )
 }
+
+// ---- DramaBox (Ezvid's normalized shape; ids are name slugs) ----
+const DRAMABOX_LANGUAGE = { language: 'en' }
 
 // ---- DramaWave ----
 function dramawaveHomeDrama(raw: unknown): Drama | null {
@@ -196,22 +180,13 @@ function normalizedEpisodes(data: unknown, withSources: boolean): EpisodeList['e
       const id = str(item.id)
       if (!ID.test(id)) return null
       const number = num(item.episodeNumber) ?? i + 1
-      const sources = withSources
-        ? present(
-            arr(item.sources).map((s) => {
-              const source = obj(s)
-              const url = https(source.url)
-              if (!url) return null
-              return { url, type: source.type === 'm3u8' || /\.m3u8(\?|$)/.test(url) ? 'hls' : 'mp4', quality: str(source.quality) || 'auto' } as VideoSource
-            }),
-          )
-        : null
+      const sources = withSources ? normalizedSources(item.sources) : null
       return {
         id,
         number,
         // DramaWave repeats the drama's name as each episode's title.
         title: `Episode ${number}`,
-        locked: extra.isLocked === true || extra.isVip === true || extra.videoType === 'charge',
+        locked: extra.isLocked === true || extra.isVip === true || extra.videoType === 'charge' || extra.locked === true || extra.requiresVip === true,
         sources,
       }
     }),
@@ -235,13 +210,14 @@ function netshortSources(data: unknown): VideoSource[] {
 
 export async function fetchHome(key: string, provider: DramaProvider, fetchImpl: Fetch = fetch): Promise<Shelf[]> {
   if (provider === 'dramabox') {
-    const [latest, trending] = await Promise.allSettled([
-      ezvid(key, 'dramabox/latest', { lang: 'en' }, fetchImpl),
-      ezvid(key, 'dramabox/trending', { lang: 'en' }, fetchImpl),
+    const [popular, latest] = await Promise.allSettled([
+      ezvid(key, 'dramabox/popular', { ...DRAMABOX_LANGUAGE, limit: '30' }, fetchImpl),
+      ezvid(key, 'dramabox/home', { ...DRAMABOX_LANGUAGE, limit: '30' }, fetchImpl),
     ])
+    const items = (data: unknown) => present(arr(obj(data).items).map((item) => normalizedDrama('dramabox', item)))
     const shelves: Shelf[] = []
-    if (trending.status === 'fulfilled') shelves.push({ title: 'Trending', dramas: present(arr(trending.value).map(dramaboxDrama)) })
-    if (latest.status === 'fulfilled') shelves.push({ title: 'Latest', dramas: present(arr(latest.value).map(dramaboxDrama)) })
+    if (popular.status === 'fulfilled') shelves.push({ title: 'Popular', dramas: items(popular.value) })
+    if (latest.status === 'fulfilled') shelves.push({ title: 'Latest', dramas: items(latest.value) })
     if (!shelves.length) throw (latest as PromiseRejectedResult).reason
     return dedupeShelves(shelves)
   }
@@ -263,16 +239,28 @@ function dedupeShelves(shelves: Shelf[]): Shelf[] {
   return shelves.map((shelf) => ({ ...shelf, dramas: shelf.dramas.filter((d, i, all) => all.findIndex((o) => o.id === d.id) === i) })).filter((shelf) => shelf.dramas.length)
 }
 
-/** Every drama we can list for an app, for searching when its own search fails (DramaBox's returns nothing; DramaWave's often errors). */
+/** Every drama we can list for an app, for searching when its own search misses or fails (DramaWave's often errors). */
 export async function fetchCatalog(key: string, provider: DramaProvider, fetchImpl: Fetch = fetch): Promise<Drama[]> {
   const lists: Promise<Drama[]>[] = []
   const settle = async (load: () => Promise<Drama[]>) => load().catch(() => [] as Drama[])
   if (provider === 'dramabox') {
-    const books = (path: string, params: Record<string, string>, pick: (data: unknown) => unknown[] = arr) =>
-      settle(async () => present(pick(await ezvid(key, path, params, fetchImpl)).map(dramaboxDrama)))
-    lists.push(books('dramabox/latest', { lang: 'en' }), books('dramabox/trending', { lang: 'en' }), books('dramabox/populersearch', { lang: 'en' }))
-    lists.push(books('dramabox/dubbed', { lang: 'en', page: '1' }))
-    for (let page = 1; page <= 8; page++) lists.push(books('dramabox/browse', { lang: 'en', page: String(page) }, (data) => arr(obj(data).items)))
+    const items = (data: Obj) => present(arr(data.items).map((item) => normalizedDrama('dramabox', item)))
+    const list = (path: string) => settle(async () => items(obj(await ezvid(key, path, { ...DRAMABOX_LANGUAGE, limit: '50' }, fetchImpl))))
+    lists.push(list('dramabox/popular'), list('dramabox/dubbed'))
+    lists.push(
+      settle(async () => {
+        // The newest, then a few more of its pages.
+        const dramas: Drama[] = []
+        let data = obj(await ezvid(key, 'dramabox/home', { ...DRAMABOX_LANGUAGE, limit: '50' }, fetchImpl))
+        for (let page = 0; page < 4; page++) {
+          dramas.push(...items(data))
+          const cursor = str(data.nextCursor)
+          if (!cursor) break
+          data = obj(await ezvid(key, 'dramabox/loadmore', { ...DRAMABOX_LANGUAGE, cursor, limit: '50' }, fetchImpl).catch(() => ({})))
+        }
+        return dramas
+      }),
+    )
   } else if (provider === 'dramawave') {
     lists.push(
       settle(async () => {
@@ -321,30 +309,34 @@ export function searchCatalog(catalog: Drama[], query: string): Drama[] {
   return scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).map((s) => s.drama).slice(0, 40)
 }
 
+/** Each app's code for English. */
+const languageOf = (provider: DramaProvider) => (provider === 'dramabox' ? 'en' : provider === 'dramawave' ? 'en-US' : 'en_US')
+
 export async function fetchSearch(key: string, provider: DramaProvider, query: string, fetchImpl: Fetch = fetch): Promise<Drama[]> {
-  if (provider === 'dramabox') return present(arr(await ezvid(key, 'dramabox/search', { lang: 'en', query }, fetchImpl)).map(dramaboxDrama))
-  const language = provider === 'dramawave' ? 'en-US' : 'en_US'
+  const language = languageOf(provider)
   const data = obj(await ezvid(key, `${provider}/search`, { q: query, language, limit: '30' }, fetchImpl))
   return present(arr(data.items).map((item) => normalizedDrama(provider, item)))
 }
 
 export async function fetchDetail(key: string, provider: DramaProvider, id: string, fetchImpl: Fetch = fetch): Promise<Drama | null> {
-  if (provider === 'dramabox') return dramaboxDrama(await ezvid(key, 'dramabox/detail', { lang: 'en', bookId: id }, fetchImpl))
-  const language = provider === 'dramawave' ? 'en-US' : 'en_US'
-  const data = obj(await ezvid(key, `${provider}/detail/${id}`, { language }, fetchImpl))
+  const data = obj(await ezvid(key, `${provider}/detail/${id}`, { language: languageOf(provider) }, fetchImpl))
   return normalizedDrama(provider, arr(data.items)[0] ?? data)
 }
 
 export async function fetchEpisodes(key: string, provider: DramaProvider, id: string, fetchImpl: Fetch = fetch): Promise<EpisodeList> {
-  if (provider === 'dramabox') return { title: '', episodes: dramaboxEpisodes(await ezvid(key, 'dramabox/allepisode', { bookId: id }, fetchImpl)) }
-  const language = provider === 'dramawave' ? 'en-US' : 'en_US'
-  const data = await ezvid(key, `${provider}/episodes/${id}`, { language }, fetchImpl)
-  // NetShort's list has no sources: each episode's comes from fetchSource.
-  return { title: str(obj(obj(data).meta).title), episodes: normalizedEpisodes(data, provider !== 'netshort') }
+  const data = await ezvid(key, `${provider}/episodes/${id}`, { language: languageOf(provider) }, fetchImpl)
+  // DramaBox's and NetShort's lists have no sources: each episode's comes from fetchSource.
+  return { title: str(obj(obj(data).meta).title), episodes: normalizedEpisodes(data, provider === 'dramawave') }
 }
 
-/** NetShort only: one episode's sources. */
+/** DramaBox and NetShort: one episode's sources. */
 export async function fetchSource(key: string, provider: DramaProvider, id: string, episodeId: string, fetchImpl: Fetch = fetch): Promise<VideoSource[]> {
+  if (provider === 'dramabox') {
+    // `{ items: [{ id, sources: [{ type, url }] }] }`; its links last a few hours.
+    const data = obj(await ezvid(key, `dramabox/episodes/${id}/${episodeId}/source`, {}, fetchImpl))
+    const items = arr(data.items).map(obj)
+    return normalizedSources((items.find((item) => str(item.id) === episodeId) ?? items[0] ?? {}).sources)
+  }
   if (provider !== 'netshort') return []
   return netshortSources(await ezvid(key, `netshort/episodes/${id}/${episodeId}/source`, { language: 'en_US' }, fetchImpl))
 }

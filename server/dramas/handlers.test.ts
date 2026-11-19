@@ -22,12 +22,22 @@ function fakeResponse() {
 const json = (res: { body?: string }) => JSON.parse(res.body ?? 'null') as Record<string, unknown>
 const ok = (data: unknown) => new Response(JSON.stringify({ ok: true, data }), { headers: { 'Content-Type': 'application/json' } })
 
-/** DramaBox: two free episodes, then one paid. */
-const DRAMABOX_EPISODES = [
-  { chapterId: '701', chapterIndex: 0, chapterName: 'EP 1', isCharge: 0, isLocked: false, videoUrl720: 'https://cdn.example/1.720.mp4', videoUrl1080: 'https://cdn.example/1.1080.mp4' },
-  { chapterId: '702', chapterIndex: 1, chapterName: 'EP 2', isCharge: 0, isLocked: false, videoUrl720: 'https://cdn.example/2.720.mp4' },
-  { chapterId: '703', chapterIndex: 2, chapterName: 'EP 3', isCharge: 1, isLocked: true, videoUrl720: 'https://cdn.example/3.720.mp4' },
-]
+/** DramaBox (Ezvid's shape since November 2026; ids are slugs): two free episodes, then one paid. */
+const SLUG = 'a-drama'
+const DRAMABOX_EPISODES = {
+  items: [
+    { id: '701', title: 'Episode 1', episodeNumber: 1, extra: { seriesSlug: SLUG, locked: false, requiresVip: false } },
+    { id: '702', title: 'Episode 2', episodeNumber: 2, extra: { seriesSlug: SLUG, locked: false, requiresVip: false } },
+    { id: '703', title: 'Episode 3', episodeNumber: 3, extra: { seriesSlug: SLUG, locked: true, requiresVip: true } },
+  ],
+  total: 3,
+}
+const dramaboxItem = (id: string, title: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  title,
+  image: `https://media.ezvid.net/media/images/${id}.webp`,
+  extra: { description: 'Story', tags: [], totalEpisodes: 3, views: 0, ...extra },
+})
 
 function setup(upstream: (url: URL) => Response | Promise<Response> = () => ok([])) {
   const store = fakeRedis()
@@ -56,9 +66,11 @@ function setup(upstream: (url: URL) => Response | Promise<Response> = () => ok([
 }
 
 const dramaboxUpstream = (url: URL) => {
-  if (url.pathname === '/api/dramabox/allepisode') return ok(DRAMABOX_EPISODES)
-  if (url.pathname === '/api/dramabox/detail') return ok({ bookId: '42', bookName: 'A Drama', coverWap: 'https://img.example/42.jpg', chapterCount: 3, introduction: 'Story', tags: ['Revenge'] })
-  return ok([])
+  if (url.pathname === `/api/dramabox/episodes/${SLUG}`) return ok(DRAMABOX_EPISODES)
+  const source = new RegExp(`^/api/dramabox/episodes/${SLUG}/(\\d+)/source$`).exec(url.pathname)
+  if (source) return ok({ items: [{ id: source[1], sources: [{ type: 'mp4', url: `https://cdn.example/${source[1]}.720p.mp4` }], extra: { locked: false } }] })
+  if (url.pathname === `/api/dramabox/detail/${SLUG}`) return ok({ items: [dramaboxItem(SLUG, 'A Drama', { tags: [{ slug: 'revenge', name: 'Revenge' }] })] })
+  return ok({ items: [] })
 }
 
 beforeEach(() => resetDramaSetting())
@@ -79,50 +91,58 @@ describe('/api/dramas', () => {
     void call
   })
 
-  it('turns DramaBox lists into shelves of dramas', async () => {
-    const book = { bookId: '42', bookName: 'A Drama', coverWap: 'https://img.example/42.jpg', chapterCount: 52, introduction: 'Story', tags: ['Revenge', 'CEO'], rankVo: { hotCode: '3.1M' } }
-    const { call } = setup(() => ok([book]))
+  it('turns DramaBox lists into shelves of dramas, asking in English', async () => {
+    const long = 'the-billionaires-secret-daughter-came-back-for-revenge-on-thanksgiving'
+    const { call, calls } = setup((url) =>
+      url.pathname === '/api/dramabox/popular'
+        ? ok({ items: [dramaboxItem(long, 'The Billionaire’s Secret Daughter', { totalEpisodes: 52, views: 2971, genre: 'Revenge' })], nextCursor: 'x' })
+        : ok({ items: [dramaboxItem('love-in-lockup', 'Love In Lockup', { tags: [{ slug: 'ceo', name: 'CEO' }] })] }),
+    )
     const res = await call('/api/dramas/home?provider=dramabox')
     expect(res.statusCode).toBe(200)
-    const shelves = json(res).shelves as { title: string; dramas: { id: string; title: string; episodes: number; popularity: string }[] }[]
-    expect(shelves.map((s) => s.title)).toEqual(['Trending', 'Latest'])
-    expect(shelves[0].dramas[0]).toMatchObject({ provider: 'dramabox', id: '42', title: 'A Drama', episodes: 52, popularity: '3.1M' })
+    const shelves = json(res).shelves as { title: string; dramas: Record<string, unknown>[] }[]
+    expect(shelves.map((s) => s.title)).toEqual(['Popular', 'Latest'])
+    expect(shelves[0].dramas[0]).toMatchObject({ provider: 'dramabox', id: long, title: 'The Billionaire’s Secret Daughter', episodes: 52, popularity: '3K', tags: ['Revenge'] })
+    // 0 views: not known, so not shown.
+    expect(shelves[1].dramas[0]).toMatchObject({ id: 'love-in-lockup', tags: ['CEO'], popularity: null, cover: 'https://media.ezvid.net/media/images/love-in-lockup.webp' })
+    expect(calls.map((u) => `${u.pathname}?${u.searchParams.get('language')}`).sort()).toEqual(['/api/dramabox/home?en', '/api/dramabox/popular?en'])
   })
 
   it('rejects unknown providers and bad ids', async () => {
     const { call, calls } = setup()
     expect((await call('/api/dramas/home?provider=nope')).statusCode).toBe(400)
     expect((await call('/api/dramas/drama?provider=dramabox&id=../x')).statusCode).toBe(400)
+    expect((await call(`/api/dramas/drama?provider=dramabox&id=${'a'.repeat(101)}`)).statusCode).toBe(400)
     expect(calls).toHaveLength(0)
   })
 
   it('lists episodes without video links, paid ones not playable while the switch is off', async () => {
     const { call } = setup(dramaboxUpstream)
-    const res = await call('/api/dramas/drama?provider=dramabox&id=42')
+    const res = await call(`/api/dramas/drama?provider=dramabox&id=${SLUG}`)
     const body = json(res)
     expect(res.body).not.toContain('cdn.example')
     expect(body.showLocked).toBe(false)
+    expect(body.drama).toMatchObject({ id: SLUG, title: 'A Drama', tags: ['Revenge'], episodes: 3 })
     expect(body.episodes).toEqual([
-      { id: '701', number: 1, title: 'EP 1', locked: false, playable: true },
-      { id: '702', number: 2, title: 'EP 2', locked: false, playable: true },
-      { id: '703', number: 3, title: 'EP 3', locked: true, playable: false },
+      { id: '701', number: 1, title: 'Episode 1', locked: false, playable: true },
+      { id: '702', number: 2, title: 'Episode 2', locked: false, playable: true },
+      { id: '703', number: 3, title: 'Episode 3', locked: true, playable: false },
     ])
   })
 
-  it('plays a free episode, best quality first, and never caches the links on the CDN', async () => {
-    const { call } = setup(dramaboxUpstream)
-    const res = await call('/api/dramas/play?provider=dramabox&id=42&ep=701')
+  it('plays a free DramaBox episode from its own source call, kept for a while, and never cached on the CDN', async () => {
+    const { call, calls } = setup(dramaboxUpstream)
+    const res = await call(`/api/dramas/play?provider=dramabox&id=${SLUG}&ep=701`)
     expect(res.statusCode).toBe(200)
-    expect(json(res).sources).toEqual([
-      { url: 'https://cdn.example/1.1080.mp4', type: 'mp4', quality: '1080p' },
-      { url: 'https://cdn.example/1.720.mp4', type: 'mp4', quality: '720p' },
-    ])
+    expect(json(res).sources).toEqual([{ url: 'https://cdn.example/701.720p.mp4', type: 'mp4', quality: 'auto' }])
     expect(res.headers['cache-control']).toBe('no-store')
+    await call(`/api/dramas/play?provider=dramabox&id=${SLUG}&ep=701`)
+    expect(calls.filter((u) => u.pathname.endsWith('/source'))).toHaveLength(1)
   })
 
   it('refuses a paid episode while the switch is off, and gives no link', async () => {
     const { call } = setup(dramaboxUpstream)
-    const res = await call('/api/dramas/play?provider=dramabox&id=42&ep=703')
+    const res = await call(`/api/dramas/play?provider=dramabox&id=${SLUG}&ep=703`)
     expect(res.statusCode).toBe(403)
     expect(json(res)).toEqual({ error: 'locked' })
     expect(res.body).not.toContain('cdn.example')
@@ -131,7 +151,7 @@ describe('/api/dramas', () => {
   it('keeps paid episodes locked when Redis cannot be read', async () => {
     const { ctx, call } = setup(dramaboxUpstream)
     ctx.redis = { redisUrl: '', redisToken: '' }
-    expect((await call('/api/dramas/play?provider=dramabox&id=42&ep=703')).statusCode).toBe(403)
+    expect((await call(`/api/dramas/play?provider=dramabox&id=${SLUG}&ep=703`)).statusCode).toBe(403)
   })
 
   it('plays paid episodes once the admin turns the switch on', async () => {
@@ -139,9 +159,9 @@ describe('/api/dramas', () => {
     const on = await call('/api/dramas/admin-settings', { method: 'POST', body: { showLocked: true }, authorization: `Bearer ${PASSWORD}` })
     expect(on.statusCode).toBe(200)
     expect(store.strings.get(SHOW_LOCKED_KEY)).toBe('1')
-    const res = await call('/api/dramas/play?provider=dramabox&id=42&ep=703')
+    const res = await call(`/api/dramas/play?provider=dramabox&id=${SLUG}&ep=703`)
     expect(res.statusCode).toBe(200)
-    expect(json(await call('/api/dramas/drama?provider=dramabox&id=42')).episodes).toContainEqual({ id: '703', number: 3, title: 'EP 3', locked: true, playable: true })
+    expect(json(await call(`/api/dramas/drama?provider=dramabox&id=${SLUG}`)).episodes).toContainEqual({ id: '703', number: 3, title: 'Episode 3', locked: true, playable: true })
   })
 
   it('only lets the admin read or change the switch', async () => {
@@ -188,19 +208,19 @@ describe('/api/dramas', () => {
     expect((await call('/api/dramas/play?provider=dramawave&id=abc&ep=e2')).statusCode).toBe(403)
   })
 
-  it('finds DramaBox dramas from its lists when its own search returns nothing', async () => {
-    const book = (bookId: string, bookName: string, tags: string[] = []) => ({ bookId, bookName, tags, introduction: '' })
-    const { call } = setup((url) => {
-      if (url.pathname === '/api/dramabox/search') return ok([])
-      if (url.pathname === '/api/dramabox/latest') return ok([book('1', 'The Mafia Boss’s Bride'), book('2', 'Cinderella Returns')])
-      if (url.pathname === '/api/dramabox/browse') return ok({ items: url.searchParams.get('page') === '1' ? [book('3', 'Rich Heiress', ['Mafia'])] : [] })
-      return ok([])
+  it('searches DramaBox with q, then its lists (next pages too) for what the search missed', async () => {
+    const { call, calls } = setup((url) => {
+      if (url.pathname === '/api/dramabox/search') return ok({ items: url.searchParams.get('q') === 'mafia' ? [dramaboxItem('mafia-kiss', 'Mafia Kiss')] : [] })
+      if (url.pathname === '/api/dramabox/home') return ok({ items: [dramaboxItem('the-mafia-bosss-bride', 'The Mafia Boss’s Bride'), dramaboxItem('cinderella', 'Cinderella Returns')], nextCursor: 'page2' })
+      if (url.pathname === '/api/dramabox/loadmore' && url.searchParams.get('cursor') === 'page2') return ok({ items: [dramaboxItem('rich-heiress', 'Rich Heiress', { tags: [{ slug: 'mafia', name: 'Mafia' }] })] })
+      return ok({ items: [] })
     })
     const res = await call('/api/dramas/search?provider=dramabox&q=mafia')
     expect(res.statusCode).toBe(200)
-    // Title matches before tag matches.
-    expect((json(res).dramas as { id: string }[]).map((d) => d.id)).toEqual(['1', '3'])
-    expect((json(await call('/api/dramas/search?provider=dramabox&q=mafia bride')).dramas as { id: string }[]).map((d) => d.id)).toEqual(['1'])
+    // Its own search first, then title matches before tag matches.
+    expect((json(res).dramas as { id: string }[]).map((d) => d.id)).toEqual(['mafia-kiss', 'the-mafia-bosss-bride', 'rich-heiress'])
+    expect((json(await call('/api/dramas/search?provider=dramabox&q=mafia bride')).dramas as { id: string }[]).map((d) => d.id)).toEqual(['the-mafia-bosss-bride'])
+    expect(calls.find((u) => u.pathname === '/api/dramabox/search')?.searchParams.get('language')).toBe('en')
   })
 
   it('still searches DramaWave’s lists when its search fails', async () => {
@@ -239,7 +259,7 @@ describe('/api/dramas', () => {
     ctx.fetchImpl = (async (input: string | URL | Request) => {
       if (String(input).endsWith('/pipeline')) return new Response('[]')
       if (failing) return new Response(JSON.stringify({ ok: false, message: 'Upstream error' }), { status: 400 })
-      return ok([{ bookId: '1', bookName: 'Cached' }])
+      return ok({ items: [dramaboxItem('cached', 'Cached')] })
     }) as typeof fetch
     const get = async () => {
       const res = fakeResponse()

@@ -180,6 +180,19 @@ export function setDramaEpisode(id: string, episode: number | null, now = Date.n
   write([{ ...entry, episode: next, episodeId: null, position: null, duration: null, viewedAt: now }, ...list.filter((e) => e.id !== id)])
 }
 
+/**
+ * The drama now has another id (DramaBox's numbers became name slugs): the
+ * entry moves to it, keeping the episode number and time. The old episode id
+ * means nothing under the new one, so it goes; the episode is found by number.
+ */
+export function moveDramaEntry(id: string, dramaId: string): void {
+  const list = readDramaHistory()
+  const entry = list.find((e) => e.id === id)
+  if (!entry) return
+  const next = { ...entry, id: dramaEntryId(entry.provider, dramaId), dramaId, episodeId: null }
+  write([next, ...list.filter((e) => e.id !== id && e.id !== next.id)])
+}
+
 /** The card's ✕. */
 export function removeDramaEntry(id: string): void {
   const list = readDramaHistory()

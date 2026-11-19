@@ -24,7 +24,8 @@ export type DramasRoute =
   /** `resume`: carry on at the episode and time saved in "Your short dramas" (history.ts). */
   | { page: 'drama'; provider: DramaProvider; id: string; ep: string | null; resume: boolean }
 
-const DRAMA_PATH = /^\/dramas\/([a-z]+)\/([A-Za-z0-9_-]{1,40})\/?$/
+// Ids as on the server (server/dramas/providers.ts ID): DramaBox's are name slugs.
+const DRAMA_PATH = /^\/dramas\/([a-z]+)\/([A-Za-z0-9_-]{1,100})\/?$/
 const HOME_PATH = /^\/dramas(?:\/([a-z]+))?\/?$/
 
 export const isDramasPath = (pathname: string) => pathname === DRAMAS_PATH || pathname.startsWith(`${DRAMAS_PATH}/`)

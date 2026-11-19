@@ -9,6 +9,7 @@ import {
   continueLabel,
   DRAMA_HISTORY_KEY,
   episodeProgress,
+  moveDramaEntry,
   readDramaHistory,
   recordDramaProgress,
   recordDramaView,
@@ -65,6 +66,16 @@ describe('short drama history', () => {
     expect(episodeProgress({ episode: 12, episodeCount: 80 })).toBe('Episode 12 of 80')
     expect(episodeProgress({ episode: 12, episodeCount: null })).toBe('Episode 12')
     expect(episodeProgress({ episode: null, episodeCount: 80 })).toBeNull()
+  })
+
+  it('moves a drama to its new id (DramaBox numbers became slugs), keeping the episode and time', () => {
+    recordDramaView(view('42000023802'), 1)
+    recordDramaProgress('dramabox:42000023802', { episode: 3, episodeId: '701', position: 8, duration: 90 }, 2)
+    recordDramaView(view('2'), 3)
+    moveDramaEntry('dramabox:42000023802', 'he-broke-the-heart')
+    const list = readDramaHistory()
+    expect(list.map((e) => e.id)).toEqual(['dramabox:2', 'dramabox:he-broke-the-heart'])
+    expect(list[1]).toMatchObject({ dramaId: 'he-broke-the-heart', episode: 3, episodeId: null, position: 8, duration: 90, title: 'Drama 42000023802' })
   })
 
   it('ignores broken storage', () => {
