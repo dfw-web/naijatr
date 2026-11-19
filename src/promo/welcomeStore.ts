@@ -5,6 +5,7 @@ import { holdAds, releaseAds } from '../ads/adGate'
 import { holdAdsThisTap, isPlaybackOpen, overlaysOpen } from '../ads/adManager'
 import { isDevHost } from '../ads/directLink'
 import { loadPromo, promoOn, serverStatusKnown, serverTime, type PromoInfo, type ReferralStatus } from '../referral/status'
+import { onSplashGone } from '../ui/splash'
 
 /**
  * The welcome popup for signed-out visitors (WelcomePopup.tsx): on every
@@ -22,7 +23,7 @@ import { loadPromo, promoOn, serverStatusKnown, serverTime, type PromoInfo, type
  */
 
 export const WELCOME_TIMING = {
-  /** After the page loads, so the site shows first. */
+  /** After the page has loaded and the loading splash has gone, so the site shows first. */
   delayMs: 1500,
   /** After it closes, before any ad may load. */
   adsAfterMs: 3000,
@@ -77,7 +78,7 @@ export function startWelcomePopup(): void {
   holdAds()
   // The promo's times (and the server's clock), for the wording.
   loadPromo()
-  const started = Date.now()
+  let started = Date.now()
   const decide = () => {
     if (phase !== 'pending') return
     const status = accountStatusNow()
@@ -99,7 +100,13 @@ export function startWelcomePopup(): void {
     emit()
     reportWelcome('welcome-shown')
   }
-  timer = window.setTimeout(decide, WELCOME_TIMING.delayMs)
+  // Counted from when the loading splash (index.html) has gone: the site shows first, and a
+  // player opened meanwhile (a "Continue" link) is seen, so the popup never covers it.
+  onSplashGone(() => {
+    if (phase !== 'pending') return
+    started = Date.now()
+    timer = window.setTimeout(decide, WELCOME_TIMING.delayMs)
+  })
 }
 
 /** ✕, "Not now", a tap outside, Esc or Back: closed, and ads may load 3 seconds later. */

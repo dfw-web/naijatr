@@ -38,7 +38,7 @@ const root = document.getElementById('root')!
 const app = createRoot(root)
 // After the React root, so React still sees every tap: taps on the football player never reach the Multitag.
 installQuietZones(root)
-// The splash (index.html) goes once the first screen is drawn and loaded (at least 600 ms, at most 4 s).
+// The splash (index.html) plays its exit once the first screen is drawn and loaded (1.1 s – 4 s).
 hideSplashWhenReady(root)
 app.render(
   <StrictMode>
